@@ -1,6 +1,6 @@
 # Hosted workspaces
 
-Hive can run as a service for many teams: people open the app, sign in once, make a workspace, invite their team and start working. Each workspace is a Hive of its own, on a machine and a disk of its own, started by a control plane. This page is how the pieces fit, how to run them on a laptop, how to deploy them to [Fly](https://fly.io), and what has not been tried on a real account.
+Hive can run as a service for many teams: people open the app, sign in once, make a workspace, invite their team and start working. Each workspace is a Hive of its own, on a machine and a disk of its own, started by a control plane. This page is how the pieces fit, how to run them on a laptop, how to deploy them to [Fly](https://fly.io) or to [DigitalOcean](https://www.digitalocean.com), and what has not been tried on a real account.
 
 A single team that runs its own Hive on a VM does not need any of this: see [VM deploy](vm-deploy.md).
 
@@ -9,18 +9,19 @@ A single team that runs its own Hive on a VM does not need any of this: see [VM 
 ```mermaid
 flowchart LR
   App["App (web, iOS)"] -->|sign in, workspaces, invitations| Control["Control plane<br/>apps/control"]
-  Control -->|create, wake, destroy| Fly[(Fly Machines)]
+  Control -->|create, wake, destroy| Host[("Fly Machines or<br/>DigitalOcean Droplets")]
   App -->|workspace token| Workspace
-  subgraph Workspace["One workspace: one Fly app, one machine, one volume"]
+  subgraph Workspace["One workspace: one machine, one disk"]
     Supervisor["supervisor<br/>apps/workspace"] --> Server["Hive server<br/>(managed mode)"]
     Supervisor --> OpenCode["opencode serve"]
     Server --> OpenCode
   end
-  Fly --- Workspace
+  Host --- Workspace
 ```
 
 - **The control plane** (`apps/control`) knows who people are (Google sign-in), which workspaces exist, who belongs to each and in what role, and which invitations are open. It keeps that in its own database, creates and removes workspaces through a *provisioner*, and signs a short-lived **workspace token** for a person who belongs to a workspace. It serves the web app too, so there is one address to give people.
 - **A workspace** (`apps/workspace`) is one image: the Hive server in managed mode and OpenCode, started by a small supervisor. It has no sign-in of its own. It trusts the control plane's public key and nothing else about who a person is.
+- **The provisioner** is where workspaces run, chosen with `PROVISIONER`: `fly` (Fly Machines), `digitalocean` (a Droplet each, reached through the edge), or `local` (processes on the machine the control plane is on, for trying things out).
 - **The app** is the same app that opens a self-hosted workspace. A build with `EXPO_PUBLIC_CONTROL_URL` set is the hosted app: it signs in at the control plane, lists the person's workspaces, and signs in to the one they open.
 
 ### Getting into a workspace
@@ -34,7 +35,20 @@ A workspace never has the control plane's private key or the person's Google acc
 
 ### What a workspace is made of
 
-On Fly, each workspace is **an app of its own on a private network of its own**, so a machine cannot reach another workspace's. The app has a public address (`https://<prefix>-<id>.fly.dev`) with TLS handled by Fly, an encrypted volume mounted at `/data` that holds everything (the database, channel files, the agent's sessions, the secrets below), and one machine. The free plan stops the machine when nobody is using it and Fly's proxy starts it on the next request; the team plan keeps it running.
+**On Fly**, each workspace is **an app of its own on a private network of its own**, so a machine cannot reach another workspace's. The app has a public address (`https://<prefix>-<id>.fly.dev`) with TLS handled by Fly, an encrypted volume mounted at `/data` that holds everything (the database, channel files, the agent's sessions, the secrets below), and one machine. The free plan stops the machine when nobody is using it and Fly's proxy starts it on the next request; the team plan keeps it running.
+
+**On DigitalOcean**, each workspace is **a Droplet of its own**, made from one snapshot that has the workspace installed on it. The workspace runs on the machine itself, as a service (`apps/workspace/vm`), and not in a container, so **the whole disk is the workspace's**: its database and files in `/data`, the agent's home in `/home/hive`, and anything else installed or changed stays through a stop, a restart and a reboot. The Droplet is not public. A cloud firewall lets only the edge reach its port, and a firewall on the machine keeps what the workspace's user runs, the agent included, away from the metadata service and the private network while leaving the internet open. The workspace's settings arrive in a file only root can read, written on first boot, and the service reads it before it gives up root.
+
+People reach a workspace at `https://<id>.<your workspace domain>`, which is the **edge** (`apps/edge`). It ends TLS with one wildcard certificate, so no key is on a workspace's machine; reads the workspace from the host name; asks the control plane where it is (`/internal/upstream/<id>`, with a token only the edge has); and passes the request on, streams and websockets included. It connects only to the address ranges it is told (the private network by default), whatever the control plane says, and it tells the workspace who the visitor is and takes away any claim a visitor makes about it.
+
+```mermaid
+flowchart LR
+  App["App"] -->|"https://w1.ws.example.com"| Edge["Edge<br/>apps/edge"]
+  Edge -->|"where is w1?"| Control["Control plane"]
+  Edge -->|"private network, port 8787"| Droplet[("w1's Droplet")]
+  Control -->|"create, stop, wake, destroy"| API["DigitalOcean API"]
+  API --- Droplet
+```
 
 A workspace makes its own secrets the first time it starts (`/data/secrets.json`: the key that encrypts credentials it stores, and the password the server uses to reach OpenCode). They are not passed in, so they exist nowhere else.
 
@@ -125,6 +139,91 @@ fly volumes snapshots list -a hive-<id>
 fly volumes create data -a hive-<id> --snapshot-id <snapshot> --region iad
 ```
 
+## Deploy to DigitalOcean
+
+You need a DigitalOcean account and an API token with read and write access, Docker, a registry to push the workspace image to, a domain for workspaces, a Google OAuth client, and a model provider key. The control plane can run anywhere: on Fly as above, or on a Droplet.
+
+**1. The workspace image.** The image is the one Fly uses; the Droplets' image is made from it.
+
+```sh
+docker build -f apps/workspace/Dockerfile -t ghcr.io/you/hive-workspace:2026-10 .
+pnpm exec tsx apps/workspace/tests/run-docker.ts     # optional: runs it as a container would
+docker push ghcr.io/you/hive-workspace:2026-10
+```
+
+**2. The Droplet image.** One command makes the snapshot every workspace's Droplet starts from:
+
+```sh
+DO_API_TOKEN=… HIVE_REGISTRY_USER=… HIVE_REGISTRY_TOKEN=… \
+  pnpm exec tsx apps/control/tools/do-image.ts --image ghcr.io/you/hive-workspace:2026-10 --region nyc3
+```
+
+It starts a Droplet from Ubuntu 24.04 and sends it `apps/workspace/vm/bake.sh` with the service and firewall files beside it. The Droplet installs packages, takes the workspace out of the container image, starts a workspace once to see that it does, and switches itself off. The tool then snapshots it, deletes the Droplet, and prints `DO_IMAGE=<id>`. It takes 10 to 20 minutes. The registry login is for a private image only: give it a token that can pull and nothing else, since it is on the Droplet while the image is made. If anything goes wrong the Droplet is left running with its log in `/var/log/hive-bake.log`, and the message says how to remove it.
+
+A snapshot is in the region it was made in; transfer it to use another. It can only go on a Droplet whose disk is as big as the one it was made on, so the tool makes it on the smallest disk that has the memory (`--size` names one).
+
+`pnpm exec tsx apps/workspace/tests/run-vm.ts` runs the same scripts in a container that runs systemd, starts a machine from the result the way a Droplet starts, and checks it: that it waits without settings, answers once it has them, runs nothing as root, keeps its data across a reboot, stops the server before the agent, and has the firewall described above. It needs a Docker that runs privileged containers.
+
+**3. A domain and a certificate.** Workspaces share a parent domain, so give them one that serves nothing else, such as `ws.example.com`, and not a subdomain of the control plane's. Point `*.ws.example.com` at the edge's public address and get a wildcard certificate by DNS validation, for example with certbot and DigitalOcean's DNS:
+
+```sh
+certbot certonly --dns-digitalocean --dns-digitalocean-credentials /root/do.ini -d '*.ws.example.com'
+```
+
+**4. The edge.** Run it on a Droplet in the same region and private network as the workspaces, with the tag `hive-edge`, which is what the workspaces' firewall lets in. It is a small program, and the smallest Droplet will do for a while. The edge runs as an unprivileged user, so give it copies of the certificate that it can read, renewed by a hook:
+
+```sh
+install -d -m 0750 -g 1000 /etc/hive-edge
+cat > /etc/letsencrypt/renewal-hooks/deploy/hive-edge <<'EOF'
+#!/bin/sh
+install -m 0644 "$RENEWED_LINEAGE/fullchain.pem" /etc/hive-edge/cert.pem
+install -m 0640 -g 1000 "$RENEWED_LINEAGE/privkey.pem" /etc/hive-edge/key.pem
+EOF
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/hive-edge
+RENEWED_LINEAGE=/etc/letsencrypt/live/ws.example.com /etc/letsencrypt/renewal-hooks/deploy/hive-edge
+
+export EDGE_TOKEN="$(openssl rand -hex 32)"          # the control plane is given the same value
+docker build -f apps/edge/Dockerfile -t hive-edge .
+docker run -d --name hive-edge --restart unless-stopped -p 443:443 -p 80:80 -v /etc/hive-edge:/certs:ro \
+  -e EDGE_DOMAIN=ws.example.com -e EDGE_CONTROL_URL=https://hive.example.com -e EDGE_TOKEN \
+  -e EDGE_TLS_CERT=/certs/cert.pem -e EDGE_TLS_KEY=/certs/key.pem hive-edge
+```
+
+`https://anything.ws.example.com/__edge/health` answers `{"ok":true}` when it is up, whatever name is asked for. It looks at the certificate files every five minutes and serves a renewed one without a restart. Port 80 sends people to https.
+
+**5. The control plane.** As for Fly, with these settings in place of Fly's:
+
+```sh
+fly secrets set -a hive-control \
+  PROVISIONER=digitalocean DO_API_TOKEN=… DO_IMAGE=<the id from step 2> \
+  DO_PUBLIC_URL_TEMPLATE='https://{id}.ws.example.com' DO_REGION=nyc3 \
+  CONTROL_EDGE_TOKEN="$EDGE_TOKEN" \
+  HIVE_WORKSPACE_ENV='{"MODEL":"openai/gpt-5","OPENAI_API_KEY":"…"}'
+```
+
+If the edge is not on a Droplet that carries the `hive-edge` tag, name its address instead with `DO_EDGE_ADDRESSES`. The first workspace made also makes the firewall `hive-workspaces`, which allows the workspace's port from the edge and nothing else in; one that already exists is left as it is.
+
+**6. Try it on the real account** before anyone else does, with the spike tool:
+
+```sh
+DO_API_TOKEN=… DO_IMAGE=<the id from step 2> DO_EDGE_ADDRESSES="$(curl -s https://api.ipify.org)/32" \
+  pnpm exec tsx apps/control/tools/do-spike.ts
+```
+
+It makes one workspace under names of its own (`hivespike-…`, so it touches nothing of a deployment's), with a firewall that opens the workspace's port to this machine. It waits for the workspace at the Droplet's own address, so it needs no edge or control plane. It reports how long it takes to create, stop and wake the workspace, whether the firewall keeps ssh out, whether what the workspace kept survived the stop, how many calls it made to DigitalOcean against the 5,000 an hour that it allows, and whether anything is left. It exits non-zero if a step fails and cleans up either way (`--keep` leaves the Droplet to look at).
+
+### Size, cost and limits
+
+Both plans run on the cheapest available shared size with 2 vCPUs, 4 GB, and room for the plan's disk; `DO_SIZE`, or `DO_SIZE_FREE` and `DO_SIZE_TEAM`, name one instead. A workspace uses about 0.75 GB idle, before any task runs, so 2 GB is the least that works. DigitalOcean bills a Droplet by the hour for as long as it exists, whether it is on or off, so stopping one saves nothing and **no plan stops an idle workspace there**: the free plan costs what the team plan does.
+
+The limits are DigitalOcean's: Droplets per account (ask them to raise it), and 5,000 API calls an hour per token. Creating a workspace takes a few calls and then one every few seconds while the Droplet starts, a wake the same without the setup, and the edge's questions take none, since the control plane remembers a running workspace's address for five minutes. The spike reports the real numbers.
+
+### Updates and backups
+
+A new snapshot is used by workspaces made after it. A Droplet that exists is not changed: Ubuntu installs security updates on it by itself but does not restart it, so restart a Droplet now and then to take a new kernel. Rolling a new workspace version onto existing Droplets is not written.
+
+Hive makes no copy of a workspace's disk. A Droplet can be lost with its host, and its data with it. Turn on DigitalOcean's backups for the Droplets, or snapshot them (`doctl compute droplet-action snapshot <id>`), before charging anyone, and keep a copy somewhere that is not DigitalOcean.
+
 ## Configuration
 
 ### The control plane
@@ -142,7 +241,8 @@ fly volumes create data -a hive-<id> --snapshot-id <snapshot> --region iad
 | `CONTROL_MAX_WORKSPACES` | How many workspaces one person can make (default 3). |
 | `CONTROL_CLIENT_IP_HEADER` | The header the host's proxy puts the visitor's address in (`Fly-Client-IP` on Fly). Sign-in limits count per visitor, and without it every visitor looks like the proxy. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | The OAuth client people sign in with. Required in live mode. |
-| `PROVISIONER` | `fly` or `local`. |
+| `CONTROL_EDGE_TOKEN` | At least 32 characters. What the edge shows to ask where a workspace is (`GET /internal/upstream/:id`); the route does not exist without it. |
+| `PROVISIONER` | `fly`, `digitalocean` or `local`. |
 
 ### Fly (`PROVISIONER=fly`)
 
@@ -156,6 +256,39 @@ fly volumes create data -a hive-<id> --snapshot-id <snapshot> --region iad
 | `HIVE_WORKSPACE_ENV` | A JSON object of settings every workspace gets: `MODEL`, and the provider key. |
 | `FLY_API_URL`, `FLY_PUBLIC_URL_TEMPLATE`, `FLY_WAIT_SECONDS` | The Machines API, where a workspace answers (`https://{app}.fly.dev`), and how long to wait for one (180). |
 
+### DigitalOcean (`PROVISIONER=digitalocean`)
+
+| Variable | Meaning |
+| --- | --- |
+| `DO_API_TOKEN` | A token that can create and delete Droplets and firewalls and read sizes and images. |
+| `DO_IMAGE` | The snapshot every workspace's Droplet is made from: the id `do-image.ts` printed. |
+| `DO_PUBLIC_URL_TEMPLATE` | Where people reach a workspace, an https address with `{id}` where its id goes (`https://{id}.ws.example.com`). |
+| `DO_REGION` | Where workspaces run (default `nyc3`). The image must be in it. |
+| `DO_SIZE`, `DO_SIZE_FREE`, `DO_SIZE_TEAM` | A size slug for every plan, or for one. Without one, the cheapest available shared size that fits the plan. |
+| `DO_VPC_UUID` | The private network to put Droplets in (the region's default when unset). The edge must be in it. |
+| `DO_SSH_KEYS` | SSH keys, by id or fingerprint, that can log in to a workspace's Droplet. None by default; the firewall does not open ssh either. |
+| `DO_NAME_PREFIX` | Put before the workspace id to name its Droplet and tags (default `hive`). |
+| `DO_FIREWALL` | `off` if you manage the firewall yourself. |
+| `DO_EDGE_TAG`, `DO_EDGE_ADDRESSES` | What the firewall lets in: Droplets with this tag (default `hive-edge`), and addresses (CIDR, comma separated) for an edge that is not a Droplet of this account. |
+| `DO_UPSTREAM_NETWORK` | `private` (default) or `public`: which of a Droplet's addresses the edge connects to. |
+| `DO_READY_CHECK` | `public` (default): a new or waking workspace is waited for at its public address, through the edge. `droplet`: at the Droplet's own address, for a control plane on the same network. |
+| `HIVE_WORKSPACE_ENV` | A JSON object of settings every workspace gets: `MODEL`, and the provider key. |
+| `DO_API_URL`, `DO_WAIT_SECONDS` | The API, and how long to wait for a workspace to answer (300). |
+
+### The edge (`apps/edge`)
+
+| Variable | Meaning |
+| --- | --- |
+| `EDGE_DOMAIN` | The domain workspaces are under: a workspace is reached at `<id>.<domain>`. |
+| `EDGE_CONTROL_URL` | The control plane, which says where a workspace is. |
+| `EDGE_TOKEN` | At least 32 characters; the control plane's `CONTROL_EDGE_TOKEN`. |
+| `EDGE_TLS_CERT`, `EDGE_TLS_KEY` | The certificate for `*.<domain>` and its key, as PEM files. Or `EDGE_TLS=off`, to speak plain http behind something that ends TLS (it then carries on the `X-Forwarded-For` chain). |
+| `EDGE_HTTPS_PORT`, `EDGE_HTTP_PORT`, `EDGE_HOST` | Where it listens (443, 80, all addresses; the http port only sends people to https, and `off` turns it off). |
+| `EDGE_UPSTREAM_ALLOW` | The IPv4 ranges (CIDR, comma separated) a workspace may be at; it connects nowhere else. The private ranges by default. |
+| `EDGE_CACHE_SECONDS`, `EDGE_NEGATIVE_SECONDS` | How long where a workspace is stays believed (60), and how long that a name is unknown or stopped does (3). |
+| `EDGE_HEADERS_TIMEOUT_SECONDS`, `EDGE_CONNECT_TIMEOUT_SECONDS` | How long a workspace gets to begin its answer (120) and to accept a connection (5). |
+| `EDGE_RELOAD_SECONDS` | How often the certificate files are looked at for a renewal (300). |
+
 ### Local (`PROVISIONER=local`)
 
 `LOCAL_DIR` (where each workspace keeps its files), `LOCAL_COMMAND` and `LOCAL_CWD` (how to start one; the default runs the server from this checkout), `LOCAL_WORKSPACE_ENV` (a JSON object of settings every workspace gets: `OPENCODE_SERVER_URL`, `MODEL`), `LOCAL_WAIT_SECONDS`. A workspace gets only what it needs of the control plane's environment, so the signing key and Google secret never reach one.
@@ -168,7 +301,7 @@ fly volumes create data -a hive-<id> --snapshot-id <snapshot> --region iad
 
 `apps/control/src/plans.ts` is where a plan is defined: the machine, the disk, and whether the machine stops when it is idle. Every workspace is `free` today (2 shared CPUs, 4 GB, a 5 GB volume, stopped when idle); `team` is the same machine kept running with a 20 GB volume. Nothing bills yet.
 
-A stopped machine does nothing, and Fly decides a machine is idle from the requests it is serving, not from the work it is doing. **Work that is meant to finish while nobody has the app open (a delegated task, say) can be cut short on a plan that stops when idle.** Until a workspace keeps itself awake while its agent is working, give such a team the `team` plan, which is always on. Fly bills a running machine by the second and a volume for as long as it exists, so a stopped workspace costs little but is not free.
+A stopped machine does nothing, and Fly decides a machine is idle from the requests it is serving, not from the work it is doing. **Work that is meant to finish while nobody has the app open (a delegated task, say) can be cut short on a plan that stops when idle.** Until a workspace keeps itself awake while its agent is working, give such a team the `team` plan, which is always on. Fly bills a running machine by the second and a volume for as long as it exists, so a stopped workspace costs little but is not free. A Droplet on DigitalOcean costs the same off as on, so nothing there stops when idle; see [size, cost and limits](#size-cost-and-limits).
 
 ## Who can do what
 
@@ -183,7 +316,10 @@ A workspace stores the role it was told, but does not yet use it: inside a works
 - **Gmail and Calendar in a hosted workspace.** A workspace connects Google on its own address, and an OAuth client lists a fixed set of redirect URIs, not one per workspace. It needs the connection to go through the control plane.
 - **Email.** Invitations for an address are made but not sent: the control plane prints them, and the person who invites shares the link. `apps/control/src/mailer.ts` is the interface to implement.
 - **Staying awake while the agent works.** See [Plans](#plans): a workspace that stops when idle can stop in the middle of a task.
-- **Updating a running workspace to a new image.** Creating is repeatable; rolling a fix out to existing workspaces is not written.
+- **Updating a running workspace to a new image.** Creating is repeatable; rolling a fix out to existing workspaces, machines or Droplets, is not written.
+- **Sleeping idle workspaces on DigitalOcean**, which would mean snapshotting a Droplet, removing it, and making it again when someone returns. Until then every workspace there is always on.
+- **Backups of a workspace's disk**, on either host. See [updates and backups](#updates-and-backups).
+- **The agent as root on a Droplet.** It runs as an ordinary user there, as in a container, so what it installs in its own home stays, but it cannot `apt install`.
 - **Apple's rules.** Whether and how the app may sell or sign people in on iOS has not been checked, and nothing here builds a signed binary or a Mac app.
 - **Roles inside a workspace, per-person limits, and cleaning up expired records** (sessions, login codes, sign-in states) in the control plane's database.
 
