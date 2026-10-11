@@ -1,3 +1,4 @@
+import { retryingFetch, waitUntilAnswering } from "./http.ts";
 import type { Plan } from "./plans.ts";
 import {
   type MachineState,
@@ -106,8 +107,6 @@ function addressType(address: FlyAddress): string {
 const INTERNAL_PORT = 8787;
 const VOLUME_NAME = "data";
 const DATA_MOUNT = "/data";
-const REQUEST_MS = 30_000;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A call to Fly that did not go through, with Fly's own words, for the logs and not for people. */
 class FlyError extends Error {
@@ -350,26 +349,8 @@ export class FlyProvisioner implements Provisioner {
   }
 
   /** The workspace's own health check, through the public address: the machine is up and it is the right workspace. */
-  private async waitAnswering(url: string, workspaceId: string) {
-    const until = Date.now() + this.config.waitSeconds * 1000;
-    let last = "no answer";
-    while (Date.now() < until) {
-      try {
-        const response = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(5000) });
-        if (response.ok) {
-          const health = (await response.json()) as { ok?: boolean; workspace?: string };
-          if (health.ok && health.workspace === workspaceId) return;
-          last = "answered, but as a different workspace";
-        } else last = `status ${response.status}`;
-      } catch (error) {
-        last = error instanceof Error ? error.message : String(error);
-      }
-      await sleep(this.config.pollMs ?? 2000);
-    }
-    throw new ProvisionError(
-      `${url} did not answer in ${this.config.waitSeconds}s (${last})`,
-      "The workspace started but is not answering yet. Try again in a minute.",
-    );
+  private waitAnswering(url: string, workspaceId: string) {
+    return waitUntilAnswering(url, workspaceId, this.config);
   }
 
   private publicUrl(app: string) {
@@ -385,11 +366,15 @@ export class FlyProvisioner implements Provisioner {
     body?: unknown,
     accept: number[] = [],
   ): Promise<T | null> {
-    const response = await this.request(`${this.config.apiUrl}${path}`, {
-      method,
-      headers: this.headers(body !== undefined),
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const response = await retryingFetch(
+      `${this.config.apiUrl}${path}`,
+      {
+        method,
+        headers: this.headers(body !== undefined),
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+      this.config.retryMs,
+    );
     if (accept.includes(response.status)) return null;
     const text = await response.text();
     if (!response.ok)
@@ -410,26 +395,5 @@ export class FlyProvisioner implements Provisioner {
       Authorization: `Bearer ${this.config.token}`,
       ...(json ? { "Content-Type": "application/json" } : {}),
     };
-  }
-
-  /** One request, tried again when Fly is busy (429) or has a bad moment (5xx). */
-  private async request(url: string, init: RequestInit): Promise<Response> {
-    let last: Response | undefined;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      try {
-        last = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_MS) });
-        if (last.status !== 429 && last.status < 500) return last;
-        const wait = Number(last.headers.get("retry-after"));
-        await sleep(
-          Number.isFinite(wait) && wait > 0
-            ? Math.min(wait, 10) * 1000
-            : (this.config.retryMs ?? 500) * 2 ** attempt,
-        );
-      } catch (error) {
-        if (attempt === 3) throw error;
-        await sleep((this.config.retryMs ?? 500) * 2 ** attempt);
-      }
-    }
-    return last as Response;
   }
 }
