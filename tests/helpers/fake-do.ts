@@ -307,7 +307,7 @@ export async function fakeDigitalOcean(
         if (
           droplet.status === "active" &&
           Date.now() >= (answersAt.get(droplet.id) ?? 0) &&
-          droplet.tags.includes(`hive-ws-${publicHealth[1]}`)
+          droplet.tags.some((tag) => tag.endsWith(`-ws-${publicHealth[1]}`))
         )
           return send(res, 200, {
             ok: true,
@@ -347,6 +347,12 @@ export async function fakeDigitalOcean(
       if (!image)
         return problem(res, 404, "not_found", "The resource you requested could not be found.");
       return send(res, 200, { image });
+    }
+
+    if (collection === "firewalls" && id && !sub && method === "DELETE") {
+      if (!firewalls.delete(id))
+        return problem(res, 404, "not_found", "The resource you requested could not be found.");
+      return send(res, 204);
     }
 
     if (collection === "firewalls" && !id) {
@@ -605,7 +611,9 @@ export async function fakeDigitalOcean(
     },
     /** The Droplet of a workspace, by the tag the provisioner gives it. */
     dropletOf(workspaceId: string) {
-      return [...droplets.values()].find((d) => d.tags.includes(`hive-ws-${workspaceId}`));
+      return [...droplets.values()].find((d) =>
+        d.tags.some((tag) => tag.endsWith(`-ws-${workspaceId}`)),
+      );
     },
     /** What the Droplet's first boot writes as the workspace's settings. */
     settingsOf,
