@@ -21,25 +21,26 @@ afterEach(async () => {
   await fake.close();
 });
 
-const provisioner = () =>
-  new DigitalOceanProvisioner({
-    token: fake.token,
-    image: "1234567",
-    region: "nyc3",
-    sizes: {},
-    sshKeys: [],
-    namePrefix: SPIKE_PREFIX,
-    workspaceEnv: {},
-    apiUrl: fake.apiUrl,
-    publicUrlTemplate: fake.publicUrlTemplate,
-    firewall: true,
-    edgeTag: "hive-edge",
-    edgeAddresses: ["198.51.100.7/32"],
-    upstreamNetwork: "public",
-    waitSeconds: 5,
-    pollMs: 20,
-    retryMs: 5,
-  });
+const config = (): ConstructorParameters<typeof DigitalOceanProvisioner>[0] => ({
+  token: fake.token,
+  image: "1234567",
+  region: "nyc3",
+  sizes: {},
+  sshKeys: [],
+  namePrefix: SPIKE_PREFIX,
+  workspaceEnv: {},
+  apiUrl: fake.apiUrl,
+  publicUrlTemplate: fake.publicUrlTemplate,
+  firewall: true,
+  edgeTag: "hive-edge",
+  edgeAddresses: ["198.51.100.7/32"],
+  upstreamNetwork: "public",
+  waitSeconds: 5,
+  pollMs: 20,
+  retryMs: 5,
+});
+
+const provisioner = () => new DigitalOceanProvisioner(config());
 const api = () => new DigitalOceanApi({ token: fake.token, apiUrl: fake.apiUrl, retryMs: 5 });
 /** A workspace that remembers what it was given, as one with a disk does. */
 function probe(keeps = true): WorkspaceProbe & { calls: string[] } {
@@ -178,6 +179,49 @@ test("a firewall an earlier run left is replaced, since it would not open to thi
   const firewalls = [...fake.firewalls.values()];
   assert.equal(firewalls.length, 1);
   assert.deepEqual(firewalls[0]?.inbound_rules[0]?.sources.addresses, ["198.51.100.7/32"]);
+});
+
+/** A provisioner whose Droplet is listed for a while after it was destroyed, as DigitalOcean's is. */
+class SlowToLeave extends DigitalOceanProvisioner {
+  constructor(
+    config: ConstructorParameters<typeof DigitalOceanProvisioner>[0],
+    private listedAfterDestroy: number,
+  ) {
+    super(config);
+  }
+  destroyed = false;
+  override async destroy(workspaceId: string) {
+    await super.destroy(workspaceId);
+    this.destroyed = true;
+  }
+  override async state(workspaceId: string) {
+    if (this.destroyed && this.listedAfterDestroy-- > 0) return "stopped" as const;
+    return super.state(workspaceId);
+  }
+}
+test("a Droplet that DigitalOcean is slow to remove is waited for, and one that stays is reported", async () => {
+  const slow = await runDigitalOceanSpike({
+    provisioner: new SlowToLeave(config(), 1),
+    probe: probe(),
+    api: api(),
+    workspaceId: "wspike7",
+    closed: async () => true,
+  });
+  assert.equal(slow.ok, true, JSON.stringify(slow.steps));
+
+  const stays = await runDigitalOceanSpike({
+    provisioner: new SlowToLeave(config(), Number.POSITIVE_INFINITY),
+    probe: probe(),
+    api: api(),
+    workspaceId: "wspike8",
+    closed: async () => true,
+    leftoverSeconds: 0.1,
+  });
+  assert.equal(stays.ok, false);
+  assert.match(
+    stays.steps.find((step) => !step.ok)?.note ?? "",
+    /the workspace is still there \(stopped\)/,
+  );
 });
 
 test("the calls made to DigitalOcean are counted, with the least the allowance had left", async () => {

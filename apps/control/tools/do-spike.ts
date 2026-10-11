@@ -22,6 +22,7 @@ import {
 } from "../../../packages/integrations/src/workspace-token.ts";
 import { DigitalOceanProvisioner, digitalOceanConfigFromEnv } from "../src/digitalocean.ts";
 import { DigitalOceanApi } from "../src/digitalocean-api.ts";
+import { sleep } from "../src/http.ts";
 import { plans } from "../src/plans.ts";
 import { httpProbe, type WorkspaceProbe } from "./fly-spike.ts";
 import { recorder, type SpikeReport } from "./spike-report.ts";
@@ -93,6 +94,8 @@ export async function runDigitalOceanSpike(options: {
   calls?: () => number;
   /** Whether a port on an address is closed to this machine; the real check connects. */
   closed?: (host: string, port: number) => Promise<boolean>;
+  /** How long a removed Droplet may still be listed before it counts as left behind (90 when unset). */
+  leftoverSeconds?: number;
 }): Promise<SpikeReport> {
   const { provisioner, probe, api, log = () => {} } = options;
   const calls = options.calls ?? (() => 0);
@@ -192,8 +195,14 @@ export async function runDigitalOceanSpike(options: {
     if (!options.keep) {
       await step("destroy: the Droplet", () => provisioner.destroy(workspaceId)).catch(() => {});
       await step("nothing is left", async () => {
-        const state = await provisioner.state(workspaceId);
-        if (state !== "missing") throw new Error(`the workspace is still there (${state})`);
+        // DigitalOcean may take a Droplet away a little after it says it has.
+        const until = Date.now() + (options.leftoverSeconds ?? 90) * 1000;
+        for (;;) {
+          const state = await provisioner.state(workspaceId);
+          if (state === "missing") return;
+          if (Date.now() > until) throw new Error(`the workspace is still there (${state})`);
+          await sleep(2000);
+        }
       }).catch(() => {});
       // The firewall is the spike's own, under its own name, and it made it.
       await step("the spike's firewall is removed", async () => {
