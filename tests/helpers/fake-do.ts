@@ -35,7 +35,9 @@ export interface FakeSize {
 export interface FakeImage {
   id: number;
   name: string;
-  type: "snapshot";
+  /** What a distribution is asked for by. */
+  slug?: string;
+  type: "snapshot" | "base";
   regions: string[];
   min_disk_size: number;
   size_gigabytes: number;
@@ -131,6 +133,11 @@ export async function fakeDigitalOcean(
     actionDelayMs?: number;
     /** How long after a Droplet is active before the workspace on it answers. */
     bootDelayMs?: number;
+    /**
+     * A Droplet whose user data has the workspace image's bake script in it sets itself up and
+     * switches itself off this long after it is active; left out, it never does.
+     */
+    bakeMs?: number;
     /** The most results one page holds, to test paging. */
     pageSize?: number;
     sizes?: FakeSize[];
@@ -145,6 +152,10 @@ export async function fakeDigitalOcean(
   const calls: DoCall[] = [];
   let ids = 1000;
   const activeAt = new Map<number, number>();
+  /** When a Droplet that is baking an image is done and switches itself off. */
+  const bakedAt = new Map<number, number>();
+  /** The snapshots taken of each Droplet, by image id. */
+  const snapshots = new Map<number, number[]>();
   /** When the workspace on a Droplet starts answering. */
   const answersAt = new Map<number, number>();
   const failures: {
@@ -164,6 +175,19 @@ export async function fakeDigitalOcean(
     regions: ["nyc3", "sfo3"],
     min_disk_size: 25,
     size_gigabytes: 3.2,
+    status: "available",
+    tags: [],
+    created_at: new Date().toISOString(),
+  });
+
+  images.set(99001, {
+    id: 99001,
+    name: "24.04 (LTS) x64",
+    slug: "ubuntu-24-04-x64",
+    type: "base",
+    regions: REGIONS,
+    min_disk_size: 7,
+    size_gigabytes: 0.9,
     status: "available",
     tags: [],
     created_at: new Date().toISOString(),
@@ -200,7 +224,12 @@ export async function fakeDigitalOcean(
     if (droplet.status === "new" && (at === undefined || Date.now() >= at)) {
       droplet.status = "active";
       answersAt.set(droplet.id, Date.now() + (options.bootDelayMs ?? 0));
+      if (options.bakeMs !== undefined && droplet.userData.includes("/opt/hive-bake/bake.sh"))
+        bakedAt.set(droplet.id, Date.now() + options.bakeMs);
     }
+    const done = bakedAt.get(droplet.id);
+    if (droplet.status === "active" && done !== undefined && Date.now() >= done)
+      droplet.status = "off";
   };
   const settleAction = (action: FakeAction) => {
     if (action.status === "in-progress" && Date.now() >= action.doneAt) {
@@ -404,7 +433,10 @@ export async function fakeDigitalOcean(
               "unprocessable_entity",
               "Size is not available in this region",
             );
-          const image = typeof input.image === "number" ? images.get(input.image) : undefined;
+          const image =
+            typeof input.image === "number"
+              ? images.get(input.image)
+              : [...images.values()].find((one) => one.slug === input.image);
           if (!image)
             return problem(
               res,
@@ -478,6 +510,13 @@ export async function fakeDigitalOcean(
         droplets.delete(droplet.id);
         return send(res, 204);
       }
+      if (sub === "snapshots" && !subId && method === "GET") {
+        const mine = (snapshots.get(droplet.id) ?? [])
+          .map((imageId) => images.get(imageId))
+          .filter((image): image is FakeImage => image !== undefined);
+        const { slice, links, meta } = page(mine, url);
+        return send(res, 200, { snapshots: slice, links, meta });
+      }
       if (sub === "actions" && subId && method === "GET") {
         const action = actions.get(Number(subId));
         if (!action || action.resource_id !== droplet.id)
@@ -493,6 +532,26 @@ export async function fakeDigitalOcean(
           const action = queueAction(droplet, type, () => {
             droplet.status = "active";
             answersAt.set(droplet.id, Date.now() + (options.bootDelayMs ?? 0));
+          });
+          return send(res, 201, { action: view(action) });
+        }
+        if (type === "snapshot") {
+          const name = (body as { name?: string }).name;
+          if (!name) return problem(res, 422, "unprocessable_entity", "A name is required");
+          const action = queueAction(droplet, type, () => {
+            const image: FakeImage = {
+              id: ++ids,
+              name,
+              type: "snapshot",
+              regions: [droplet.region.slug],
+              min_disk_size: droplet.disk,
+              size_gigabytes: 4.2,
+              status: "available",
+              tags: [],
+              created_at: new Date().toISOString(),
+            };
+            images.set(image.id, image);
+            snapshots.set(droplet.id, [...(snapshots.get(droplet.id) ?? []), image.id]);
           });
           return send(res, 201, { action: view(action) });
         }
