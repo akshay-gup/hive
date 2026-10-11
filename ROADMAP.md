@@ -53,7 +53,9 @@ one workspace shared by the team, so what the agent is given once is there for e
 - **Hosted workspaces** — a control plane (`apps/control`) with accounts, Google
   sign-in, workspaces, members (owner, admin, member) and invitations; a provisioner
   that starts each workspace on Fly Machines (an app, a private network, an encrypted
-  volume and a machine of its own) or as a local process; workspace tokens that sign a
+  volume and a machine of its own), on a Droplet of its own on DigitalOcean (the whole
+  disk the workspace's, reached through an edge, `apps/edge`, that serves TLS), or as a
+  local process; workspace tokens that sign a
   person in to a workspace without the workspace knowing anything else about them; a
   workspace image (`apps/workspace`) that runs the server and OpenCode; and the app's
   own screens for signing in, making and opening workspaces, and inviting people. See
@@ -86,11 +88,13 @@ one workspace shared by the team, so what the agent is given once is there for e
       no requests for, which can cut a delegated task short on a plan that stops when idle.
       Gmail and Calendar through the control plane, since an OAuth client cannot list a
       redirect for every workspace. Email for invitations (the control plane prints them).
-      Rolling a new image out to workspaces that are running. Cleaning up expired sessions,
+      Rolling a new image out to workspaces that are running. On DigitalOcean, idle
+      workspaces that cost nothing (a Droplet costs the same off as on), and a copy of a
+      workspace's disk that is not on its host. Cleaning up expired sessions,
       login codes and sign-in states in the control plane. The agent as a user of its own
       inside a workspace, so it cannot read the server's secrets. Returning from sign-in on
       a phone by a link the app owns rather than a custom scheme, and binding the code to
-      the app that asked. Trying all of it on a real Fly account (`docs/hosted.md`).
+      the app that asked. Trying all of it on a real Fly or DigitalOcean account (`docs/hosted.md`).
 - [ ] **Roles.** There are none yet, so everyone who can sign in can do everything: connect or
       disconnect the workspace's Google account, approve or decline what is sent from it, mark
       tasks done, change the agent's name, tone and memories, set permission rules, and archive

@@ -72,7 +72,7 @@ Where Hive is headed: a self-contained, agent-native team chat.
 - Delegated tasks run as OpenCode sessions in auto-mode; background permission requests surface in the originating thread.
 - Mention-only chat trigger: the agent runs only when the latest message contains `@hive` (env `AGENT_MENTION`); on trigger it receives the full conversation transcript plus attached files.
 - A shared workspace: everyone who signs in sees the same channels, threads, tasks, files, memories and Google connection, and only each person's orchestrator chat is private. See [Who sees what](#who-sees-what).
-- Hosted workspaces: a control plane signs people in, starts a workspace of its own for each team (a machine, a disk and its own agent) on Fly, and lets them invite people; the app signs in to it. See [docs/hosted.md](docs/hosted.md).
+- Hosted workspaces: a control plane signs people in, starts a workspace of its own for each team (a machine, a disk and its own agent) on Fly or DigitalOcean, and lets them invite people; the app signs in to it. See [docs/hosted.md](docs/hosted.md).
 
 **Next**
 - [ ] Live VM verification: end-to-end task loop with real inference, `opencode serve` systemd unit.
@@ -126,7 +126,7 @@ Hive deploys as one self-contained process on a VM: the API serves the Expo web 
 
 The API answers `/api/health` for a platform's health check.
 
-To run Hive as a service for many teams, where people sign in once, make a workspace and invite their team, a control plane starts a workspace of its own for each team: a machine, a disk and its own OpenCode. See **[docs/hosted.md](docs/hosted.md)** for how it fits together, running it on a laptop, deploying it to Fly, and what has not been tried on a real account.
+To run Hive as a service for many teams, where people sign in once, make a workspace and invite their team, a control plane starts a workspace of its own for each team: a machine, a disk and its own OpenCode. See **[docs/hosted.md](docs/hosted.md)** for how it fits together, running it on a laptop, deploying it to Fly or DigitalOcean, and what has not been tried on a real account.
 
 Key variables for the VM (see the deploy doc for the full table):
 
@@ -257,8 +257,9 @@ flowchart TD
 | `apps/mobile` | Shared iOS, Android, and web UI with CopilotKit headless hooks. |
 | `apps/server` | API, CopilotKit runtime, identity boundary, OpenCode agent layer, task engine, reviews, files, and persistence. |
 | `apps/worker` | Token-protected Playwright browser service with persistent profiles. |
-| `apps/control` | The hosted control plane: accounts, workspaces, members and invitations, workspace tokens, and the provisioners (Fly, local) that start workspaces. |
-| `apps/workspace` | The image a hosted workspace runs: the server and OpenCode, started by a supervisor. |
+| `apps/control` | The hosted control plane: accounts, workspaces, members and invitations, workspace tokens, and the provisioners (Fly, DigitalOcean, local) that start workspaces. |
+| `apps/workspace` | The image a hosted workspace runs: the server and OpenCode, started by a supervisor; and in `vm/`, the scripts that make it the image of a Droplet. |
+| `apps/edge` | The public face of workspaces that run on Droplets: ends TLS with one wildcard certificate and passes each request on to the workspace its host name names. |
 | `packages/domain` | Shared types and request validation. |
 | `packages/integrations` | Google and browser protocol adapters. |
 | `packages/backends` | Optional OpenBot HTTP adapter and its identity boundary. |
