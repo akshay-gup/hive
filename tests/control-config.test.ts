@@ -60,6 +60,17 @@ test("a live control plane signs in with Google and is served over https", () =>
   assert.deepEqual(live.allowedOrigins, ["https://a.example", "https://b.example"]);
 });
 
+test("the edge proxy's token is optional, and not a weak one", () => {
+  assert.equal(readControlConfig({}).edgeToken, undefined);
+  assert.equal(readControlConfig({ CONTROL_EDGE_TOKEN: "  " }).edgeToken, undefined);
+  const token = "t".repeat(32);
+  assert.equal(readControlConfig({ CONTROL_EDGE_TOKEN: ` ${token} ` }).edgeToken, token);
+  assert.throws(
+    () => readControlConfig({ CONTROL_EDGE_TOKEN: "short" }),
+    /CONTROL_EDGE_TOKEN must be at least 32 characters/,
+  );
+});
+
 test("settings that cannot work are refused by name", () => {
   assert.throws(() => readControlConfig({ CONTROL_MODE: "maybe" }), /CONTROL_MODE/);
   assert.throws(() => readControlConfig({ CONTROL_PORT: "http" }), /CONTROL_PORT/);

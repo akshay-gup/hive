@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -34,6 +35,15 @@ export interface GoogleLogin {
 }
 
 const idParam = z.string().min(1).max(64);
+
+/** Whether two secrets are the same, in a time that tells nothing of how much of one is right. */
+const sameSecret = (given: string | undefined, expected: string) =>
+  timingSafeEqual(
+    createHash("sha256")
+      .update(given ?? "")
+      .digest(),
+    createHash("sha256").update(expected).digest(),
+  );
 
 export function createControlApp(db: Store, config: ControlConfig, deps: ControlDeps) {
   const accounts = new Accounts(db);
@@ -88,6 +98,17 @@ export function createControlApp(db: Store, config: ControlConfig, deps: Control
       provisioner: deps.provisioner.name,
     }),
   );
+
+  // The edge proxy asks where a workspace is. It is not for people: it takes the edge's own token.
+  app.get("/internal/upstream/:id", async (c) => {
+    if (!config.edgeToken) return c.json({ error: "Not found" }, 404);
+    if (!sameSecret(c.req.header("authorization"), `Bearer ${config.edgeToken}`))
+      return c.json({ error: "Unauthorized" }, 401);
+    const found = await workspaces.upstream(idParam.parse(c.req.param("id")));
+    if (!found.known) return c.json({ error: "No such workspace" }, 404);
+    if (!found.upstream) return c.json({ error: "The workspace is not running" }, 503);
+    return c.json({ upstream: found.upstream });
+  });
 
   // Signing in. These are public: they are how a person gets a session.
   const signIns = new RateLimiter(20);

@@ -21,6 +21,11 @@ export interface ControlConfig {
    * limits count per visitor, and without it every visitor looks like the proxy.
    */
   clientIpHeader?: string;
+  /**
+   * What the edge proxy shows to ask where a workspace is. Without one there is no such route, which
+   * is right for a host (Fly) whose own proxy reaches workspaces.
+   */
+  edgeToken?: string;
   googleClientId?: string;
   googleClientSecret?: string;
   googleRedirectUri: string;
@@ -61,10 +66,13 @@ export function readControlConfig(env: Env = process.env): ControlConfig {
       .filter(Boolean),
     maxWorkspacesPerAccount: maxWorkspaces,
     clientIpHeader: env.CONTROL_CLIENT_IP_HEADER?.trim() || undefined,
+    edgeToken: env.CONTROL_EDGE_TOKEN?.trim() || undefined,
     googleClientId: env.GOOGLE_CLIENT_ID?.trim() || undefined,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET?.trim() || undefined,
     googleRedirectUri: `${publicUrl}/v1/auth/google/callback`,
   };
+  if (config.edgeToken && config.edgeToken.length < 32)
+    throw new Error("CONTROL_EDGE_TOKEN must be at least 32 characters");
   if (mode === "sample" && !["127.0.0.1", "localhost", "::1"].includes(host))
     throw new Error(
       "The sample control plane is local-only. CONTROL_HOST must be a loopback address.",

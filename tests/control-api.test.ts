@@ -190,6 +190,72 @@ test("creating a workspace starts it, and it becomes ready with an address", asy
   );
 });
 
+const EDGE_TOKEN = "e".repeat(40);
+
+test("the edge asks where a workspace is, with a token only it has", async () => {
+  const edge = createControlApp(db, config({ edgeToken: EDGE_TOKEN }), { provisioner, keys });
+  // `null` is no token at all; leaving it out is the right one.
+  const ask = (id: string, token: string | null = EDGE_TOKEN) =>
+    edge.app.request(`/internal/upstream/${id}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  const owner = await signIn("edge-owner@example.com");
+  const id = await readyWorkspace(owner, "Edge");
+
+  // A control plane with no edge has no such route, whoever asks.
+  const bare = await control.app.request(`/internal/upstream/${id}`, {
+    headers: { Authorization: `Bearer ${EDGE_TOKEN}` },
+  });
+  assert.equal(bare.status, 404);
+  // Nobody else gets an answer: not without a token, not with a wrong one, not with a person's session.
+  assert.equal((await ask(id, null)).status, 401);
+  assert.equal((await ask(id, "wrong")).status, 401);
+  assert.equal((await ask(id, EDGE_TOKEN.slice(1))).status, 401);
+  assert.equal((await ask(id, owner.token)).status, 401);
+  assert.deepEqual(
+    provisioner.upstreamAsked.filter((asked) => asked === id),
+    [],
+  );
+
+  const found = await ask(id);
+  assert.equal(found.status, 200);
+  assert.deepEqual(await found.json(), { upstream: `http://${id}.upstream.test:8787` });
+  assert.equal(found.headers.get("cache-control"), "no-store");
+
+  // Made and ready, but stopped to save money: known, and not running.
+  provisioner.stop(id);
+  const stopped = await ask(id);
+  assert.equal(stopped.status, 503);
+  assert.match((await stopped.json()).error, /not running/);
+  await provisioner.wake(id);
+  assert.equal((await ask(id)).status, 200);
+});
+
+test("a workspace nobody has made, or that is not ready, is not looked for on the host", async () => {
+  const edge = createControlApp(db, config({ edgeToken: EDGE_TOKEN }), { provisioner, keys });
+  const ask = (id: string) =>
+    edge.app.request(`/internal/upstream/${id}`, {
+      headers: { Authorization: `Bearer ${EDGE_TOKEN}` },
+    });
+  const before = provisioner.upstreamAsked.length;
+  assert.equal((await ask("wnobodyhas1")).status, 404);
+  assert.equal((await ask("x".repeat(65))).status, 422);
+
+  const owner = await signIn("edge-owner2@example.com");
+  let release: () => void = () => {};
+  provisioner.hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  const made = await (await owner.post("/v1/workspaces", { name: "Slow" })).json();
+  assert.equal((await ask(made.id)).status, 404);
+  release();
+  provisioner.hold = undefined;
+  await control.workspaces.settled(made.id);
+  assert.equal((await ask(made.id)).status, 200);
+  // The host was asked only about the one that was ready.
+  assert.deepEqual(provisioner.upstreamAsked.slice(before), [made.id]);
+});
+
 test("names are checked, and a person can have only so many workspaces", async () => {
   const owner = await signIn("owner2@example.com");
   for (const name of ["", "   ", "x".repeat(61), "bad\u0007name"])

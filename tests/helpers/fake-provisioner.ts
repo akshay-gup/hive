@@ -15,6 +15,8 @@ export class FakeProvisioner implements Provisioner {
   readonly created: WorkspaceSpec[] = [];
   readonly woken: string[] = [];
   readonly destroyed: string[] = [];
+  /** The workspaces whose address was asked for. */
+  readonly upstreamAsked: string[] = [];
   /** Fail the next `create` this many times. */
   failCreates = 0;
   failDestroys = 0;
@@ -38,6 +40,12 @@ export class FakeProvisioner implements Provisioner {
   }
   async state(workspaceId: string): Promise<MachineState> {
     return this.machines.get(workspaceId) ?? "missing";
+  }
+  async upstream(workspaceId: string): Promise<string | null> {
+    this.upstreamAsked.push(workspaceId);
+    return this.machines.get(workspaceId) === "running"
+      ? `http://${workspaceId}.upstream.test:8787`
+      : null;
   }
   /** What the provider reports when the machine was stopped to save money. */
   stop(workspaceId: string) {

@@ -193,6 +193,17 @@ export class WorkspaceService {
     return { token, url: record.url, expiresAt: Date.now() + DEFAULT_TOKEN_SECONDS * 1000 };
   }
 
+  /**
+   * Where the edge connects to reach a workspace. A name nobody has made is answered from the
+   * records, so asking for one costs the host nothing; one that is made and ready but not running
+   * (it was stopped) has no address.
+   */
+  async upstream(id: string): Promise<{ known: boolean; upstream: string | null }> {
+    const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
+    if (record?.status !== "ready") return { known: false, upstream: null };
+    return { known: true, upstream: (await this.options.provisioner.upstream?.(id)) ?? null };
+  }
+
   /** Start the workspace's machine if it was stopped to save money. */
   async wake(account: Account, id: string): Promise<{ state: MachineState }> {
     const { record } = await this.require(account, id);
