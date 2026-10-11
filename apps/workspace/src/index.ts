@@ -8,9 +8,11 @@ import {
   OPENCODE_URL,
   Supervisor,
   serverEnv,
+  withEnvFile,
 } from "./supervisor.ts";
 
-const env = process.env;
+// Read before root is given up: a workspace on a machine of its own is set up by a file only root can read.
+const env = withEnvFile(process.env);
 const volumeDir = env.VOLUME_DIR ?? "/data";
 
 // A new machine mounts its volume owned by root. It starts as root only to hand the volume to the

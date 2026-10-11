@@ -10,9 +10,11 @@ import {
   agentEnv,
   loadSecrets,
   OPENCODE_URL,
+  readEnvFile,
   Supervisor,
   type SupervisorSpec,
   serverEnv,
+  withEnvFile,
 } from "../apps/workspace/src/supervisor.ts";
 
 const stub = (name: string) => fileURLToPath(new URL(`./helpers/${name}`, import.meta.url));
@@ -119,6 +121,47 @@ test("secrets that cannot be read are an error, and are never replaced", () => {
     assert.throws(() => loadSecrets(dir), /damaged/);
     assert.equal(readFileSync(file, "utf8"), damaged);
   }
+});
+
+test("settings kept in a file are laid over the environment, and win over the machine's defaults", () => {
+  const file = join(dir, "workspace.json");
+  writeFileSync(file, JSON.stringify({ WORKSPACE_ID: "w9", MODEL: "anthropic/test-model" }));
+  const env = withEnvFile({
+    PATH: "/usr/bin",
+    WORKSPACE_ID: "the-default",
+    PORT: "8787",
+    HIVE_ENV_FILE: file,
+  });
+  assert.equal(env.WORKSPACE_ID, "w9");
+  assert.equal(env.MODEL, "anthropic/test-model");
+  assert.equal(env.PATH, "/usr/bin");
+  assert.equal(env.PORT, "8787");
+  // The file's name is not passed on to the agent or the server.
+  assert.equal("HIVE_ENV_FILE" in env, false);
+  // With none named, the environment is left exactly as it is.
+  const plain = { PATH: "/usr/bin" };
+  assert.equal(withEnvFile(plain), plain);
+  assert.equal(withEnvFile({ HIVE_ENV_FILE: "  " }).HIVE_ENV_FILE, "  ");
+});
+
+test("a settings file that cannot be used stops the workspace without repeating what it holds", () => {
+  const file = join(dir, "workspace.json");
+  assert.throws(() => readEnvFile(file), /could not be read \(ENOENT\)/);
+  writeFileSync(file, '{"ANTHROPIC_API_KEY": "sk-secret-value", ');
+  assert.throws(
+    () => readEnvFile(file),
+    (error: unknown) => {
+      assert.match((error as Error).message, /is not valid JSON/);
+      assert.equal((error as Error).message.includes("sk-secret-value"), false);
+      return true;
+    },
+  );
+  writeFileSync(file, "[1]");
+  assert.throws(() => readEnvFile(file), /must be a JSON object of strings/);
+  writeFileSync(file, '{"PORT": 8787}');
+  assert.throws(() => readEnvFile(file), /must be a JSON object of strings/);
+  writeFileSync(file, "null");
+  assert.throws(() => readEnvFile(file), /must be a JSON object of strings/);
 });
 
 test("the agent runs on the volume, pinned and not sharing, without the server's own settings", () => {

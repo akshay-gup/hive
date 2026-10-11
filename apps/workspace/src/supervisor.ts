@@ -59,6 +59,47 @@ export function loadSecrets(dir: string): WorkspaceSecrets {
   };
 }
 
+/**
+ * Settings kept in a file instead of the environment, for a workspace on a machine of its own: a
+ * JSON object of strings, written where only root can read it. A file that cannot be used stops
+ * the workspace, and what it says is never repeated in the message, since it holds provider keys.
+ */
+export function readEnvFile(path: string): Record<string, string> {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw new Error(
+      `${path} could not be read (${(error as NodeJS.ErrnoException).code ?? "error"})`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${path} is not valid JSON`);
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    Object.values(parsed).some((value) => typeof value !== "string")
+  )
+    throw new Error(`${path} must be a JSON object of strings`);
+  return parsed as Record<string, string>;
+}
+
+/**
+ * The environment with the file HIVE_ENV_FILE names laid over it. What the file says wins over the
+ * machine's own defaults, since the file is the one thing written for this workspace.
+ */
+export function withEnvFile(env: Env): Env {
+  const path = env.HIVE_ENV_FILE?.trim();
+  if (!path) return env;
+  const { HIVE_ENV_FILE: _named, ...rest } = env;
+  return { ...rest, ...readEnvFile(path) };
+}
+
 /** Settings that belong to the workspace server and are not for the agent, which can print its environment. */
 const SERVER_ONLY = [
   "TOKEN_ENCRYPTION_KEY",
