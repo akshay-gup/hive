@@ -195,12 +195,15 @@ export class WorkspaceService {
 
   /**
    * Where the edge connects to reach a workspace. A name nobody has made is answered from the
-   * records, so asking for one costs the host nothing; one that is made and ready but not running
-   * (it was stopped) has no address.
+   * records, so asking for one costs the host nothing, and so is one that failed or is being
+   * removed. One being made is looked for, because making it ends when it answers at its public
+   * address, which is through the edge. One that is made but not running (it was stopped) has no
+   * address.
    */
   async upstream(id: string): Promise<{ known: boolean; upstream: string | null }> {
     const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
-    if (record?.status !== "ready") return { known: false, upstream: null };
+    if (record?.status !== "ready" && record?.status !== "provisioning")
+      return { known: false, upstream: null };
     return { known: true, upstream: (await this.options.provisioner.upstream?.(id)) ?? null };
   }
 

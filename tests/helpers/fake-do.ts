@@ -138,6 +138,11 @@ export async function fakeDigitalOcean(
      * switches itself off this long after it is active; left out, it never does.
      */
     bakeMs?: number;
+    /**
+     * What stands in front of the public address: asked about a workspace before it is let through,
+     * as the edge asks the control plane. Without it the address reaches the Droplet directly.
+     */
+    resolve?: (workspaceId: string) => Promise<{ known: boolean; upstream: string | null }>;
     /** The most results one page holds, to test paging. */
     pageSize?: number;
     sizes?: FakeSize[];
@@ -293,6 +298,10 @@ export async function fakeDigitalOcean(
     // The workspace's own health check, as the public address would answer it.
     const publicHealth = /^\/public\/([\w-]+)\/api\/health$/.exec(path);
     if (publicHealth) {
+      const where = await options.resolve?.(publicHealth[1] as string);
+      if (where && !where.known) return send(res, 404, { error: "Unknown workspace" });
+      if (where && !where.upstream)
+        return send(res, 503, { error: "The workspace is not running" });
       for (const droplet of droplets.values()) {
         settleDroplet(droplet);
         if (

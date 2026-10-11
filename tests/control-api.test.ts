@@ -231,7 +231,7 @@ test("the edge asks where a workspace is, with a token only it has", async () =>
   assert.equal((await ask(id)).status, 200);
 });
 
-test("a workspace nobody has made, or that is not ready, is not looked for on the host", async () => {
+test("the host is asked where a workspace is only when it is being made or is ready", async () => {
   const edge = createControlApp(db, config({ edgeToken: EDGE_TOKEN }), { provisioner, keys });
   const ask = (id: string) =>
     edge.app.request(`/internal/upstream/${id}`, {
@@ -241,19 +241,25 @@ test("a workspace nobody has made, or that is not ready, is not looked for on th
   assert.equal((await ask("wnobodyhas1")).status, 404);
   assert.equal((await ask("x".repeat(65))).status, 422);
 
+  // One being made is looked for: making it ends when it answers at its address, through the edge.
   const owner = await signIn("edge-owner2@example.com");
   let release: () => void = () => {};
   provisioner.hold = new Promise((resolve) => {
     release = resolve;
   });
   const made = await (await owner.post("/v1/workspaces", { name: "Slow" })).json();
-  assert.equal((await ask(made.id)).status, 404);
+  assert.equal((await ask(made.id)).status, 503);
   release();
   provisioner.hold = undefined;
   await control.workspaces.settled(made.id);
   assert.equal((await ask(made.id)).status, 200);
-  // The host was asked only about the one that was ready.
-  assert.deepEqual(provisioner.upstreamAsked.slice(before), [made.id]);
+
+  // One that failed is not.
+  provisioner.failCreates = 1;
+  const broken = await (await owner.post("/v1/workspaces", { name: "Broken" })).json();
+  await control.workspaces.settled(broken.id);
+  assert.equal((await ask(broken.id)).status, 404);
+  assert.deepEqual(provisioner.upstreamAsked.slice(before), [made.id, made.id]);
 });
 
 test("names are checked, and a person can have only so many workspaces", async () => {
