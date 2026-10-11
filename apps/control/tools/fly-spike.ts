@@ -14,6 +14,9 @@ import {
 } from "../../../packages/integrations/src/workspace-token.ts";
 import { FlyProvisioner as Fly, type FlyProvisioner, flyConfigFromEnv } from "../src/fly.ts";
 import { plans } from "../src/plans.ts";
+import { recorder, type SpikeReport, type SpikeStep } from "./spike-report.ts";
+
+export type { SpikeReport, SpikeStep };
 
 /** What the spike does inside the workspace, apart from Fly: sign in, leave something, look for it again. */
 export interface WorkspaceProbe {
@@ -21,19 +24,6 @@ export interface WorkspaceProbe {
   write(url: string, token: string): Promise<void>;
   /** Sign in again, and say whether what was kept is still there. */
   read(url: string, token: string): Promise<boolean>;
-}
-
-export interface SpikeStep {
-  name: string;
-  ms: number;
-  ok: boolean;
-  note?: string;
-}
-export interface SpikeReport {
-  workspaceId: string;
-  url?: string;
-  steps: SpikeStep[];
-  ok: boolean;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -97,28 +87,7 @@ export async function runSpike(options: {
       name: "Spike",
       role: "owner",
     });
-  const report: SpikeReport = { workspaceId, steps: [], ok: true };
-  const step = async <T>(name: string, run: () => Promise<T>, note?: (value: T) => string) => {
-    const started = Date.now();
-    try {
-      const value = await run();
-      const done: SpikeStep = { name, ms: Date.now() - started, ok: true, note: note?.(value) };
-      report.steps.push(done);
-      log(`  ${name}: ${(done.ms / 1000).toFixed(1)}s${done.note ? ` (${done.note})` : ""}`);
-      return value;
-    } catch (error) {
-      const failed: SpikeStep = {
-        name,
-        ms: Date.now() - started,
-        ok: false,
-        note: error instanceof Error ? error.message : String(error),
-      };
-      report.steps.push(failed);
-      report.ok = false;
-      log(`  ${name}: FAILED after ${(failed.ms / 1000).toFixed(1)}s: ${failed.note}`);
-      throw error;
-    }
-  };
+  const { report, step } = recorder(workspaceId, log);
 
   try {
     const spec = {
