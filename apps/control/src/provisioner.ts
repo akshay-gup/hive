@@ -33,6 +33,12 @@ export interface Provisioner {
   state(workspaceId: string): Promise<MachineState>;
   /** Remove the workspace and its data. */
   destroy(workspaceId: string): Promise<void>;
+  /**
+   * Where something the host does not route for us, such as the edge, connects to reach the
+   * workspace: an http origin on the host's own network, or null when it is not running. Hosts
+   * whose public address reaches the workspace itself have none.
+   */
+  upstream?(workspaceId: string): Promise<string | null>;
   /** Let go of what the provisioner itself holds (processes it started, say) when the control plane stops. */
   close?(): Promise<void>;
 }
