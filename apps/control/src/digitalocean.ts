@@ -1,4 +1,5 @@
-import { retryingFetch, sleep, waitUntilAnswering } from "./http.ts";
+import { DigitalOceanApi, DigitalOceanError } from "./digitalocean-api.ts";
+import { sleep, waitUntilAnswering } from "./http.ts";
 import type { Plan, PlanId } from "./plans.ts";
 import {
   type MachineState,
@@ -139,17 +140,6 @@ const UPSTREAM_MS = 5 * 60_000;
 /** How long a Droplet gets to shut itself down cleanly before it is powered off. */
 const SHUTDOWN_SECONDS = 90;
 
-/** A call to DigitalOcean that did not go through, with its own words, for the logs and not for people. */
-class DigitalOceanError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "DigitalOceanError";
-  }
-}
-
 /** The first-boot configuration (cloud-init): the workspace's settings, where only root can read them, and the start of the workspace. */
 export function cloudConfig(settings: Record<string, string>): string {
   const content = Buffer.from(JSON.stringify(settings), "utf8").toString("base64");
@@ -181,7 +171,15 @@ export class DigitalOceanProvisioner implements Provisioner {
   private firewallReady = false;
   private readonly upstreams = new Map<string, { until: number; value: string }>();
 
-  constructor(private readonly config: DigitalOceanConfig) {}
+  private readonly client: DigitalOceanApi;
+
+  constructor(private readonly config: DigitalOceanConfig) {
+    this.client = new DigitalOceanApi({
+      token: config.token,
+      apiUrl: config.apiUrl,
+      retryMs: config.retryMs,
+    });
+  }
 
   /** `hive-<id>`: a Droplet's name is a hostname, so lowercase letters, digits and dashes. */
   dropletName(workspaceId: string): string {
@@ -503,56 +501,16 @@ export class DigitalOceanProvisioner implements Provisioner {
 
   // Calls to DigitalOcean.
 
-  /** Every item of a paged list. */
-  private async all<T>(path: string, key: string): Promise<T[]> {
-    const found: T[] = [];
-    for (let page = 1; page <= 100; page++) {
-      const result = await this.api<
-        Record<string, unknown> & { links?: { pages?: { next?: string } } }
-      >("GET", `${path}?per_page=200&page=${page}`);
-      found.push(...(((result as Record<string, unknown>)[key] as T[] | undefined) ?? []));
-      if (!result?.links?.pages?.next) break;
-    }
-    return found;
+  private all<T>(path: string, key: string): Promise<T[]> {
+    return this.client.all<T>(path, key);
   }
 
-  /** A call to the API. Statuses in `accept` come back as `null`; anything else not ok is an error. */
-  private async api<T = unknown>(
+  private api<T = unknown>(
     method: string,
     path: string,
     body?: unknown,
     accept: number[] = [],
   ): Promise<T | null> {
-    const response = await retryingFetch(
-      `${this.config.apiUrl}${path}`,
-      {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.config.token}`,
-          ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      },
-      this.config.retryMs,
-    );
-    if (accept.includes(response.status)) return null;
-    const text = await response.text();
-    if (!response.ok) {
-      let said = text.slice(0, 300);
-      try {
-        const parsed = JSON.parse(text) as { message?: string };
-        if (typeof parsed.message === "string") said = parsed.message.slice(0, 300);
-      } catch {}
-      throw new DigitalOceanError(
-        `${method} ${path.split("?")[0]} answered ${response.status}: ${said}`,
-        response.status,
-      );
-    }
-    if (!text) return {} as T;
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      return {} as T;
-    }
+    return this.client.call<T>(method, path, body, accept);
   }
 }
