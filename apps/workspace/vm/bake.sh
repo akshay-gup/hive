@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# Turns a fresh Ubuntu 24.04 Droplet into the image every workspace's Droplet is made from.
+#
+# The workspace is taken out of the container image the project builds (apps/workspace/Dockerfile),
+# so a machine runs the program the container does, and is then set up as a machine: its own user,
+# a firewall, a service that starts it, and a disk that keeps what the agent installs. It ends by
+# powering the machine off, which is how apps/control/tools/do-image.ts knows it is done. A Droplet
+# that stays on has failed, and /var/log/hive-bake.log says why.
+#
+#   HIVE_WORKSPACE_IMAGE   the container image to take the workspace from (required)
+#   HIVE_REGISTRY_USER     a login for the registry the image is in, if it needs one
+#   HIVE_REGISTRY_TOKEN
+#
+# With no argument it runs every stage in turn. With one it runs that stage alone, which is for
+# testing it: prepare, fetch, install, seal.
+set -euo pipefail
+# Files and folders made here are made the same whoever started this.
+umask 022
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+WORK=${HIVE_BAKE_DIR:-$HERE}
+PAYLOAD=${HIVE_BAKE_PAYLOAD:-$WORK/payload}
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
+
+# A machine that has just started may be updating itself, and holds the package lock while it does.
+apt() { apt-get -o DPkg::Lock::Timeout=600 "$@"; }
+
+# The same user the container image has, so a disk that moves between the two still fits.
+HIVE_UID=10001
+
+say() { printf '\n==> %s\n' "$*"; }
+
+# What the agent finds on its machine is what the container image gives it: the tools a shell
+# session reaches for. The firewall is the machine's own.
+prepare() {
+  say "Packages"
+  apt update
+  apt -y upgrade
+  apt install -y --no-install-recommends ca-certificates curl git jq python3 ripgrep unzip nftables
+}
+
+# Docker is here only to take the workspace out of its image; seal removes it.
+fetch() {
+  : "${HIVE_WORKSPACE_IMAGE:?HIVE_WORKSPACE_IMAGE names the container image to take the workspace from}"
+  local image=$HIVE_WORKSPACE_IMAGE
+  say "The workspace, from $image"
+  command -v docker >/dev/null || apt install -y --no-install-recommends docker.io
+  local login=
+  if [ -n "${HIVE_REGISTRY_TOKEN:-}" ]; then
+    login=yes
+    local registry=
+    case "${image%%/*}" in *.* | *:* | localhost) registry=${image%%/*} ;; esac
+    # shellcheck disable=SC2086 # the registry is one word, or none for Docker Hub
+    printf '%s' "$HIVE_REGISTRY_TOKEN" |
+      docker login $registry --username "${HIVE_REGISTRY_USER:?HIVE_REGISTRY_USER goes with the token}" --password-stdin
+  fi
+  docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
+  rm -rf "$PAYLOAD"
+  mkdir -p "$PAYLOAD"
+  local container
+  container=$(docker create "$image")
+  docker cp "$container:/app" "$PAYLOAD/app"
+  docker cp "$container:/usr/local/bin/node" "$PAYLOAD/node"
+  docker cp "$container:/usr/local/bin/opencode" "$PAYLOAD/opencode"
+  docker rm "$container" >/dev/null
+  docker inspect --format '{{index .RepoDigests 0}}' "$image" >"$PAYLOAD/digest" 2>/dev/null || echo "$image" >"$PAYLOAD/digest"
+  # The login is not part of the image that is made.
+  if [ -n "$login" ]; then docker logout >/dev/null 2>&1 || true; fi
+}
+
+install_workspace() {
+  say "The workspace"
+  getent group hive >/dev/null || groupadd --gid "$HIVE_UID" hive
+  id hive >/dev/null 2>&1 ||
+    useradd --uid "$HIVE_UID" --gid "$HIVE_UID" --create-home --home-dir /home/hive --shell /usr/sbin/nologin hive
+  install -m 0755 "$PAYLOAD/node" /usr/local/bin/node
+  install -m 0755 "$PAYLOAD/opencode" /usr/local/bin/opencode
+  rm -rf /app
+  cp -a "$PAYLOAD/app" /app
+  # Where the workspace keeps everything of its own. The disk is the machine's, so it all stays.
+  install -d -m 0755 /data
+  # Settings come here at first boot, readable by root alone.
+  install -d -m 0755 /etc/hive
+  printf '{"image":"%s","baked":"%s"}\n' "$(cat "$PAYLOAD/digest")" "$(date -u +%FT%TZ)" >/etc/hive/image.json
+  install -m 0644 "$HERE/hive-workspace.service" /etc/systemd/system/hive-workspace.service
+  # Enabled so that it comes back when the machine does; it does not start without its settings.
+  systemctl enable hive-workspace.service
+
+  say "The firewall"
+  nft -c -f "$HERE/nftables.conf"
+  install -m 0644 "$HERE/nftables.conf" /etc/nftables.conf
+  systemctl enable nftables.service
+
+  say "Login, logs and memory"
+  mkdir -p /run/sshd /etc/ssh/sshd_config.d /etc/systemd/journald.conf.d /etc/sysctl.d
+  cat >/etc/ssh/sshd_config.d/10-hive.conf <<'EOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+EOF
+  sshd -t
+  # A machine that is up for months keeps its logs, and not without end.
+  cat >/etc/systemd/journald.conf.d/10-hive.conf <<'EOF'
+[Journal]
+Storage=persistent
+SystemMaxUse=400M
+EOF
+  # What the agent runs can use more memory than the machine has for a moment. Swap is for that.
+  if ! grep -q '^/swapfile ' /etc/fstab; then
+    fallocate -l 2G /swapfile
+    chmod 600 /swapfile
+    mkswap /swapfile >/dev/null
+    echo '/swapfile none swap sw 0 0' >>/etc/fstab
+  fi
+  echo 'vm.swappiness=10' >/etc/sysctl.d/90-hive.conf
+
+  check
+}
+
+# Starts the workspace once, the way the service does, on a scratch disk and with settings made up
+# here, and stops it: an image that cannot do that is not worth a snapshot.
+check() {
+  say "Starting a workspace to see that it does"
+  /usr/local/bin/node --version
+  /usr/local/bin/opencode --version
+  local dir port=18787
+  dir=$(mktemp -d /tmp/hive-check.XXXXXX)
+  chmod 755 "$dir"
+  install -d -o "$HIVE_UID" -g "$HIVE_UID" "$dir/home"
+  /usr/local/bin/node -e '
+    const { generateKeyPairSync } = require("node:crypto");
+    const { writeFileSync } = require("node:fs");
+    const [, dir, port] = process.argv;
+    const key = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "der" }).toString("base64url");
+    writeFileSync(dir + "/workspace.json", JSON.stringify({
+      WORKSPACE_MODE: "live",
+      WORKSPACE_ID: "wcheck",
+      CONTROL_PLANE_PUBLIC_KEY: key,
+      PUBLIC_API_URL: "http://127.0.0.1:" + port,
+      ALLOWED_ORIGINS: "https://hive.invalid",
+      HOST: "127.0.0.1",
+      PORT: port,
+      DATA_DIR: dir + "/data/hive",
+      MODEL: "anthropic/check",
+    }), { mode: 0o600 });
+  ' "$dir" "$port"
+  (
+    cd /app
+    exec env -i PATH=/usr/local/bin:/usr/bin:/bin NODE_ENV=production HIVE_ENV_FILE="$dir/workspace.json" \
+      VOLUME_DIR="$dir/data" WORKSPACE_UID="$HIVE_UID" WORKSPACE_GID="$HIVE_UID" WORKSPACE_HOME="$dir/home" \
+      /usr/local/bin/node dist/apps/workspace/src/index.js >"$dir/log" 2>&1
+  ) &
+  local pid=$! answered=
+  for _ in $(seq 1 180); do
+    if curl -fsS "http://127.0.0.1:$port/api/health" 2>/dev/null | jq -e '.ok == true and .workspace == "wcheck"' >/dev/null; then
+      answered=yes
+      break
+    fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  kill -TERM "$pid" 2>/dev/null || true
+  local status=0
+  wait "$pid" || status=$?
+  if [ -z "$answered" ] || [ "$status" != 0 ]; then
+    echo "The workspace did not start cleanly (answered: ${answered:-no}, exit: $status). Its output:" >&2
+    cat "$dir/log" >&2
+    exit 1
+  fi
+  rm -rf "$dir"
+}
+
+# Leaves the disk as a new machine's: no docker, nothing of this machine's own identity, nothing
+# of the bake, and then switches the machine off for the snapshot.
+seal() {
+  say "Cleaning up"
+  apt purge -y docker.io containerd runc
+  apt autoremove -y --purge
+  apt clean
+  rm -rf /var/lib/apt/lists/* /var/lib/docker /var/lib/containerd /etc/docker /root/.docker
+  if command -v docker >/dev/null; then
+    echo "docker is still installed" >&2
+    exit 1
+  fi
+  # Each Droplet makes its own host keys and machine id when it first starts.
+  rm -f /etc/ssh/ssh_host_*
+  : >/etc/machine-id
+  rm -rf /root/.ssh /root/.bash_history /home/hive/.bash_history
+  command -v cloud-init >/dev/null && cloud-init clean --logs --seed
+  journalctl --rotate >/dev/null 2>&1 || true
+  rm -rf /var/log/journal/*
+  find /var/log -type f \( -name '*.gz' -o -name '*.[0-9]' \) -delete
+  find /var/log -type f -exec truncate -s 0 {} +
+  rm -rf /tmp/* /var/tmp/*
+  if [ -z "${HIVE_BAKE_KEEP:-}" ]; then rm -rf "$WORK"; fi
+  sync
+  say "Done: switching off"
+  systemctl poweroff
+}
+
+stage=${1:-all}
+if [ "$stage" = all ]; then
+  exec > >(tee -a /var/log/hive-bake.log) 2>&1
+  # Settings for this run come in a file that only root can read, which is gone once it is read.
+  if [ -f "$WORK/bake.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$WORK/bake.env"
+    set +a
+    rm -f "$WORK/bake.env"
+  fi
+  prepare
+  fetch
+  install_workspace
+  seal
+else
+  case "$stage" in
+    prepare | fetch | check | seal) "$stage" ;;
+    install) install_workspace ;;
+    *)
+      echo "No stage $stage: prepare, fetch, install, check or seal" >&2
+      exit 2
+      ;;
+  esac
+fi

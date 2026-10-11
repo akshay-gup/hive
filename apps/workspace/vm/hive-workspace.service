@@ -1,0 +1,35 @@
+# A workspace on a machine of its own: the program the container image runs, started by systemd
+# instead of a container runtime, with its settings in a file that only root can read.
+[Unit]
+Description=Hive workspace
+After=network-online.target
+Wants=network-online.target
+# Without its settings there is no workspace to run. A machine that has not been given them waits.
+ConditionPathExists=/etc/hive/workspace.json
+
+[Service]
+Type=simple
+WorkingDirectory=/app
+Environment=NODE_ENV=production
+Environment=HIVE_ENV_FILE=/etc/hive/workspace.json
+Environment=VOLUME_DIR=/data
+Environment=WORKSPACE_UID=10001
+Environment=WORKSPACE_GID=10001
+Environment=WORKSPACE_HOME=/home/hive
+# It starts as root, to hand /data to the workspace's own user and become that user, as it does in
+# the container. From then on nothing it runs, the agent included, is root.
+ExecStart=/usr/local/bin/node dist/apps/workspace/src/index.js
+Restart=always
+RestartSec=3
+# The supervisor stops the server first and the agent after it, so it alone is asked to stop; what
+# the agent left running when both have gone is killed.
+KillMode=mixed
+# The supervisor gives the server and the agent 25 seconds to stop.
+TimeoutStopSec=45
+# Nothing it runs can become root through a setuid program.
+NoNewPrivileges=yes
+LimitNOFILE=1048576
+TasksMax=16384
+
+[Install]
+WantedBy=multi-user.target
