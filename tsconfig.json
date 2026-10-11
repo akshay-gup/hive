@@ -15,6 +15,7 @@
     "apps/server/**/*.ts",
     "apps/control/**/*.ts",
     "apps/workspace/**/*.ts",
+    "apps/edge/**/*.ts",
     "packages/**/*.ts",
     "tests/**/*.ts"
   ],

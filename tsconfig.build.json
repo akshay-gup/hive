@@ -11,6 +11,7 @@
     "apps/server/**/*.ts",
     "apps/control/**/*.ts",
     "apps/workspace/**/*.ts",
+    "apps/edge/**/*.ts",
     "packages/**/*.ts"
   ],
   "exclude": ["node_modules", "tests", "apps/mobile", "apps/worker"]
