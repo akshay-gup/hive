@@ -40,6 +40,12 @@ export interface DigitalOceanConfig {
   edgeAddresses: string[];
   /** Which of a Droplet's addresses the edge connects to. */
   upstreamNetwork: "private" | "public";
+  /**
+   * Where a new or waking workspace is waited for: at its public address, through the edge, or
+   * at the Droplet's own (the `upstreamNetwork` one), for a control plane that can reach it.
+   * `public` when unset.
+   */
+  readyCheck?: "public" | "droplet";
   /** How long to wait for a new or waking workspace to answer before giving up. */
   waitSeconds: number;
   /** How long a Droplet gets to shut itself down before it is powered off (90 when unset). */
@@ -80,6 +86,9 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
     const slug = env[`DO_SIZE_${plan.toUpperCase()}`]?.trim();
     if (slug) sizes[plan] = slug;
   }
+  const readyCheck = env.DO_READY_CHECK?.trim() || "public";
+  if (readyCheck !== "public" && readyCheck !== "droplet")
+    throw new Error("DO_READY_CHECK must be public or droplet");
   const edgeTag = env.DO_EDGE_TAG?.trim() || "hive-edge";
   return {
     token,
@@ -97,6 +106,7 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
     edgeTag,
     edgeAddresses: list("DO_EDGE_ADDRESSES"),
     upstreamNetwork,
+    readyCheck,
     waitSeconds: Number(env.DO_WAIT_SECONDS ?? 300),
   };
 }
@@ -203,7 +213,7 @@ export class DigitalOceanProvisioner implements Provisioner {
       if (!droplet) droplet = await this.makeDroplet(spec, url);
       if (droplet.status === "off") await this.powerOn(droplet.id);
       await this.waitActive(droplet.id);
-      await waitUntilAnswering(url, spec.workspaceId, this.config);
+      await this.untilAnswering(spec.workspaceId, url);
     } catch (error) {
       if (error instanceof ProvisionError) throw error;
       throw new ProvisionError(`DigitalOcean: ${error instanceof Error ? error.message : error}`);
@@ -220,7 +230,7 @@ export class DigitalOceanProvisioner implements Provisioner {
       );
     if (droplet.status === "off") await this.powerOn(droplet.id);
     await this.waitActive(droplet.id);
-    await waitUntilAnswering(this.publicUrl(workspaceId), workspaceId, this.config);
+    await this.untilAnswering(workspaceId, this.publicUrl(workspaceId));
   }
 
   async state(workspaceId: string): Promise<MachineState> {
@@ -493,6 +503,24 @@ export class DigitalOceanProvisioner implements Provisioner {
     throw new ProvisionError(
       `DigitalOcean: Droplet ${dropletId} did not become active in ${this.config.waitSeconds}s (it is ${status})`,
     );
+  }
+
+  /** Waits for the workspace to answer, at its public address or at its Droplet's, as `readyCheck` says. */
+  private async untilAnswering(workspaceId: string, publicUrl: string) {
+    let where = publicUrl;
+    if (this.config.readyCheck === "droplet") {
+      let origin: string | null = null;
+      for (let attempt = 0; !origin && attempt < 10; attempt++) {
+        origin = await this.upstream(workspaceId);
+        if (!origin) await this.pause(attempt);
+      }
+      if (!origin)
+        throw new ProvisionError(
+          `DigitalOcean: the ${this.config.upstreamNetwork} address of the Droplet is not known`,
+        );
+      where = origin;
+    }
+    await waitUntilAnswering(where, workspaceId, this.config);
   }
 
   private publicUrl(workspaceId: string) {

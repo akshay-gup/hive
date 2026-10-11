@@ -506,6 +506,50 @@ test("the edge is told where a running workspace is, on the private network unle
   );
 });
 
+test("a control plane that can reach the Droplet waits for the workspace at the Droplet's own address", async () => {
+  const realFetch = globalThis.fetch;
+  const asked: string[] = [];
+  // The Droplets' addresses are not real here: what is asked at one is answered as the workspace would.
+  globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = String(input);
+    if (/^http:\/\/(10\.116\.0|203\.0\.113)\.\d+:8787\/api\/health$/.test(url)) {
+      asked.push(url);
+      return realFetch(`${digitalocean.publicUrlTemplate.replace("{id}", ID)}/api/health`, init);
+    }
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const nobody = "https://nobody-answers-here.invalid/{id}";
+    const p = provisioner({ readyCheck: "droplet", publicUrlTemplate: nobody });
+    // The apps are still given the public address; it was only not where the wait was.
+    assert.equal((await p.create(spec())).url, nobody.replace("{id}", ID));
+    assert.ok(asked.length > 0);
+    assert.ok(
+      asked.every((url) => /^http:\/\/10\.116\.0\.\d+:8787\//.test(url)),
+      asked.join(),
+    );
+
+    asked.length = 0;
+    await p.stop(ID);
+    await p.wake(ID);
+    assert.ok(asked.length > 0, "waking did not wait at the Droplet");
+
+    // On the public network, it is the public address that is asked.
+    asked.length = 0;
+    await provisioner({
+      readyCheck: "droplet",
+      upstreamNetwork: "public",
+      publicUrlTemplate: nobody,
+    }).wake(ID);
+    assert.ok(
+      asked.every((url) => /^http:\/\/203\.0\.113\.\d+:8787\//.test(url)),
+      asked.join(),
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("a workspace's address is remembered, so busy workspaces do not cost an API call each time", async () => {
   const p = provisioner();
   await p.create(spec());
@@ -552,6 +596,14 @@ test("the DigitalOcean settings come from the environment, and say what is missi
     () => digitalOceanConfigFromEnv({ ...full, DO_UPSTREAM_NETWORK: "lan" }),
     /private or public/,
   );
+  assert.throws(
+    () => digitalOceanConfigFromEnv({ ...full, DO_READY_CHECK: "edge" }),
+    /public or droplet/,
+  );
+  assert.equal(
+    digitalOceanConfigFromEnv({ ...full, DO_READY_CHECK: "droplet" }).readyCheck,
+    "droplet",
+  );
   const config = digitalOceanConfigFromEnv({
     ...full,
     HIVE_WORKSPACE_ENV: '{"MODEL":"m"}',
@@ -565,6 +617,7 @@ test("the DigitalOcean settings come from the environment, and say what is missi
   assert.equal(config.apiUrl, "https://api.digitalocean.com/v2");
   assert.equal(config.edgeTag, "hive-edge");
   assert.equal(config.upstreamNetwork, "private");
+  assert.equal(config.readyCheck, "public");
   assert.equal(config.waitSeconds, 300);
   assert.equal(config.firewall, false);
   assert.deepEqual(config.sizes, { team: "s-2vcpu-4gb" });
