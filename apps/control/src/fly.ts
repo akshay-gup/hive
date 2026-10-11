@@ -7,6 +7,7 @@ import {
   type Provisioner,
   type WorkspaceSpec,
 } from "./provisioner.ts";
+import { WORKSPACE_PORT, workspaceEnvFromEnv, workspaceSettings } from "./workspace-env.ts";
 
 export interface FlyConfig {
   /** An org-scoped token that can create apps, volumes and machines. */
@@ -41,28 +42,13 @@ export function flyConfigFromEnv(env: Env = process.env): FlyConfig {
     if (!value) throw new Error(`The Fly provisioner needs ${name}`);
     return value;
   };
-  let workspaceEnv: Record<string, string> = {};
-  if (env.HIVE_WORKSPACE_ENV?.trim()) {
-    try {
-      const parsed = JSON.parse(env.HIVE_WORKSPACE_ENV);
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Object.values(parsed).some((value) => typeof value !== "string")
-      )
-        throw new Error("not an object of strings");
-      workspaceEnv = parsed;
-    } catch {
-      throw new Error("HIVE_WORKSPACE_ENV must be a JSON object of strings");
-    }
-  }
   return {
     token: need("FLY_API_TOKEN"),
     org: need("FLY_ORG"),
     image: need("FLY_IMAGE"),
     region: env.FLY_REGION?.trim() || "iad",
     appPrefix: env.FLY_APP_PREFIX?.trim() || "hive",
-    workspaceEnv,
+    workspaceEnv: workspaceEnvFromEnv(env),
     apiUrl: (env.FLY_API_URL?.trim() || "https://api.machines.dev/v1").replace(/\/+$/, ""),
     publicUrlTemplate: env.FLY_PUBLIC_URL_TEMPLATE?.trim() || "https://{app}.fly.dev",
     waitSeconds: Number(env.FLY_WAIT_SECONDS ?? 180),
@@ -103,8 +89,7 @@ function addressType(address: FlyAddress): string {
   return address.ip.includes(":") ? "v6" : "v4";
 }
 
-/** The port the workspace server listens on inside its machine. */
-const INTERNAL_PORT = 8787;
+const INTERNAL_PORT = WORKSPACE_PORT;
 const VOLUME_NAME = "data";
 const DATA_MOUNT = "/data";
 
@@ -268,20 +253,8 @@ export class FlyProvisioner implements Provisioner {
     const plan: Plan = spec.plan;
     return {
       image: this.config.image,
-      env: {
-        ...this.config.workspaceEnv,
-        // What makes it a managed workspace: its id and who may vouch for people. The server
-        // makes its own secrets on the volume at first start, so none of them pass through here.
-        WORKSPACE_MODE: "live",
-        WORKSPACE_ID: spec.workspaceId,
-        CONTROL_PLANE_PUBLIC_KEY: spec.controlPublicKey,
-        PUBLIC_API_URL: url,
-        ALLOWED_ORIGINS: spec.allowedOrigins.join(","),
-        HOST: "0.0.0.0",
-        PORT: String(INTERNAL_PORT),
-        DATA_DIR: `${DATA_MOUNT}/hive`,
-        TASK_WORKER_ENABLED: "true",
-      },
+      // The workspace makes its own secrets on the volume at first start, so none pass through here.
+      env: workspaceSettings(spec, url, this.config.workspaceEnv),
       guest: {
         cpu_kind: plan.guest.cpuKind,
         cpus: plan.guest.cpus,
