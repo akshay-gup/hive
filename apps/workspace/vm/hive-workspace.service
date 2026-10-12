@@ -17,7 +17,7 @@ Environment=WORKSPACE_UID=10001
 Environment=WORKSPACE_GID=10001
 Environment=WORKSPACE_HOME=/home/hive
 # It starts as root, to hand /data to the workspace's own user and become that user, as it does in
-# the container. From then on nothing it runs, the agent included, is root.
+# the container. What it starts is not root; the agent may use sudo to become it.
 ExecStart=/usr/local/bin/node dist/apps/workspace/src/index.js
 Restart=always
 RestartSec=3
@@ -26,8 +26,7 @@ RestartSec=3
 KillMode=mixed
 # The supervisor gives the server and the agent 25 seconds to stop.
 TimeoutStopSec=45
-# Nothing it runs can become root through a setuid program.
-NoNewPrivileges=yes
+# The agent may use sudo, a setuid program, so NoNewPrivileges is left off.
 LimitNOFILE=1048576
 TasksMax=16384
 

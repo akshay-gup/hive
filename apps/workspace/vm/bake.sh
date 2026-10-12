@@ -31,12 +31,12 @@ HIVE_UID=10001
 say() { printf '\n==> %s\n' "$*"; }
 
 # What the agent finds on its machine is what the container image gives it: the tools a shell
-# session reaches for. The firewall is the machine's own.
+# session reaches for. The firewall is the machine's own, and sudo is for the agent.
 prepare() {
   say "Packages"
   apt update
   apt -y upgrade
-  apt install -y --no-install-recommends ca-certificates curl git jq python3 ripgrep unzip nftables
+  apt install -y --no-install-recommends ca-certificates curl git jq python3 ripgrep unzip nftables sudo
 }
 
 # Docker is here only to take the workspace out of its image; seal removes it.
@@ -73,6 +73,11 @@ install_workspace() {
   getent group hive >/dev/null || groupadd --gid "$HIVE_UID" hive
   id hive >/dev/null 2>&1 ||
     useradd --uid "$HIVE_UID" --gid "$HIVE_UID" --create-home --home-dir /home/hive --shell /usr/sbin/nologin hive
+  # The agent may become root. The machine is the team's own, and what the agent installs for
+  # itself (packages, services) is then part of it and stays. It does not run as root: it asks.
+  echo 'hive ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/90-hive-workspace
+  chmod 0440 /etc/sudoers.d/90-hive-workspace
+  visudo -cf /etc/sudoers.d/90-hive-workspace
   install -m 0755 "$PAYLOAD/node" /usr/local/bin/node
   install -m 0755 "$PAYLOAD/opencode" /usr/local/bin/opencode
   rm -rf /app
@@ -123,6 +128,7 @@ check() {
   say "Starting a workspace to see that it does"
   /usr/local/bin/node --version
   /usr/local/bin/opencode --version
+  runuser -u hive -- sudo -n true
   local dir port=18787
   dir=$(mktemp -d /tmp/hive-check.XXXXXX)
   chmod 755 "$dir"

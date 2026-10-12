@@ -2,8 +2,9 @@
  * Makes the image a workspace's own machine is made from, in a container that runs systemd, and
  * starts a machine from it the way a Droplet starts: settings arrive in a file, the service runs.
  * It checks what no stand-in can: that the image bake.sh makes starts a workspace, that nothing
- * runs as root and the settings can be read by root alone, that data and what is installed stay
- * across a reboot, that the server stops before the agent, and what the firewall lets through.
+ * of it starts as root and the settings can be read by root alone, that the agent can become root
+ * and what it installs stays, with the workspace's data, across a reboot, that the server stops
+ * before the agent, and what the firewall lets through.
  *
  *   pnpm exec tsx apps/workspace/tests/run-vm.ts
  *
@@ -216,6 +217,9 @@ try {
   step("A new machine from that image, before it has been given its settings");
   boot(machine, IMAGES.snapshot);
   await untilSystemdIsUp(machine);
+  // A Droplet's name is in its hosts file, where cloud-init puts it; a container with no network has
+  // none, and sudo says so on every call.
+  inside('echo "127.0.1.1 $(hostname)" >> /etc/hosts');
   assert.equal(inside("systemctl is-enabled hive-workspace.service"), "enabled");
   const waiting = tried("systemctl is-active hive-workspace.service");
   assert.equal(waiting.out, "inactive", "it started without settings");
@@ -225,6 +229,9 @@ try {
   assert.equal(tried("command -v docker").status, 1, "docker was left on the machine");
   assert.equal(inside("id -u hive"), "10001");
   assert.equal(inside("ls /data | wc -l"), "0");
+  // The agent's user can become root without a password, and the sudoers file is as it should be.
+  assert.equal(inside("sudo -n id -u", "10001"), "0");
+  assert.equal(inside("stat -c '%a %U' /etc/sudoers.d/90-hive-workspace"), "440 root");
 
   step("Its settings arrive, as cloud-init writes them, and the service starts");
   const settings = workspaceSettings(
@@ -257,7 +264,8 @@ try {
   const { token: session } = first.json as { token: string };
   assert.equal(signIn(token({ workspace: "w2xyz" })).status, 401);
 
-  // Nothing of the workspace's runs as root, and its settings can be read by root alone.
+  // Nothing of the workspace's runs as root (the agent can become it, below), and its settings can
+  // be read by root alone.
   const running = inside("ps -eo user:20,args | grep -E 'dist/apps|opencode serve' | grep -v grep")
     .split("\n")
     .map((line) => line.trim().split(/\s+/));
@@ -290,7 +298,22 @@ try {
   });
   assert.equal(made.status, 201);
   inside("echo kept > /home/hive/kept.txt && chown hive:hive /home/hive/kept.txt");
-  inside("echo kept > /usr/local/bin/installed-by-an-administrator");
+  // The agent installs a package on the system, as itself with sudo, as it would with apt.
+  inside(
+    `
+    set -e
+    umask 022
+    dir=$(mktemp -d)
+    mkdir -p "$dir/pkg/DEBIAN" "$dir/pkg/usr/local/share"
+    printf 'Package: hive-vm-check\\nVersion: 1\\nArchitecture: all\\nMaintainer: test <test@example.invalid>\\nDescription: installed by the agent\\n' > "$dir/pkg/DEBIAN/control"
+    echo installed > "$dir/pkg/usr/local/share/hive-vm-check"
+    dpkg-deb --root-owner-group --build "$dir/pkg" "$dir/hive-vm-check.deb" >/dev/null
+    sudo -n dpkg -i "$dir/hive-vm-check.deb" >/dev/null
+  `,
+    "10001",
+  );
+  assert.match(inside("dpkg -s hive-vm-check"), /Status: install ok installed/);
+  assert.equal(inside("stat -c '%U' /usr/local/share/hive-vm-check"), "root");
   const secrets = inside("sha256sum /data/secrets.json");
 
   if (tried("ip netns add probe").status === 0) {
@@ -317,11 +340,14 @@ try {
       nohup python3 -m http.server 9001 --bind 0.0.0.0 >/dev/null 2>&1 &
       sleep 1
     `);
-    const get = (address: string, user?: string) =>
-      tried(
-        `${user ? "setpriv --reuid 10001 --regid 10001 --clear-groups " : ""}curl -sS -m 5 -o /dev/null -w '%{http_code}' http://${address}:9000/`,
-      ).out;
-    // The machine itself can reach everything; what the workspace's user runs, only the internet.
+    const as = {
+      root: "",
+      hive: "setpriv --reuid 10001 --regid 10001 --clear-groups ",
+      sudo: "setpriv --reuid 10001 --regid 10001 --clear-groups sudo -n ",
+    };
+    const get = (address: string, who: keyof typeof as = "root") =>
+      tried(`${as[who]}curl -sS -m 5 -o /dev/null -w '%{http_code}' http://${address}:9000/`).out;
+    // The machine itself can reach everything; what runs as the workspace's user, only the internet.
     for (const address of ["10.116.0.3", "169.254.169.254", "203.0.113.3"])
       assert.equal(get(address), "200", `root to ${address}`);
     const before = Date.now();
@@ -329,6 +355,9 @@ try {
       assert.doesNotMatch(get(address, "hive"), /^200/, `the workspace's user reached ${address}`);
     assert.ok(Date.now() - before < 4000, "refusing the agent took as long as a timeout");
     assert.equal(get("203.0.113.3", "hive"), "200");
+    // The agent with sudo is root, and the firewall does not hold it back.
+    for (const address of ["10.116.0.3", "169.254.169.254"])
+      assert.equal(get(address, "sudo"), "200", `the agent with sudo to ${address}`);
     // From outside, the workspace's port answers and nothing else the machine happens to listen on.
     assert.equal(
       tried(
@@ -353,10 +382,9 @@ try {
   await untilHealthy();
   console.log(`Answered after ${((Date.now() - restarted) / 1000).toFixed(1)}s`);
   assert.equal(inside("sha256sum /data/secrets.json"), secrets);
-  assert.equal(
-    inside("cat /home/hive/kept.txt /usr/local/bin/installed-by-an-administrator"),
-    "kept\nkept",
-  );
+  assert.equal(inside("cat /home/hive/kept.txt"), "kept");
+  assert.match(inside("dpkg -s hive-vm-check"), /Status: install ok installed/);
+  assert.equal(inside("cat /usr/local/share/hive-vm-check"), "installed");
   const again = signIn(token());
   assert.equal(again.status, 200);
   const channels = api("/api/agent/channels", {

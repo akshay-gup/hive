@@ -16,7 +16,8 @@ const env = withEnvFile(process.env);
 const volumeDir = env.VOLUME_DIR ?? "/data";
 
 // A new machine mounts its volume owned by root. It starts as root only to hand the volume to the
-// workspace's own user, then becomes that user, so everything it runs, the agent included, is not root.
+// workspace's own user, then becomes that user, so what it starts, the agent included, is not root
+// (on a machine of its own the agent may still use sudo).
 if (process.getuid?.() === 0) {
   const uid = Number(env.WORKSPACE_UID ?? 10001);
   const gid = Number(env.WORKSPACE_GID ?? 10001);
