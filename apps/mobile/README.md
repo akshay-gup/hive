@@ -20,7 +20,9 @@ pnpm --dir apps/mobile ios
 pnpm --dir apps/mobile android
 ```
 
-The default API is `http://localhost:8787`, or `http://10.0.2.2:8787` on the Android emulator. Set `EXPO_PUBLIC_API_URL` to your reachable server URL for a physical device or deployment. Live mode signs in with Google; local mode opens the fictional workspace automatically. The session is kept in `localStorage` on the web and in the keychain (`expo-secure-store`) on iOS and Android.
+**Which workspace** (a build without `EXPO_PUBLIC_CONTROL_URL`). The app opens the workspace it was last pointed at. Failing that, a web page served by a workspace uses that workspace, a build with `EXPO_PUBLIC_API_URL` set uses that address, and a development build on a phone or emulator uses `http://localhost:8787` (`http://10.0.2.2:8787` on the Android emulator). Otherwise it asks for the workspace address on first launch, checks that a Hive workspace answers there (`/api/health`), and remembers it; **Use a different workspace** on the sign-in card asks again. Plain `http://` is accepted only for addresses on the device's own network. A workspace that a website or app reaches from elsewhere must list that website in its `ALLOWED_ORIGINS`.
+
+**Signing in.** Live mode signs in with Google; local mode opens the fictional workspace automatically. The session is kept per workspace, in `localStorage` on the web and in the keychain (`expo-secure-store`) on iOS and Android. A sign-in is tied to the app that started it: the app keeps a random proof, sends the server only its SHA-256 when it starts, and has to show the proof to turn the one-time code that comes back into a session, so another app that receives the `hive://auth` link cannot use it. A code that arrives without a sign-in started in the app is ignored.
 
 A build made with `EXPO_PUBLIC_CONTROL_URL` set to a control plane's address is the hosted app: people sign in there, see their workspaces, make or join one, and are taken into it, and `EXPO_PUBLIC_API_URL` is not used. See [Hosted workspaces](../../docs/hosted.md). An invitation link (`/join/<token>` on the web, `hive://join/<token>` on a phone) opens the join screen.
 
