@@ -182,7 +182,7 @@ export async function createApp(
       });
       await agent.ensure(owner);
       const session = await auth.sessionForOwner(owner);
-      const loginCode = await google.mintLoginCode(session.token, session.mode);
+      const loginCode = await google.mintLoginCode(session.token, session.mode, profile.challenge);
       const target = profile.origin ? JSON.stringify(profile.origin) : "null";
       return c.html(
         `<!doctype html><html><head><meta charset="utf-8"><title>Hive sign-in</title></head>` +
@@ -197,13 +197,17 @@ export async function createApp(
     await google.callback(state, code);
     return c.html("<h1>Google is connected</h1><p>Return to Hive and refresh your workspace.</p>");
   });
-  /** Public: start Google sign-in, returns the OAuth URL to open. */
+  /**
+   * Public: start Google sign-in, returns the OAuth URL to open. A web page names its `origin`;
+   * an app sends the `challenge` (the SHA-256 of a proof it keeps) that `/api/auth/exchange` asks for.
+   */
   app.get("/api/auth/google/url", async (c) => {
     if (config.managed) throw new AppError("Sign in through your Hive account", 404);
     const origin = c.req.query("origin");
     // The page that opened the sign-in is handed the result, so it has to be one of this server's own.
     if (origin && !origins.has(origin)) throw new AppError("Origin is not allowed", 403);
-    return c.json(await google.loginUrl(origin || undefined));
+    const challenge = c.req.query("challenge");
+    return c.json(await google.loginUrl(origin || undefined, challenge || undefined));
   });
   /**
    * Public: sign in with a token the Hive control plane signed for this workspace. Only a managed
@@ -218,10 +222,12 @@ export async function createApp(
     const body = z.object({ token: z.string().min(1).max(4096) }).parse(await c.req.json());
     return c.json(await managed.signIn(body.token));
   });
-  /** Public: exchange a single-use login code for the session token. */
+  /** Public: exchange a single-use login code (and the proof, if it was started with a challenge) for the session token. */
   app.post("/api/auth/exchange", async (c) => {
-    const body = z.object({ code: z.string().min(1) }).parse(await c.req.json());
-    return c.json(await google.exchangeLoginCode(body.code));
+    const body = z
+      .object({ code: z.string().min(1), proof: z.string().max(256).optional() })
+      .parse(await c.req.json());
+    return c.json(await google.exchangeLoginCode(body.code, body.proof));
   });
   const hiveTools = new HiveToolBridge(`http://127.0.0.1:${config.port}/api/hive-tools`);
   app.route("/api/hive-tools", hiveTools.routes);

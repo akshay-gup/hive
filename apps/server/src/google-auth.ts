@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { decryptSecret, encryptSecret } from "../../../packages/integrations/src/vault.ts";
 import type { Config } from "./config.ts";
@@ -30,6 +30,8 @@ interface OAuthState {
   purpose?: "connect" | "login";
   /** Web origin that opened the login popup (for postMessage target). */
   origin?: string;
+  /** SHA-256 of a secret only the app that started the sign-in holds. */
+  challenge?: string;
 }
 interface LoginCode {
   id: string;
@@ -37,7 +39,10 @@ interface LoginCode {
   token: string;
   mode: string;
   expiresAt: number;
+  challenge?: string;
 }
+/** base64url of a SHA-256 digest: what an app sends to start a sign-in. */
+const challengePattern = /^[A-Za-z0-9_-]{43}$/;
 interface Credential {
   id: string;
   generation?: string;
@@ -179,12 +184,20 @@ export class GoogleAuth {
    * redirect URI serves both flows; the callback dispatches on the
    * state's purpose.
    */
-  async loginUrl(origin?: string) {
+  async loginUrl(origin?: string, challenge?: string) {
     if (!this.configured())
       throw new AppError(
         "Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and TOKEN_ENCRYPTION_KEY for Google sign-in",
         503,
       );
+    // The code that comes back reaches the app through a web popup or a custom-scheme link, and
+    // another page or app can listen on either. A popup is only handed the code when its origin is
+    // one this server allows (the route checks), and an app's link is only good to the app that
+    // holds the proof, so a sign-in names one or the other.
+    if (challenge !== undefined && !challengePattern.test(challenge))
+      throw new AppError("Sign-in could not start. Update the app and try again.", 400);
+    if (!origin && !challenge)
+      throw new AppError("Sign-in could not start. Update the app and try again.", 400);
     const state = randomBytes(32).toString("base64url"),
       verifier = randomBytes(48).toString("base64url");
     await this.db.put("system", "oauth", {
@@ -196,6 +209,7 @@ export class GoogleAuth {
       generation: "",
       purpose: "login",
       ...(origin ? { origin } : {}),
+      ...(challenge ? { challenge } : {}),
     });
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.search = new URLSearchParams({
@@ -248,13 +262,14 @@ export class GoogleAuth {
     const profile = z
       .object({ sub: z.string().min(1), email: z.email(), name: z.string().optional() })
       .parse(await userinfo.json());
-    return { ...profile, origin: state.origin };
+    return { ...profile, origin: state.origin, challenge: state.challenge };
   }
   /**
    * Mint a single-use login code for the app to exchange for its session
    * token (keeps the bearer token out of browser history / deep links).
+   * With a challenge, only the holder of the matching proof can exchange it.
    */
-  async mintLoginCode(token: string, mode: string): Promise<string> {
+  async mintLoginCode(token: string, mode: string, challenge?: string): Promise<string> {
     const code = randomBytes(24).toString("base64url");
     await this.db.put<LoginCode>("system", "oauth", {
       id: code,
@@ -262,14 +277,26 @@ export class GoogleAuth {
       token,
       mode,
       expiresAt: Date.now() + 5 * 60 * 1000,
+      ...(challenge ? { challenge } : {}),
     });
     return code;
   }
-  /** Exchange a single-use login code for the session token. */
-  async exchangeLoginCode(code: string): Promise<{ token: string; mode: string }> {
+  /**
+   * Exchange a single-use login code for the session token. A code is spent by the first attempt,
+   * right or wrong, so a guess at the proof cannot be retried.
+   */
+  async exchangeLoginCode(code: string, proof?: string): Promise<{ token: string; mode: string }> {
     const record = await this.db.take<LoginCode>("system", "oauth", code);
     if (record?.purpose !== "login-code" || (record.expiresAt ?? 0) < Date.now())
       throw new AppError("Sign-in expired. Try again.", 400);
+    if (record.challenge) {
+      const expected = Buffer.from(record.challenge, "base64url");
+      const actual = createHash("sha256")
+        .update(proof ?? "")
+        .digest();
+      if (!proof || expected.length !== actual.length || !timingSafeEqual(expected, actual))
+        throw new AppError("Sign-in expired. Try again.", 400);
+    }
     return { token: record.token, mode: record.mode as "sample" | "live" };
   }
   async callback(stateId: string, code: string) {
