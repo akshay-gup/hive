@@ -35,6 +35,8 @@ export function workspaceSettings(
   spec: WorkspaceSpec,
   publicUrl: string,
   shared: Record<string, string>,
+  /** `host` is the address the server listens on: all of them (the default), or 127.0.0.1 when only the machine itself connects to it. */
+  options: { host?: string } = {},
 ): Record<string, string> {
   return {
     ...shared,
@@ -43,7 +45,7 @@ export function workspaceSettings(
     CONTROL_PLANE_PUBLIC_KEY: spec.controlPublicKey,
     PUBLIC_API_URL: publicUrl,
     ALLOWED_ORIGINS: spec.allowedOrigins.join(","),
-    HOST: "0.0.0.0",
+    HOST: options.host ?? "0.0.0.0",
     PORT: String(WORKSPACE_PORT),
     DATA_DIR: WORKSPACE_DATA_DIR,
     TASK_WORKER_ENABLED: "true",

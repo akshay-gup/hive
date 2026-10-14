@@ -1,3 +1,8 @@
+import {
+  type CloudflareTunnelConfig,
+  CloudflareTunnels,
+  cloudflareTunnelConfigFromEnv,
+} from "./cloudflare-tunnels.ts";
 import { DigitalOceanApi, DigitalOceanError } from "./digitalocean-api.ts";
 import { sleep, waitUntilAnswering } from "./http.ts";
 import type { Plan, PlanId } from "./plans.ts";
@@ -32,7 +37,13 @@ export interface DigitalOceanConfig {
   apiUrl: string;
   /** Where a workspace answers; `{id}` stands for its id. */
   publicUrlTemplate: string;
-  /** Make the firewall that lets only the edge reach workspaces, if there is not one. */
+  /**
+   * Reach workspaces through a Cloudflare Tunnel each, and not through the edge: each Droplet runs
+   * `cloudflared`, which connects out, so nothing is let in and the server listens on the Droplet
+   * alone. Left out, workspaces are reached through the edge.
+   */
+  tunnel?: CloudflareTunnelConfig;
+  /** Make the firewall that lets only the edge (or, with `tunnel`, nothing) reach workspaces, if there is not one. */
   firewall: boolean;
   /** The tag the edge's Droplets carry: what the firewall lets reach a workspace. */
   edgeTag: string;
@@ -89,6 +100,13 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
   const readyCheck = env.DO_READY_CHECK?.trim() || "public";
   if (readyCheck !== "public" && readyCheck !== "droplet")
     throw new Error("DO_READY_CHECK must be public or droplet");
+  const access = env.DO_ACCESS?.trim() || "edge";
+  if (access !== "edge" && access !== "tunnel") throw new Error("DO_ACCESS must be edge or tunnel");
+  if (access === "tunnel" && readyCheck === "droplet")
+    throw new Error(
+      "DO_READY_CHECK=droplet cannot be used with DO_ACCESS=tunnel: nothing listens on the Droplet's network",
+    );
+  const namePrefix = env.DO_NAME_PREFIX?.trim() || "hive";
   const edgeTag = env.DO_EDGE_TAG?.trim() || "hive-edge";
   return {
     token,
@@ -98,10 +116,18 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
     sizes,
     vpcUuid: env.DO_VPC_UUID?.trim() || undefined,
     sshKeys: list("DO_SSH_KEYS"),
-    namePrefix: env.DO_NAME_PREFIX?.trim() || "hive",
+    namePrefix,
     workspaceEnv: workspaceEnvFromEnv(env),
     apiUrl: (env.DO_API_URL?.trim() || "https://api.digitalocean.com/v2").replace(/\/+$/, ""),
     publicUrlTemplate,
+    tunnel:
+      access === "tunnel"
+        ? cloudflareTunnelConfigFromEnv(
+            env,
+            namePrefix.toLowerCase(),
+            `http://localhost:${WORKSPACE_PORT}`,
+          )
+        : undefined,
     firewall: env.DO_FIREWALL?.trim().toLowerCase() !== "off",
     edgeTag,
     edgeAddresses: list("DO_EDGE_ADDRESSES"),
@@ -150,19 +176,31 @@ const UPSTREAM_MS = 5 * 60_000;
 /** How long a Droplet gets to shut itself down cleanly before it is powered off. */
 const SHUTDOWN_SECONDS = 90;
 
-/** The first-boot configuration (cloud-init): the workspace's settings, where only root can read them, and the start of the workspace. */
-export function cloudConfig(settings: Record<string, string>): string {
-  const content = Buffer.from(JSON.stringify(settings), "utf8").toString("base64");
-  return [
-    "#cloud-config",
-    "write_files:",
-    "  - path: /etc/hive/workspace.json",
+/**
+ * The first-boot configuration (cloud-init): the workspace's settings, where only root can read
+ * them, and the start of the workspace. With a `tunnelToken`, the token its tunnel runs with, in a
+ * file of its own so that it is not among the settings the workspace's processes are given, and
+ * the start of the tunnel.
+ */
+export function cloudConfig(
+  settings: Record<string, string>,
+  options: { tunnelToken?: string } = {},
+): string {
+  const file = (path: string, text: string) => [
+    `  - path: ${path}`,
     "    owner: root:root",
     '    permissions: "0600"',
     "    encoding: b64",
-    `    content: ${content}`,
+    `    content: ${Buffer.from(text, "utf8").toString("base64")}`,
+  ];
+  return [
+    "#cloud-config",
+    "write_files:",
+    ...file("/etc/hive/workspace.json", JSON.stringify(settings)),
+    ...(options.tunnelToken ? file("/etc/hive/tunnel-token", options.tunnelToken) : []),
     "runcmd:",
     "  - [systemctl, start, --no-block, hive-workspace.service]",
+    ...(options.tunnelToken ? ["  - [systemctl, start, --no-block, hive-tunnel.service]"] : []),
     "",
   ].join("\n");
 }
@@ -172,7 +210,9 @@ export function cloudConfig(settings: Record<string, string>): string {
  * has the workspace installed on it, and its whole disk is the workspace's, so what the agent
  * installs stays. Nothing about the Droplet is public but what the edge may reach: a firewall lets
  * only the edge connect to the workspace's port, and the edge holds the certificate for the
- * workspace's address.
+ * workspace's address. Or, with a Cloudflare Tunnel for each workspace (`config.tunnel`), nothing
+ * is let in at all: the Droplet connects out to Cloudflare, which holds the certificate and sends
+ * the workspace's address down that connection.
  */
 export class DigitalOceanProvisioner implements Provisioner {
   readonly name = "digitalocean";
@@ -182,6 +222,7 @@ export class DigitalOceanProvisioner implements Provisioner {
   private readonly upstreams = new Map<string, { until: number; value: string }>();
 
   private readonly client: DigitalOceanApi;
+  private readonly tunnels?: CloudflareTunnels;
 
   constructor(private readonly config: DigitalOceanConfig) {
     this.client = new DigitalOceanApi({
@@ -189,6 +230,11 @@ export class DigitalOceanProvisioner implements Provisioner {
       apiUrl: config.apiUrl,
       retryMs: config.retryMs,
     });
+    if (config.tunnel)
+      this.tunnels = new CloudflareTunnels({
+        ...config.tunnel,
+        retryMs: config.tunnel.retryMs ?? config.retryMs,
+      });
   }
 
   /** `hive-<id>`: a Droplet's name is a hostname, so lowercase letters, digits and dashes. */
@@ -210,7 +256,9 @@ export class DigitalOceanProvisioner implements Provisioner {
     const url = this.publicUrl(spec.workspaceId);
     try {
       let droplet = await this.droplet(spec.workspaceId);
-      if (!droplet) droplet = await this.makeDroplet(spec, url);
+      // The tunnel comes first: the Droplet is given its token when it is made.
+      const tunnel = await this.tunnels?.ensure(spec.workspaceId, new URL(url).hostname);
+      if (!droplet) droplet = await this.makeDroplet(spec, url, tunnel?.token);
       if (droplet.status === "off") await this.powerOn(droplet.id);
       await this.waitActive(droplet.id);
       await this.untilAnswering(spec.workspaceId, url);
@@ -278,10 +326,13 @@ export class DigitalOceanProvisioner implements Provisioner {
       undefined,
       [404],
     );
+    // After the Droplet, whose connection to the tunnel goes with it.
+    await this.tunnels?.remove(workspaceId, new URL(this.publicUrl(workspaceId)).hostname);
   }
 
-  /** Where the edge connects to reach a workspace, or null when its Droplet is not running. */
+  /** Where the edge connects to reach a workspace, or null when its Droplet is not running (or listens for no one but itself). */
   async upstream(workspaceId: string): Promise<string | null> {
+    if (this.tunnels) return null;
     const cached = this.upstreams.get(workspaceId);
     if (cached && cached.until > Date.now()) return cached.value;
     const droplet = await this.droplet(workspaceId);
@@ -297,7 +348,11 @@ export class DigitalOceanProvisioner implements Provisioner {
 
   // The steps of `create`, each safe to repeat.
 
-  private async makeDroplet(spec: WorkspaceSpec, url: string): Promise<DoDroplet> {
+  private async makeDroplet(
+    spec: WorkspaceSpec,
+    url: string,
+    tunnelToken?: string,
+  ): Promise<DoDroplet> {
     const region = spec.region ?? this.config.region;
     if (this.config.firewall) await this.ensureFirewall();
     const size = await this.chooseSize(spec.plan, region);
@@ -313,14 +368,21 @@ export class DigitalOceanProvisioner implements Provisioner {
       monitoring: true,
       ...(this.config.vpcUuid ? { vpc_uuid: this.config.vpcUuid } : {}),
       tags: [this.config.namePrefix.toLowerCase(), this.allTag, this.tagFor(spec.workspaceId)],
-      user_data: cloudConfig(workspaceSettings(spec, url, this.config.workspaceEnv)),
+      user_data: cloudConfig(
+        workspaceSettings(spec, url, this.config.workspaceEnv, {
+          // Only the tunnel's connector, on the machine itself, connects to the server.
+          host: this.tunnels ? "127.0.0.1" : undefined,
+        }),
+        { tunnelToken },
+      ),
     });
     return (made as { droplet: DoDroplet }).droplet;
   }
 
   /**
    * The firewall every workspace's Droplet is under, which lets the edge reach the workspace's port
-   * and nothing else in. It is made once; one that exists is left as an administrator set it.
+   * and nothing else in (or, with tunnels, lets nothing in). It is made once; one that exists is
+   * left as an administrator set it.
    */
   private async ensureFirewall() {
     if (this.firewallReady) return;
@@ -333,18 +395,20 @@ export class DigitalOceanProvisioner implements Provisioner {
         "/firewalls",
         {
           name,
-          inbound_rules: [
-            {
-              protocol: "tcp",
-              ports: String(WORKSPACE_PORT),
-              sources: {
-                tags: [this.config.edgeTag.toLowerCase()],
-                ...(this.config.edgeAddresses.length
-                  ? { addresses: this.config.edgeAddresses }
-                  : {}),
-              },
-            },
-          ],
+          inbound_rules: this.tunnels
+            ? []
+            : [
+                {
+                  protocol: "tcp",
+                  ports: String(WORKSPACE_PORT),
+                  sources: {
+                    tags: [this.config.edgeTag.toLowerCase()],
+                    ...(this.config.edgeAddresses.length
+                      ? { addresses: this.config.edgeAddresses }
+                      : {}),
+                  },
+                },
+              ],
           // Once a firewall has any rule, what it does not allow is blocked: workspaces reach out freely.
           outbound_rules: [
             { protocol: "tcp", ports: "0", destinations: { addresses: everywhere } },

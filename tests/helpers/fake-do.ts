@@ -289,6 +289,14 @@ export async function fakeDigitalOcean(
     return JSON.parse(Buffer.from(content[1] as string, "base64").toString("utf8"));
   };
 
+  /** The token the Droplet's first boot writes for its Cloudflare tunnel, if it is given one. */
+  const tunnelTokenOf = (droplet: FakeDroplet): string | undefined => {
+    const content = /path: \/etc\/hive\/tunnel-token[\s\S]*?content: ([A-Za-z0-9+/=]+)/.exec(
+      droplet.userData,
+    );
+    return content ? Buffer.from(content[1] as string, "base64").toString("utf8") : undefined;
+  };
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake");
     const path = url.pathname;
@@ -617,6 +625,7 @@ export async function fakeDigitalOcean(
     },
     /** What the Droplet's first boot writes as the workspace's settings. */
     settingsOf,
+    tunnelTokenOf,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
