@@ -1,6 +1,6 @@
 # Hosted workspaces
 
-Hive can run as a service for many teams: people open the app, sign in once, make a workspace, invite their team and start working. Each workspace is a Hive of its own, on a machine and a disk of its own, started by a control plane. This page is how the pieces fit, how to run them on a laptop, how to deploy them to [Fly](https://fly.io) or to [DigitalOcean](https://www.digitalocean.com), and what has not been tried on a real account.
+Hive can run as a service for many teams: people open the app, sign in once, make a workspace, invite their team and start working. Each workspace is a Hive of its own, on a machine and a disk of its own, started by a control plane. This page is how the pieces fit, how to run them on a laptop, how to deploy them to [Fly](https://fly.io) or to [DigitalOcean](https://www.digitalocean.com) (and the control plane to [Cloudflare](#deploy-the-control-plane-on-cloudflare)), and what has not been tried on a real account.
 
 A single team that runs its own Hive on a VM does not need any of this: see [VM deploy](vm-deploy.md).
 
@@ -19,7 +19,7 @@ flowchart LR
   Host --- Workspace
 ```
 
-- **The control plane** (`apps/control`) knows who people are (Google sign-in), which workspaces exist, who belongs to each and in what role, and which invitations are open. It keeps that in its own database, creates and removes workspaces through a *provisioner*, and signs a short-lived **workspace token** for a person who belongs to a workspace. It serves the web app too, so there is one address to give people.
+- **The control plane** (`apps/control`) knows who people are (Google sign-in), which workspaces exist, who belongs to each and in what role, and which invitations are open. It keeps that in its own database, creates and removes workspaces through a *provisioner*, and signs a short-lived **workspace token** for a person who belongs to a workspace. Run as a Node process it serves the web app too, so there is one address to give people; run as a Cloudflare Worker it does not, and the web app is hosted separately.
 - **A workspace** (`apps/workspace`) is one image: the Hive server in managed mode and OpenCode, started by a small supervisor. It has no sign-in of its own. It trusts the control plane's public key and nothing else about who a person is.
 - **The provisioner** is where workspaces run, chosen with `PROVISIONER`: `fly` (Fly Machines), `digitalocean` (a Droplet each, reached through the edge), or `local` (processes on the machine the control plane is on, for trying things out).
 - **The app** is the same app that opens a self-hosted workspace. A build with `EXPO_PUBLIC_CONTROL_URL` set is the hosted app: it signs in at the control plane, lists the person's workspaces, and signs in to the one they open.
@@ -225,6 +225,40 @@ The limits are DigitalOcean's: Droplets per account (ask them to raise it), and 
 A new snapshot is used by workspaces made after it. A Droplet that exists is not changed: Ubuntu installs security updates on it by itself but does not restart it, so restart a Droplet now and then to take a new kernel. Rolling a new workspace version onto existing Droplets is not written.
 
 Hive makes no copy of a workspace's disk. A Droplet can be lost with its host, and its data with it. Turn on DigitalOcean's backups for the Droplets, or snapshot them (`doctl compute droplet-action snapshot <id>`), before charging anyone, and keep a copy somewhere that is not DigitalOcean.
+
+## Deploy the control plane on Cloudflare
+
+The control plane can run as a Cloudflare Worker (`apps/control/src/worker.ts`) instead of a Node process. It is the same app with the same rules, with its records in [D1](https://developers.cloudflare.com/d1/) (Cloudflare's SQLite), its sign-in limit shared by every copy, and workspaces made by a [Workflow](https://developers.cloudflare.com/workflows/). There is no machine to size or keep running: Cloudflare runs as many copies as there is traffic. Workspaces still run on Fly or DigitalOcean; this moves only the control plane.
+
+What is different from the Node server:
+
+- **Records** are in D1 (`apps/control/src/d1-store.ts`, schema in `apps/control/migrations`). The Node server keeps using Postgres (embedded or `CONTROL_DATABASE_URL`).
+- **Making a workspace** is not done in the request, which ends when it answers. `POST /v1/workspaces` records the workspace as `provisioning` and starts a Workflow (`ProvisionWorkspace`), which runs the provisioner (up to 15 minutes an attempt, three retries). A timer every minute starts anything no one is making and finishes removals that did not finish.
+- **Several copies at once.** Before a copy calls the provisioner it claims the workspace's 20-minute lease in D1, so a workspace is made once even when the request, the timer and a retry all start it, and a delete waits for a copy that is still making it.
+- **The sign-in limit** is a Cloudflare [rate limit binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) (20 attempts a minute per visitor, from `CF-Connecting-IP`). Cloudflare's own documentation says its counts are approximate and kept per location, so treat it as a brake and not an exact count.
+- **The web app is not served by the Worker.** It is static files: build it with `EXPO_PUBLIC_CONTROL_URL` set to the Worker's address and put it on Cloudflare Pages (or anywhere), and list its address in `CONTROL_ALLOWED_ORIGINS`. `CONTROL_WEB_DIR` is for the Node server only.
+- **Settings** are the variables under [Configuration](#the-control-plane), as `vars` in `wrangler.jsonc` and secrets. Not used: `CONTROL_PORT`, `CONTROL_HOST`, `CONTROL_DATA_DIR`, `CONTROL_DATABASE_URL`, `CONTROL_WEB_DIR`. **`CONTROL_SIGNING_KEY` is required**, since a Worker has nowhere to keep a key and every copy must sign alike. `PROVISIONER` is `fly` or `digitalocean`; `local` starts processes and cannot run in a Worker.
+
+To deploy, from `apps/control`:
+
+```sh
+wrangler d1 create hive-control                          # put the database_id it prints in wrangler.jsonc
+wrangler d1 migrations apply hive-control --remote
+# In wrangler.jsonc: the route (api.vi-ak.com is an example, use your own), CONTROL_PUBLIC_URL,
+# CONTROL_ALLOWED_ORIGINS (the web app's address), GOOGLE_CLIENT_ID, PROVISIONER and the
+# provider's settings that are not secret (DO_IMAGE, DO_PUBLIC_URL_TEMPLATE, DO_REGION, ...).
+wrangler deploy
+node -e 'console.log(require("node:crypto").generateKeyPairSync("ed25519").privateKey.export({type:"pkcs8",format:"der"}).toString("base64url"))' \
+  | wrangler secret put CONTROL_SIGNING_KEY               # once; replacing it locks every workspace out
+wrangler secret put GOOGLE_CLIENT_SECRET
+wrangler secret put DO_API_TOKEN                          # or FLY_API_TOKEN
+```
+
+The Worker answers with an error until the signing key is set. Add `<CONTROL_PUBLIC_URL>/v1/auth/google/callback` to the Google OAuth client's redirect URIs. On DigitalOcean the [edge](#the-edge-appsedge) is still its own process: set its `EDGE_CONTROL_URL` to the Worker's address, and give the Worker (`wrangler secret put CONTROL_EDGE_TOKEN`) the token the edge has as `EDGE_TOKEN`.
+
+**What has been checked.** The Worker runs in `workerd` (`wrangler dev`, locally) in front of a stand-in DigitalOcean and a stand-in workspace: sign-in, creating a workspace through the Workflow (one Droplet), a workspace token signed in `workerd` and verified in Node, invitations and members (the queries run on `workerd`'s own SQLite), the sign-in limit refusing the 21st attempt, the timer, and deleting. `wrangler deploy --dry-run` accepts `wrangler.jsonc` (a 934 KiB bundle, 160 KiB compressed). The control plane's tests also pass against D1 (`pnpm test:control-d1`, which runs them over Node's SQLite with the real migration), including a pair of copies sharing one store.
+
+**What has not.** Nothing has been deployed to a Cloudflare account. Unmeasured: how the Workflows service behaves for a step that runs for minutes or is retried, D1's latency and limits from the edge, the rate limit at real traffic, the custom domain, what a request costs in CPU time against your plan's limit, and which plan Workflows, D1 and a cron trigger need and what they cost. The local test used `workerd` and not Cloudflare's network, and no real Google sign-in has run.
 
 ## Configuration
 
