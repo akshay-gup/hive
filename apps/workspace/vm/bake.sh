@@ -28,6 +28,13 @@ apt() { apt-get -o DPkg::Lock::Timeout=600 "$@"; }
 # The same user the container image has, so a disk that moves between the two still fits.
 HIVE_UID=10001
 
+# The tunnel client, for workspaces that are reached through a Cloudflare Tunnel. A release is pinned
+# here and its package checked against the checksum, so what a workspace runs does not change under
+# it. To take a newer one, change both (or set HIVE_CLOUDFLARED_VERSION and HIVE_CLOUDFLARED_SHA256,
+# the checksum of cloudflared-linux-amd64.deb on its release page).
+CLOUDFLARED_VERSION=${HIVE_CLOUDFLARED_VERSION:-2026.10.0}
+CLOUDFLARED_SHA256=${HIVE_CLOUDFLARED_SHA256:-9721287c28f78cb623e77c7b95a63feea87e909054d75666a0ec9eff20e5d548}
+
 say() { printf '\n==> %s\n' "$*"; }
 
 # What the agent finds on its machine is what the container image gives it: the tools a shell
@@ -37,6 +44,23 @@ prepare() {
   apt update
   apt -y upgrade
   apt install -y --no-install-recommends ca-certificates curl git jq python3 ripgrep unzip nftables sudo
+  install_cloudflared
+}
+
+# Installed on every machine, and started only on one given a tunnel token (see hive-tunnel.service).
+install_cloudflared() {
+  say "cloudflared $CLOUDFLARED_VERSION"
+  if [ "$(dpkg --print-architecture)" != amd64 ]; then
+    echo "The pinned cloudflared is for amd64; this machine is $(dpkg --print-architecture)" >&2
+    exit 1
+  fi
+  local deb=$WORK/cloudflared.deb
+  curl -fsSL --retry 3 -o "$deb" \
+    "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-linux-amd64.deb"
+  echo "$CLOUDFLARED_SHA256  $deb" | sha256sum --check --strict -
+  apt install -y --no-install-recommends "$deb"
+  rm -f "$deb"
+  cloudflared --version
 }
 
 # Docker is here only to take the workspace out of its image; seal removes it.
@@ -90,6 +114,9 @@ install_workspace() {
   install -m 0644 "$HERE/hive-workspace.service" /etc/systemd/system/hive-workspace.service
   # Enabled so that it comes back when the machine does; it does not start without its settings.
   systemctl enable hive-workspace.service
+  # The same for the tunnel: it comes back with the machine, and does not start without its token.
+  install -m 0644 "$HERE/hive-tunnel.service" /etc/systemd/system/hive-tunnel.service
+  systemctl enable hive-tunnel.service
 
   say "The firewall"
   nft -c -f "$HERE/nftables.conf"
@@ -128,6 +155,7 @@ check() {
   say "Starting a workspace to see that it does"
   /usr/local/bin/node --version
   /usr/local/bin/opencode --version
+  cloudflared --version
   runuser -u hive -- sudo -n true
   local dir port=18787
   dir=$(mktemp -d /tmp/hive-check.XXXXXX)

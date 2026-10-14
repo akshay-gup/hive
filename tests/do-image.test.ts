@@ -97,6 +97,7 @@ test("the Droplet is sent the scripts, and the DigitalOcean token is not among t
   assert.deepEqual([...files.keys()].sort(), [
     "/opt/hive-bake/bake.env",
     "/opt/hive-bake/bake.sh",
+    "/opt/hive-bake/hive-tunnel.service",
     "/opt/hive-bake/hive-workspace.service",
     "/opt/hive-bake/nftables.conf",
   ]);
@@ -107,6 +108,7 @@ test("the Droplet is sent the scripts, and the DigitalOcean token is not among t
     files.get("/opt/hive-bake/hive-workspace.service")?.text,
     vm("hive-workspace.service"),
   );
+  assert.equal(files.get("/opt/hive-bake/hive-tunnel.service")?.text, vm("hive-tunnel.service"));
   assert.equal(files.get("/opt/hive-bake/nftables.conf")?.text, vm("nftables.conf"));
   assert.equal(files.get("/opt/hive-bake/bake.sh")?.mode, "0755");
   // The registry login is in a file only root can read, and the DigitalOcean token is nowhere.
@@ -123,7 +125,7 @@ test("the Droplet is sent the scripts, and the DigitalOcean token is not among t
 
 test("the script finds the files it is sent where it looks for them", () => {
   const script = readFileSync(new URL("../apps/workspace/vm/bake.sh", import.meta.url), "utf8");
-  for (const name of ["hive-workspace.service", "nftables.conf"])
+  for (const name of ["hive-workspace.service", "hive-tunnel.service", "nftables.conf"])
     assert.ok(
       script.includes(`"$HERE/${name}"`),
       `bake.sh does not look for ${name} next to itself`,

@@ -1,0 +1,26 @@
+# The workspace's tunnel to Cloudflare. cloudflared connects out with the tunnel's token, and
+# Cloudflare sends the workspace's address down that connection to the server on this machine, so
+# nothing is let in: the cloud firewall has no inbound rule, and the server listens on 127.0.0.1.
+[Unit]
+Description=Hive workspace tunnel (Cloudflare)
+After=network-online.target
+Wants=network-online.target
+# Without a token there is no tunnel. A machine made to be reached through the edge is not given one.
+ConditionPathExists=/etc/hive/tunnel-token
+
+[Service]
+Type=simple
+# The token is read as root and handed over as a credential, so the connector runs as a user of its
+# own and the workspace's user cannot read it.
+DynamicUser=yes
+LoadCredential=tunnel-token:/etc/hive/tunnel-token
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token-file %d/tunnel-token
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

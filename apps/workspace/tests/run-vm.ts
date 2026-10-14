@@ -223,6 +223,14 @@ try {
   assert.equal(inside("systemctl is-enabled hive-workspace.service"), "enabled");
   const waiting = tried("systemctl is-active hive-workspace.service");
   assert.equal(waiting.out, "inactive", "it started without settings");
+  // The tunnel client is there for a workspace reached through Cloudflare, and idle without a token.
+  assert.match(inside("cloudflared --version"), /^cloudflared version /);
+  assert.equal(inside("systemctl is-enabled hive-tunnel.service"), "enabled");
+  assert.equal(
+    tried("systemctl is-active hive-tunnel.service").out,
+    "inactive",
+    "the tunnel started without a token",
+  );
   assert.match(inside("nft list ruleset"), /table inet hive/);
   assert.match(inside("cat /etc/hive/image.json"), /"baked":/);
   assert.equal(tried("ls /etc/ssh/ssh_host_* 2>&1").status, 2, "it kept the image's host keys");

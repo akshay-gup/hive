@@ -132,6 +132,7 @@ export function bakeCloudConfig(options: {
     "write_files:",
     entry("bake.sh", "0755", base64(file("bake.sh"))),
     entry("hive-workspace.service", "0644", base64(file("hive-workspace.service"))),
+    entry("hive-tunnel.service", "0644", base64(file("hive-tunnel.service"))),
     entry("nftables.conf", "0644", base64(file("nftables.conf"))),
     entry("bake.env", "0600", base64(env)),
     "runcmd:",
