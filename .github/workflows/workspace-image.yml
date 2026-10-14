@@ -1,0 +1,81 @@
+name: Workspace image
+# Builds the image a workspace runs (apps/workspace/Dockerfile) and pushes it to GitHub's container registry,
+# so the Droplet snapshot (apps/control/tools/do-image.ts) can be made from a machine that has no Docker.
+# The job summary says which image was pushed and the command that makes the snapshot from it.
+on:
+  push:
+    branches: [collab, main]
+    paths:
+      - apps/workspace/**
+      - apps/server/**
+      - apps/control/**
+      - packages/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig*.json
+      - .github/workflows/workspace-image.yml
+  # Only listed in the Actions tab once this file is on the default branch.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag for the image (sha-<commit> when empty)
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: workspace-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_INPUT:-sha-${SHA::7}}"
+          [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || { echo "Not a usable image tag: $tag" >&2; exit 1; }
+          image="ghcr.io/${OWNER,,}/hive-workspace:${tag}"
+          echo "image=$image" >> "$GITHUB_ENV"
+          # The labels link the package to this repository, so its access follows the repository's.
+          docker build --pull -f apps/workspace/Dockerfile \
+            --label "org.opencontainers.image.source=https://github.com/${REPO}" \
+            --label "org.opencontainers.image.revision=${SHA}" \
+            -t "$image" .
+      - name: Check that it starts
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint node "$image" --version
+          docker run --rm --entrypoint opencode "$image" --version
+      - name: Push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$image"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image")"
+          {
+            echo "### Workspace image"
+            echo
+            echo "Pushed \`$image\` (\`$digest\`)."
+            echo
+            echo "Make the Droplet snapshot from it, with the registry login only if the package is private:"
+            echo
+            echo '```sh'
+            echo "DO_API_TOKEN=… HIVE_REGISTRY_USER=… HIVE_REGISTRY_TOKEN=… \\"
+            echo "  pnpm exec tsx apps/control/tools/do-image.ts --image $image --region nyc3"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

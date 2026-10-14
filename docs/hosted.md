@@ -153,6 +153,8 @@ pnpm exec tsx apps/workspace/tests/run-docker.ts     # optional: runs it as a co
 docker push ghcr.io/you/hive-workspace:2026-10
 ```
 
+No Docker on hand? The workflow `.github/workflows/workspace-image.yml` builds the same image on GitHub and pushes it to `ghcr.io/<owner>/hive-workspace:sha-<commit>` whenever the image's files change on `collab` or `main` (and from the Actions tab once the file is on the default branch, with a tag of your choosing). The run's summary prints the image and the command for step 2. A package it publishes is private until you change it under the package's settings; a private one needs `HIVE_REGISTRY_USER` and a classic personal access token with only `read:packages` as `HIVE_REGISTRY_TOKEN`.
+
 **2. The Droplet image.** One command makes the snapshot every workspace's Droplet starts from:
 
 ```sh
