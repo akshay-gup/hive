@@ -21,7 +21,7 @@ flowchart LR
 
 - **The control plane** (`apps/control`) knows who people are (Google sign-in), which workspaces exist, who belongs to each and in what role, and which invitations are open. It keeps that in its own database, creates and removes workspaces through a *provisioner*, and signs a short-lived **workspace token** for a person who belongs to a workspace. Run as a Node process it serves the web app too, so there is one address to give people; run as a Cloudflare Worker it does not, and the web app is hosted separately.
 - **A workspace** (`apps/workspace`) is one image: the Hive server in managed mode and OpenCode, started by a small supervisor. It has no sign-in of its own. It trusts the control plane's public key and nothing else about who a person is.
-- **The provisioner** is where workspaces run, chosen with `PROVISIONER`: `fly` (Fly Machines), `digitalocean` (a Droplet each, reached through the edge), or `local` (processes on the machine the control plane is on, for trying things out).
+- **The provisioner** is where workspaces run, chosen with `PROVISIONER`: `fly` (Fly Machines), `digitalocean` (a Droplet each, reached through the edge or through a Cloudflare Tunnel each), or `local` (processes on the machine the control plane is on, for trying things out).
 - **The app** is the same app that opens a self-hosted workspace. A build with `EXPO_PUBLIC_CONTROL_URL` set is the hosted app: it signs in at the control plane, lists the person's workspaces, and signs in to the one they open.
 
 ### Getting into a workspace
@@ -166,7 +166,7 @@ A snapshot is in the region it was made in; transfer it to use another. It can o
 
 `pnpm exec tsx apps/workspace/tests/run-vm.ts` runs the same scripts in a container that runs systemd, starts a machine from the result the way a Droplet starts, and checks it: that it waits without settings, answers once it has them, runs nothing of the workspace's as root, lets the agent become root and keeps what it installs, with the workspace's data, across a reboot, stops the server before the agent, and has the firewall described above. It needs a Docker that runs privileged containers.
 
-**3. A domain and a certificate.** Workspaces share a parent domain, so give them one that serves nothing else, such as `ws.example.com`, and not a subdomain of the control plane's. Point `*.ws.example.com` at the edge's public address and get a wildcard certificate by DNS validation, for example with certbot and DigitalOcean's DNS:
+**3. A domain and a certificate.** *(Skip steps 3 and 4 if workspaces are reached through [Cloudflare Tunnels](#reaching-workspaces-through-cloudflare-tunnels-no-edge) instead of the edge.)* Workspaces share a parent domain, so give them one that serves nothing else, such as `ws.example.com`, and not a subdomain of the control plane's. Point `*.ws.example.com` at the edge's public address and get a wildcard certificate by DNS validation, for example with certbot and DigitalOcean's DNS:
 
 ```sh
 certbot certonly --dns-digitalocean --dns-digitalocean-credentials /root/do.ini -d '*.ws.example.com'
@@ -214,6 +214,38 @@ DO_API_TOKEN=… DO_IMAGE=<the id from step 2> DO_EDGE_ADDRESSES="$(curl -s http
 
 It makes one workspace under names of its own (`hivespike-…`, so it touches nothing of a deployment's), with a firewall that opens the workspace's port to this machine. It waits for the workspace at the Droplet's own address, so it needs no edge or control plane. It reports how long it takes to create, stop and wake the workspace, whether the firewall keeps ssh out, whether what the workspace kept survived the stop, how many calls it made to DigitalOcean against the 5,000 an hour that it allows, and whether anything is left. It exits non-zero if a step fails and cleans up either way (`--keep` leaves the Droplet to look at).
 
+### Reaching workspaces through Cloudflare Tunnels (no edge)
+
+With `DO_ACCESS=tunnel` the control plane gives each workspace a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) of its own, and there is nothing to run in front of the Droplets: no edge Droplet, no wildcard certificate to renew, no address ranges to allow. Each Droplet runs `cloudflared` (it is in the image from step 2) with its tunnel's token, which connects *out* to Cloudflare. Cloudflare holds the certificate for the workspace's address and sends the address down that connection to the server, which listens on the Droplet's `127.0.0.1` and nowhere else. The Droplets' cloud firewall lets nothing in.
+
+```mermaid
+flowchart LR
+  App["App"] -->|"https://ws-w1.example.com"| CF["Cloudflare"]
+  Droplet[("w1's Droplet<br/>cloudflared, server")] -->|"connects out"| CF
+  Control["Control plane"] -->|"tunnel, route, address"| CFAPI["Cloudflare API"]
+  Control -->|"create, stop, wake, destroy"| API["DigitalOcean API"]
+  API --- Droplet
+```
+
+Making a workspace does three things, each safe to repeat. It makes a tunnel named `hive-ws-<id>`, with its routes kept by Cloudflare: the workspace's address goes to `http://localhost:8787` and anything else gets a 404. It points the address at the tunnel with a proxied DNS record, and will not change a record at that name that is not a tunnel's. And it makes the Droplet, giving it the tunnel's token in a file only root can read, `/etc/hive/tunnel-token`, apart from the workspace's settings, which the workspace's processes are given. It then waits for the workspace to answer at its address, which it does once the Droplet's `cloudflared` has connected. Removing a workspace deletes the Droplet, then the address, the tunnel's connections, and the tunnel.
+
+To set it up:
+
+1. **The domain's DNS is on Cloudflare**, and workspaces get one-level names: `DO_PUBLIC_URL_TEMPLATE='https://ws-{id}.example.com'`. Cloudflare's free certificate covers `example.com` and the names directly under it, and [not deeper ones](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/) such as `{id}.ws.example.com`, which need Advanced Certificate Manager.
+2. **An API token** (Cloudflare dashboard, My Profile, API Tokens) with *Account, Cloudflare Tunnel, Edit* and *Zone, DNS, Edit* for that one zone, and the account id and the zone id (on the zone's overview page).
+3. **Make the Droplet image again** (step 2): this version of `bake.sh` puts `cloudflared` on it, a pinned release checked against its checksum. One image serves both ways of reaching a workspace.
+4. **Settings for the control plane**, in place of the edge's: `DO_ACCESS=tunnel`, `DO_PUBLIC_URL_TEMPLATE`, and `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`. `CONTROL_EDGE_TOKEN` is not needed, and `DO_READY_CHECK=droplet` is refused, since nothing listens on the Droplet's network.
+5. **If the account already has the firewall `hive-workspaces`** from reaching workspaces through the edge, delete it: a firewall that exists is left as it is, and that one lets the edge in. The first workspace made then makes one with no inbound rule.
+
+What to know:
+
+- **Cloudflare allows 1,000 tunnels per account** ([account limits](https://developers.cloudflare.com/cloudflare-one/account-limits/)), and a workspace takes one, so a deployment on one account tops out at about a thousand workspaces unless Cloudflare raises it for you. Past that the edge is the way, since it needs no tunnel. How many DNS records a zone may have on your plan has not been looked up.
+- **Cloudflare's limits are the workspace's**: the size of a request body (100 MB on the Free and Pro plans) and how long a proxied request may take to begin its answer (about 100 seconds before Cloudflare gives up with a 524). The workspace's streams and websockets are not affected by the second.
+- **HSTS.** The edge added `Strict-Transport-Security`; Cloudflare does not unless you turn it on (SSL/TLS, Edge Certificates).
+- **The visitor's address.** Cloudflare adds `CF-Connecting-IP` to what reaches the workspace. Nothing in the workspace server reads a forwarded address today.
+- **Who holds the token.** Whoever has a tunnel's token can run the other end of that workspace's tunnel and so receive its traffic. It is on the Droplet in a file only root reads (and the agent can be root there), in the Droplet's first-boot data, and in the control plane's memory while it makes the workspace. A leaked token is replaced by deleting the tunnel, which removing the workspace does.
+- `do-spike.ts` still tries the edge's way of reaching a workspace, and does not try tunnels.
+
 ### Size, cost and limits
 
 Both plans run on the cheapest available shared size with 2 vCPUs, 4 GB, and room for the plan's disk; `DO_SIZE`, or `DO_SIZE_FREE` and `DO_SIZE_TEAM`, name one instead. A workspace uses about 0.75 GB idle, before any task runs, so 2 GB is the least that works. DigitalOcean bills a Droplet by the hour for as long as it exists, whether it is on or off, so stopping one saves nothing and **no plan stops an idle workspace there**: the free plan costs what the team plan does.
@@ -246,15 +278,16 @@ wrangler d1 create hive-control                          # put the database_id i
 wrangler d1 migrations apply hive-control --remote
 # In wrangler.jsonc: the route (api.vi-ak.com is an example, use your own), CONTROL_PUBLIC_URL,
 # CONTROL_ALLOWED_ORIGINS (the web app's address), GOOGLE_CLIENT_ID, PROVISIONER and the
-# provider's settings that are not secret (DO_IMAGE, DO_PUBLIC_URL_TEMPLATE, DO_REGION, ...).
+# provider's settings that are not secret (DO_IMAGE, DO_REGION, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, ...).
 wrangler deploy
 node -e 'console.log(require("node:crypto").generateKeyPairSync("ed25519").privateKey.export({type:"pkcs8",format:"der"}).toString("base64url"))' \
   | wrangler secret put CONTROL_SIGNING_KEY               # once; replacing it locks every workspace out
 wrangler secret put GOOGLE_CLIENT_SECRET
 wrangler secret put DO_API_TOKEN                          # or FLY_API_TOKEN
+wrangler secret put CLOUDFLARE_API_TOKEN                  # for tunnels, below
 ```
 
-The Worker answers with an error until the signing key is set. Add `<CONTROL_PUBLIC_URL>/v1/auth/google/callback` to the Google OAuth client's redirect URIs. On DigitalOcean the [edge](#the-edge-appsedge) is still its own process: set its `EDGE_CONTROL_URL` to the Worker's address, and give the Worker (`wrangler secret put CONTROL_EDGE_TOKEN`) the token the edge has as `EDGE_TOKEN`.
+The Worker answers with an error until the signing key is set. Add `<CONTROL_PUBLIC_URL>/v1/auth/google/callback` to the Google OAuth client's redirect URIs. On DigitalOcean, either reach workspaces through [Cloudflare Tunnels](#reaching-workspaces-through-cloudflare-tunnels-no-edge), which `wrangler.jsonc` is set up for and which leaves nothing else to run, or keep the [edge](#the-edge-appsedge) as its own process: set its `EDGE_CONTROL_URL` to the Worker's address, and give the Worker (`wrangler secret put CONTROL_EDGE_TOKEN`) the token the edge has as `EDGE_TOKEN`.
 
 **What has been checked.** The Worker runs in `workerd` (`wrangler dev`, locally) in front of a stand-in DigitalOcean and a stand-in workspace: sign-in, creating a workspace through the Workflow (one Droplet), a workspace token signed in `workerd` and verified in Node, invitations and members (the queries run on `workerd`'s own SQLite), the sign-in limit refusing the 21st attempt, the timer, and deleting. `wrangler deploy --dry-run` accepts `wrangler.jsonc` (a 934 KiB bundle, 160 KiB compressed). The control plane's tests also pass against D1 (`pnpm test:control-d1`, which runs them over Node's SQLite with the real migration), including a pair of copies sharing one store.
 
@@ -307,7 +340,10 @@ The Worker answers with an error until the signing key is set. Add `<CONTROL_PUB
 | `DO_FIREWALL` | `off` if you manage the firewall yourself. |
 | `DO_EDGE_TAG`, `DO_EDGE_ADDRESSES` | What the firewall lets in: Droplets with this tag (default `hive-edge`), and addresses (CIDR, comma separated) for an edge that is not a Droplet of this account. |
 | `DO_UPSTREAM_NETWORK` | `private` (default) or `public`: which of a Droplet's addresses the edge connects to. |
-| `DO_READY_CHECK` | `public` (default): a new or waking workspace is waited for at its public address, through the edge. `droplet`: at the Droplet's own address, for a control plane on the same network. |
+| `DO_READY_CHECK` | `public` (default): a new or waking workspace is waited for at its public address, through the edge (or the tunnel). `droplet`: at the Droplet's own address, for a control plane on the same network; not with `DO_ACCESS=tunnel`. |
+| `DO_ACCESS` | `edge` (default): workspaces are reached through the edge. `tunnel`: through a [Cloudflare Tunnel](#reaching-workspaces-through-cloudflare-tunnels-no-edge) each, with no edge and nothing let in. |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID` | With `DO_ACCESS=tunnel`, all three: a token that can edit tunnels on the account and DNS on the zone, and the account and the zone the workspaces' addresses are in. |
+| `CLOUDFLARE_API_URL` | Cloudflare's API (`https://api.cloudflare.com/client/v4`), or a stand-in for it. |
 | `HIVE_WORKSPACE_ENV` | A JSON object of settings every workspace gets: `MODEL`, and the provider key. |
 | `DO_API_URL`, `DO_WAIT_SECONDS` | The API, and how long to wait for a workspace to answer (300). |
 
@@ -355,7 +391,7 @@ A workspace stores the role it was told, but does not yet use it: inside a works
 - **Updating a running workspace to a new image.** Creating is repeatable; rolling a fix out to existing workspaces, machines or Droplets, is not written.
 - **Sleeping idle workspaces on DigitalOcean.** A Droplet costs the same off as on, so the only way to stop paying for one is to delete it. To keep a team's data, it would be snapshotted first (a snapshot is a saved copy of the Droplet's whole disk, and costs only the storage it takes), deleted, and made again from the snapshot when someone returns, which takes minutes and not seconds. Until then every workspace there is always on.
 - **Backups of a workspace's disk**, on either host. See [updates and backups](#updates-and-backups).
-- **TLS between the edge and a workspace.** The edge speaks plain http to a Droplet over the private network. The agent can be root on its Droplet, so a workspace's neighbours on that network matter: DigitalOcean's private networks are meant to keep one Droplet from seeing another's traffic or posing as it, and that has not been tried here.
+- **TLS between the edge and a workspace.** (Not with tunnels, where the Droplet connects out and the server listens on 127.0.0.1.) The edge speaks plain http to a Droplet over the private network. The agent can be root on its Droplet, so a workspace's neighbours on that network matter: DigitalOcean's private networks are meant to keep one Droplet from seeing another's traffic or posing as it, and that has not been tried here.
 - **Apple's rules.** Whether and how the app may sell or sign people in on iOS has not been checked, and nothing here builds a signed binary or a Mac app.
 - **Roles inside a workspace, per-person limits, and cleaning up expired records** (sessions, login codes, sign-in states) in the control plane's database.
 

@@ -3,7 +3,8 @@
   // Fill in database_id (from `wrangler d1 create hive-control`), then apply the schema with
   // `wrangler d1 migrations apply hive-control --remote`.
   // Secrets, set with `wrangler secret put`: CONTROL_SIGNING_KEY, GOOGLE_CLIENT_SECRET, and the
-  // provider's (DO_API_TOKEN, or FLY_API_TOKEN), plus HIVE_WORKSPACE_ENV if workspaces get a model key.
+  // provider's (DO_API_TOKEN, or FLY_API_TOKEN), plus CLOUDFLARE_API_TOKEN for tunnels, and
+  // HIVE_WORKSPACE_ENV if workspaces get a model key. DO_IMAGE and DO_REGION also go in vars.
   "name": "hive-control",
   "main": "src/worker.ts",
   "compatibility_date": "2025-10-01",
@@ -30,6 +31,12 @@
     "CONTROL_ALLOWED_ORIGINS": "https://app.vi-ak.com",
     "CONTROL_CLIENT_IP_HEADER": "CF-Connecting-IP",
     "GOOGLE_CLIENT_ID": "FILL-IN",
-    "PROVISIONER": "digitalocean"
+    "PROVISIONER": "digitalocean",
+    // Each workspace reached through a Cloudflare Tunnel of its own, with no edge to run. The
+    // account id and the zone id are on the zone's overview page; the zone is the one the addresses are in.
+    "DO_ACCESS": "tunnel",
+    "DO_PUBLIC_URL_TEMPLATE": "https://ws-{id}.vi-ak.com",
+    "CLOUDFLARE_ACCOUNT_ID": "FILL-IN",
+    "CLOUDFLARE_ZONE_ID": "FILL-IN"
   }
 }
