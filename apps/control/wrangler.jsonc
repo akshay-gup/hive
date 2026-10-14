@@ -1,0 +1,35 @@
+{
+  // The control plane on Cloudflare (see src/worker.ts). Deploy from this directory: `wrangler deploy`.
+  // Fill in database_id (from `wrangler d1 create hive-control`), then apply the schema with
+  // `wrangler d1 migrations apply hive-control --remote`.
+  // Secrets, set with `wrangler secret put`: CONTROL_SIGNING_KEY, GOOGLE_CLIENT_SECRET, and the
+  // provider's (DO_API_TOKEN, or FLY_API_TOKEN), plus HIVE_WORKSPACE_ENV if workspaces get a model key.
+  "name": "hive-control",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "api.vi-ak.com", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hive-control",
+      "database_id": "FILL-IN-AFTER-wrangler-d1-create",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "workflows": [
+    { "name": "hive-provision", "binding": "PROVISION", "class_name": "ProvisionWorkspace" }
+  ],
+  "triggers": { "crons": ["* * * * *"] },
+  "ratelimits": [
+    { "name": "SIGNIN_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }
+  ],
+  "vars": {
+    "CONTROL_MODE": "live",
+    "CONTROL_PUBLIC_URL": "https://api.vi-ak.com",
+    "CONTROL_ALLOWED_ORIGINS": "https://app.vi-ak.com",
+    "CONTROL_CLIENT_IP_HEADER": "CF-Connecting-IP",
+    "GOOGLE_CLIENT_ID": "FILL-IN",
+    "PROVISIONER": "digitalocean"
+  }
+}

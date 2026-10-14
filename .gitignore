@@ -12,3 +12,7 @@ apps/mobile/android/
 *.tsbuildinfo
 artifacts/
 .hive-control/
+
+# wrangler (Cloudflare) local state and secrets
+.wrangler/
+.dev.vars
