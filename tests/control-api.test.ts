@@ -6,11 +6,11 @@ import { after, before, test } from "node:test";
 import { createControlApp } from "../apps/control/src/app.ts";
 import type { ControlConfig } from "../apps/control/src/config.ts";
 import { loadSigningKeys, type SigningKeys } from "../apps/control/src/signing.ts";
-import { createStore, type Store } from "../apps/server/src/db.ts";
 import { verifyWorkspaceToken } from "../packages/integrations/src/workspace-token.ts";
+import { type ControlTestStore, createControlStore } from "./helpers/control-store.ts";
 import { FakeProvisioner } from "./helpers/fake-provisioner.ts";
 
-let db: Store;
+let db: ControlTestStore;
 let directory: string;
 let keys: SigningKeys;
 let provisioner: FakeProvisioner;
@@ -32,7 +32,7 @@ const config = (over: Partial<ControlConfig> = {}): ControlConfig => ({
 
 before(async () => {
   directory = await mkdtemp(join(tmpdir(), "hive-control-"));
-  db = await createStore();
+  db = await createControlStore();
   keys = await loadSigningKeys(directory, {});
   provisioner = new FakeProvisioner();
   control = createControlApp(db, config(), {

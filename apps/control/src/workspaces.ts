@@ -4,13 +4,13 @@ import {
   signWorkspaceToken,
   type WorkspaceRole,
 } from "../../../packages/integrations/src/workspace-token.ts";
-import type { Store } from "../../server/src/db.ts";
 import { type Account, type Accounts, accountIdFor, HOME } from "./accounts.ts";
 import { HttpError } from "./errors.ts";
 import type { Mailer } from "./mailer.ts";
 import { DEFAULT_PLAN, type PlanId, plans } from "./plans.ts";
 import { type MachineState, ProvisionError, type Provisioner } from "./provisioner.ts";
 import type { SigningKeys } from "./signing.ts";
+import type { ControlStore } from "./store.ts";
 
 export type WorkspaceStatus = "provisioning" | "ready" | "failed" | "deleting";
 
@@ -24,6 +24,12 @@ interface WorkspaceRecord {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Until when one copy of the control plane has the right to make this workspace (a time in
+   * milliseconds; 0 for no one). Several copies may find it unfinished at once, and only the one
+   * that holds this makes it.
+   */
+  leaseUntil?: number;
 }
 interface MemberRecord {
   id: string;
@@ -78,6 +84,8 @@ export interface InviteView {
 }
 
 const INVITE_DAYS = 7;
+/** Longer than making a workspace can take, so a copy that is still at it is not taken over; a copy that died is, after this. */
+const LEASE_MS = 20 * 60 * 1000;
 const LINK_INVITE_USES = 50;
 // No look-alikes (0/o, 1/l/i), so an id read aloud or off a screen is not misheard.
 const ID_ALPHABET = "abcdefghjkmnpqrstvwxyz23456789";
@@ -92,7 +100,7 @@ const hasControlCharacter = (text: string) =>
   });
 
 export interface WorkspaceServiceOptions {
-  db: Store;
+  db: ControlStore;
   accounts: Accounts;
   provisioner: Provisioner;
   mailer: Mailer;
@@ -101,6 +109,12 @@ export interface WorkspaceServiceOptions {
   publicUrl: string;
   allowedOrigins: string[];
   maxWorkspacesPerAccount: number;
+  /**
+   * Where making a workspace is started. Left out, it is done in this process, which is right for
+   * one long-running server. Somewhere that cannot keep work going after a request (a Worker), it
+   * hands the id to a workflow or queue, which calls `provisionNow`.
+   */
+  startProvisioning?: (workspaceId: string) => void | Promise<void>;
 }
 
 /** Workspaces, who belongs to them, and getting them running. */
@@ -139,6 +153,7 @@ export class WorkspaceService {
         createdBy: account.id,
         createdAt: now,
         updatedAt: now,
+        leaseUntil: 0,
       });
     if (!record) throw new HttpError("Could not make a workspace. Try again.", 503);
     await this.db.put<MemberRecord>(HOME, "members", {
@@ -148,7 +163,7 @@ export class WorkspaceService {
       role: "owner",
       joinedAt: now,
     });
-    void this.provision(record.id);
+    await this.begin(record.id);
     return this.toView(record, "owner");
   }
 
@@ -226,7 +241,7 @@ export class WorkspaceService {
       { status: "failed" },
       { status: "provisioning", error: null, updatedAt: new Date().toISOString() },
     );
-    void this.provision(id);
+    await this.begin(id);
     return this.toView(moved ?? record, member.role);
   }
 
@@ -246,6 +261,9 @@ export class WorkspaceService {
   /** Take a workspace that is going away off its servers, then out of the records. */
   private async finishRemoval(id: string): Promise<void> {
     await this.jobs.get(id);
+    // Another copy may still be making it. Let that end first, or the machine it is about to start would be left behind.
+    const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
+    if (record && (record.leaseUntil ?? 0) > Date.now()) return;
     await this.options.provisioner.destroy(id);
     for (const m of await this.db.listWhere<MemberRecord>(HOME, "members", "workspaceId", id))
       await this.db.remove(HOME, "members", m.id);
@@ -256,13 +274,23 @@ export class WorkspaceService {
 
   /** Pick up what a restart (or a failed removal) left half done: workspaces being made, and ones being removed. */
   async resume(): Promise<void> {
-    for (const { value } of await this.db.scan<WorkspaceRecord>("workspaces")) {
-      if (value.status === "provisioning") void this.provision(value.id);
-      if (value.status === "deleting")
-        await this.finishRemoval(value.id).catch((error) =>
-          console.error(`[Hive control] could not remove ${value.id}: ${this.describe(error)}`),
-        );
-    }
+    // Only the unfinished ones are asked for, so this stays cheap however many workspaces there are.
+    for (const value of await this.db.listWhere<WorkspaceRecord>(
+      HOME,
+      "workspaces",
+      "status",
+      "provisioning",
+    ))
+      if ((value.leaseUntil ?? 0) <= Date.now()) await this.begin(value.id);
+    for (const value of await this.db.listWhere<WorkspaceRecord>(
+      HOME,
+      "workspaces",
+      "status",
+      "deleting",
+    ))
+      await this.finishRemoval(value.id).catch((error) =>
+        console.error(`[Hive control] could not remove ${value.id}: ${this.describe(error)}`),
+      );
   }
 
   /** Resolves when the work now under way for a workspace is done. */
@@ -270,17 +298,57 @@ export class WorkspaceService {
     await this.jobs.get(id);
   }
 
+  /** Start making a workspace, here or wherever `startProvisioning` sends it. A failure to start is for `resume` to retry. */
+  private async begin(id: string): Promise<void> {
+    const start = this.options.startProvisioning;
+    if (!start) {
+      void this.provision(id);
+      return;
+    }
+    try {
+      await start(id);
+    } catch (error) {
+      console.error(`[Hive control] could not start making ${id}: ${this.describe(error)}`);
+    }
+  }
+
+  /** Make the workspace now, if no other copy is making it, and resolve when that is done. For whatever `startProvisioning` hands the id to. */
+  provisionNow(id: string): Promise<void> {
+    return this.provision(id);
+  }
+
+  /** Take the right to make a workspace: of several copies that find it unfinished, one gets it. */
+  private async claim(id: string): Promise<WorkspaceRecord | null> {
+    const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
+    if (record?.status !== "provisioning" || (record.leaseUntil ?? 0) > Date.now()) return null;
+    // Whoever changes the lease from the value both read wins; the other finds it moved. (A record
+    // from before leases has no value to compare, so it can be claimed by more than one: making a
+    // workspace can be repeated, and none are left like that.)
+    return this.db.compareAndSwap<WorkspaceRecord>(
+      HOME,
+      "workspaces",
+      id,
+      {
+        status: "provisioning",
+        ...(record.leaseUntil === undefined ? {} : { leaseUntil: record.leaseUntil }),
+      },
+      { leaseUntil: Date.now() + LEASE_MS },
+    );
+  }
+
   private provision(id: string): Promise<void> {
     const running = this.jobs.get(id);
     if (running) return running;
     const job = (async () => {
+      let lease: number | undefined;
       try {
-        const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
-        if (record?.status !== "provisioning") return;
+        const claimed = await this.claim(id);
+        if (!claimed) return;
+        lease = claimed.leaseUntil;
         const { url } = await this.options.provisioner.create({
           workspaceId: id,
-          name: record.name,
-          plan: plans[record.plan],
+          name: claimed.name,
+          plan: plans[claimed.plan],
           controlPublicKey: this.options.keys.publicKey,
           allowedOrigins: [new URL(this.options.publicUrl).origin, ...this.options.allowedOrigins],
         });
@@ -289,24 +357,37 @@ export class WorkspaceService {
           "workspaces",
           id,
           { status: "provisioning" },
-          { status: "ready", url, updatedAt: new Date().toISOString() },
+          { status: "ready", url, leaseUntil: 0, updatedAt: new Date().toISOString() },
         );
       } catch (error) {
         console.error(`[Hive control] could not start ${id}: ${this.describe(error)}`);
-        await this.db.compareAndSwap(
-          HOME,
-          "workspaces",
-          id,
-          { status: "provisioning" },
-          {
-            status: "failed",
-            error:
-              error instanceof ProvisionError
-                ? error.userMessage
-                : "We could not start this workspace. Try again in a minute.",
-            updatedAt: new Date().toISOString(),
-          },
-        );
+        // Only a copy that had the workspace says it failed; one that never got it has nothing to say.
+        if (lease !== undefined)
+          await this.db.compareAndSwap(
+            HOME,
+            "workspaces",
+            id,
+            { status: "provisioning" },
+            {
+              status: "failed",
+              leaseUntil: 0,
+              error:
+                error instanceof ProvisionError
+                  ? error.userMessage
+                  : "We could not start this workspace. Try again in a minute.",
+              updatedAt: new Date().toISOString(),
+            },
+          );
+      } finally {
+        // Let go of the lease however it went (a workspace being removed meanwhile never reaches the lines above).
+        if (lease !== undefined)
+          await this.db.compareAndSwap(
+            HOME,
+            "workspaces",
+            id,
+            { leaseUntil: lease },
+            { leaseUntil: 0 },
+          );
       }
     })()
       .catch((error) =>

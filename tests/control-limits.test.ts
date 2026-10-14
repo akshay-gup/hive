@@ -7,10 +7,10 @@ import { createControlApp } from "../apps/control/src/app.ts";
 import type { ControlConfig } from "../apps/control/src/config.ts";
 import { RateLimiter } from "../apps/control/src/limits.ts";
 import { loadSigningKeys } from "../apps/control/src/signing.ts";
-import { createStore, type Store } from "../apps/server/src/db.ts";
+import { type ControlTestStore, createControlStore } from "./helpers/control-store.ts";
 import { FakeProvisioner } from "./helpers/fake-provisioner.ts";
 
-let db: Store;
+let db: ControlTestStore;
 let directory: string;
 
 const config = (over: Partial<ControlConfig> = {}): ControlConfig => ({
@@ -38,7 +38,7 @@ const signIn = (control: Awaited<ReturnType<typeof app>>, headers: Record<string
 
 before(async () => {
   directory = await mkdtemp(join(tmpdir(), "hive-control-limits-"));
-  db = await createStore();
+  db = await createControlStore();
 });
 after(async () => {
   await db.close();

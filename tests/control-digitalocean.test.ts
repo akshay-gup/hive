@@ -7,11 +7,11 @@ import { createControlApp } from "../apps/control/src/app.ts";
 import type { ControlConfig } from "../apps/control/src/config.ts";
 import { DigitalOceanProvisioner } from "../apps/control/src/digitalocean.ts";
 import { loadSigningKeys } from "../apps/control/src/signing.ts";
-import { createStore, type Store } from "../apps/server/src/db.ts";
+import { type ControlTestStore, createControlStore } from "./helpers/control-store.ts";
 import { fakeDigitalOcean } from "./helpers/fake-do.ts";
 
 const EDGE_TOKEN = "e".repeat(40);
-let db: Store;
+let db: ControlTestStore;
 let directory: string;
 let fake: Awaited<ReturnType<typeof fakeDigitalOcean>>;
 let control: ReturnType<typeof createControlApp>;
@@ -19,7 +19,7 @@ let provisioner: DigitalOceanProvisioner;
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "hive-control-do-"));
-  db = await createStore();
+  db = await createControlStore();
   // The address a workspace answers at has the edge in front of it, which asks the control plane.
   fake = await fakeDigitalOcean({
     activeDelayMs: 30,

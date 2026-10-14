@@ -6,6 +6,7 @@ import { readControlConfig } from "./config.ts";
 import { GoogleSignIn } from "./google.ts";
 import { provisionerFromEnv } from "./provisioners.ts";
 import { loadSigningKeys } from "./signing.ts";
+import { mountWeb } from "./web.ts";
 
 const config = readControlConfig();
 const db = await createStore({
@@ -24,6 +25,7 @@ const google =
       })
     : undefined;
 const { app, workspaces } = createControlApp(db, config, { provisioner, keys, google });
+mountWeb(app, config.webDir);
 
 // Pick up workspaces a restart interrupted, and again now and then for removals that did not finish.
 await workspaces.resume();

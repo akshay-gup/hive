@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import type { Store } from "../../server/src/db.ts";
 import { HOME } from "./accounts.ts";
 import type { GoogleLogin } from "./app.ts";
 import { HttpError } from "./errors.ts";
+import type { ControlStore } from "./store.ts";
 
 export interface GoogleSettings {
   clientId: string;
@@ -43,7 +43,7 @@ interface PendingSignIn {
 export class GoogleSignIn implements GoogleLogin {
   private readonly settings: GoogleSettings;
   constructor(
-    private readonly db: Store,
+    private readonly db: ControlStore,
     settings: Pick<GoogleSettings, "clientId" | "clientSecret" | "redirectUri"> &
       Partial<GoogleSettings>,
   ) {

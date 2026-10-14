@@ -7,12 +7,12 @@ import { createControlApp } from "../apps/control/src/app.ts";
 import type { ControlConfig } from "../apps/control/src/config.ts";
 import { GoogleSignIn } from "../apps/control/src/google.ts";
 import { loadSigningKeys } from "../apps/control/src/signing.ts";
-import { createStore, type Store } from "../apps/server/src/db.ts";
+import { type ControlTestStore, createControlStore } from "./helpers/control-store.ts";
 import { fakeGoogle } from "./helpers/fake-google.ts";
 import { FakeProvisioner } from "./helpers/fake-provisioner.ts";
 
 const APP = "https://hive.example.test";
-let db: Store;
+let db: ControlTestStore;
 let directory: string;
 let google: Awaited<ReturnType<typeof fakeGoogle>>;
 let control: ReturnType<typeof createControlApp>;
@@ -43,7 +43,7 @@ const signInWith = (over: Partial<ConstructorParameters<typeof GoogleSignIn>[1]>
 
 before(async () => {
   directory = await mkdtemp(join(tmpdir(), "hive-control-google-"));
-  db = await createStore();
+  db = await createControlStore();
 });
 after(async () => {
   await db.close();

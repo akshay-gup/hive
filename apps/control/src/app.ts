@@ -4,16 +4,15 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { z } from "zod";
-import type { Store } from "../../server/src/db.ts";
-import { serveWebFile, webRootDir } from "../../server/src/web-static.ts";
 import { type Account, Accounts } from "./accounts.ts";
 import type { ControlConfig } from "./config.ts";
 import { HttpError } from "./errors.ts";
-import { RateLimiter } from "./limits.ts";
+import { RateLimiter, type SignInLimiter } from "./limits.ts";
 import { consoleMailer, type Mailer } from "./mailer.ts";
 import type { Provisioner } from "./provisioner.ts";
 import type { SigningKeys } from "./signing.ts";
-import { WorkspaceService } from "./workspaces.ts";
+import type { ControlStore } from "./store.ts";
+import { WorkspaceService, type WorkspaceServiceOptions } from "./workspaces.ts";
 
 export interface ControlDeps {
   provisioner: Provisioner;
@@ -21,6 +20,10 @@ export interface ControlDeps {
   mailer?: Mailer;
   /** Signs people in with Google; without it only a sample control plane has a way to sign in. */
   google?: GoogleLogin;
+  /** Counts sign-in attempts per visitor. Left out, each process counts for itself. */
+  signInLimiter?: SignInLimiter;
+  /** See `WorkspaceServiceOptions`: where making a workspace is started, when not in this process. */
+  startProvisioning?: WorkspaceServiceOptions["startProvisioning"];
 }
 
 /** What the sign-in routes need of Google; src/google.ts is the real one. */
@@ -45,7 +48,7 @@ const sameSecret = (given: string | undefined, expected: string) =>
     createHash("sha256").update(expected).digest(),
   );
 
-export function createControlApp(db: Store, config: ControlConfig, deps: ControlDeps) {
+export function createControlApp(db: ControlStore, config: ControlConfig, deps: ControlDeps) {
   const accounts = new Accounts(db);
   const workspaces = new WorkspaceService({
     db,
@@ -56,6 +59,7 @@ export function createControlApp(db: Store, config: ControlConfig, deps: Control
     publicUrl: config.publicUrl,
     allowedOrigins: config.allowedOrigins,
     maxWorkspacesPerAccount: config.maxWorkspacesPerAccount,
+    startProvisioning: deps.startProvisioning,
   });
   const origins = new Set([new URL(config.publicUrl).origin, ...config.allowedOrigins]);
 
@@ -111,7 +115,7 @@ export function createControlApp(db: Store, config: ControlConfig, deps: Control
   });
 
   // Signing in. These are public: they are how a person gets a session.
-  const signIns = new RateLimiter(20);
+  const signIns = deps.signInLimiter ?? new RateLimiter(20);
   const visitorOf = (c: Context): string => {
     const forwarded = config.clientIpHeader ? c.req.header(config.clientIpHeader)?.trim() : "";
     if (forwarded) return forwarded.slice(0, 64);
@@ -121,8 +125,8 @@ export function createControlApp(db: Store, config: ControlConfig, deps: Control
       return "unknown";
     }
   };
-  const limitSignIns = (c: Context) => {
-    if (!signIns.allow(visitorOf(c)))
+  const limitSignIns = async (c: Context) => {
+    if (!(await signIns.allow(visitorOf(c))))
       throw new HttpError("Too many sign-in attempts. Try again in a minute.", 429);
   };
   const sessionFor = async (account: Account) => ({
@@ -131,21 +135,21 @@ export function createControlApp(db: Store, config: ControlConfig, deps: Control
   });
   app.post("/v1/auth/dev", async (c) => {
     if (config.mode !== "sample") throw new HttpError("Sign in with Google", 404);
-    limitSignIns(c);
+    await limitSignIns(c);
     const body = z
       .object({ email: z.string().max(320), name: z.string().max(100).optional() })
       .parse(await c.req.json());
     return c.json(await sessionFor(await accounts.upsert(body)));
   });
   app.post("/v1/auth/exchange", async (c) => {
-    limitSignIns(c);
+    await limitSignIns(c);
     const { code } = z.object({ code: z.string().min(1).max(200) }).parse(await c.req.json());
     const { token, account } = await accounts.exchangeLoginCode(code);
     return c.json({ token, account: { id: account.id, email: account.email, name: account.name } });
   });
   app.get("/v1/auth/google/url", async (c) => {
     if (!deps.google) throw new HttpError("Google sign-in is not set up", 503);
-    limitSignIns(c);
+    await limitSignIns(c);
     // The page that opened the sign-in is handed the result, so it has to be one of ours.
     const origin = c.req.query("origin") || undefined;
     if (origin && !origins.has(origin)) throw new HttpError("Origin is not allowed", 403);
@@ -153,7 +157,7 @@ export function createControlApp(db: Store, config: ControlConfig, deps: Control
   });
   app.get("/v1/auth/google/callback", async (c) => {
     if (!deps.google) throw new HttpError("Google sign-in is not set up", 503);
-    limitSignIns(c);
+    await limitSignIns(c);
     if (c.req.query("error"))
       return c.html("<h1>Sign-in cancelled</h1><p>You can return to Hive.</p>", 400);
     const state = c.req.query("state");
@@ -268,15 +272,5 @@ export function createControlApp(db: Store, config: ControlConfig, deps: Control
   );
   app.route("/v1", secure);
 
-  // The web app, for the browser: unknown paths (`/join/<token>`, …) are routes of the app.
-  const webRoot = webRootDir(config.webDir);
-  if (webRoot) {
-    app.get("/", (c) => serveWebFile(c, webRoot, "index.html"));
-    app.get("/*", (c) => {
-      const pathname = new URL(c.req.url).pathname;
-      if (pathname === "/v1" || pathname.startsWith("/v1/")) return c.notFound();
-      return serveWebFile(c, webRoot, decodeURIComponent(pathname));
-    });
-  }
   return { app, accounts, workspaces };
 }

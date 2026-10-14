@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Store } from "../../server/src/db.ts";
 import { HttpError } from "./errors.ts";
+import type { ControlStore } from "./store.ts";
 
 /** The `owner` the control plane files its records under: it is one service, not a person's workspace. */
 export const HOME = "control";
@@ -32,7 +32,7 @@ export const accountIdFor = (email: string) => `acct_${digest(`email:${email}`).
 
 /** People, and the sessions they sign in with. */
 export class Accounts {
-  constructor(private readonly db: Store) {}
+  constructor(private readonly db: ControlStore) {}
 
   /** The account for an email address, made on first sign-in; a name is only taken when one is given. */
   async upsert(profile: { email: string; name?: string; googleSub?: string }): Promise<Account> {

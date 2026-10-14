@@ -1,8 +1,13 @@
+/** Whether a visitor is within what sign-ins allow. Several copies of the control plane need one that is shared. */
+export interface SignInLimiter {
+  allow(key: string): boolean | Promise<boolean>;
+}
+
 /**
  * Counts attempts per key in fixed windows, so one noisy visitor cannot use up what everyone
  * else is allowed. It remembers a bounded number of keys: past that, the oldest are forgotten.
  */
-export class RateLimiter {
+export class RateLimiter implements SignInLimiter {
   private readonly windows = new Map<string, { start: number; count: number }>();
   constructor(
     private readonly max: number,
