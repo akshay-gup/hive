@@ -22,6 +22,11 @@ export class FakeProvisioner implements Provisioner {
   /** Fail the next `create` this many times. */
   failCreates = 0;
   failDestroys = 0;
+  /** Refuse the next `create` this many times for want of room at the provider, as a full region does. */
+  failCapacity = 0;
+  /** How many times the timer has asked for the provider's upkeep, and whether it should fail. */
+  maintained = 0;
+  failMaintain = false;
   /** Resolves a create only when released, to look at a workspace while it is being made. */
   hold?: Promise<void>;
   /** The steps a create reports before it waits on `hold`. */
@@ -32,12 +37,24 @@ export class FakeProvisioner implements Provisioner {
     this.created.push(spec);
     for (const step of this.reportSteps) progress?.(step);
     if (this.hold) await this.hold;
+    if (this.failCapacity > 0) {
+      this.failCapacity--;
+      throw new ProvisionError(
+        "the provider has no room",
+        "We are out of room right now. Please try again in a little while.",
+        true,
+      );
+    }
     if (this.failCreates > 0) {
       this.failCreates--;
       throw new ProvisionError("the provider said no", "We could not start this workspace.");
     }
     this.machines.set(spec.workspaceId, "running");
     return { url: `https://${spec.workspaceId}.fake.test` };
+  }
+  async maintain() {
+    this.maintained++;
+    if (this.failMaintain) throw new Error("the upkeep did not work");
   }
   async wake(workspaceId: string) {
     this.woken.push(workspaceId);

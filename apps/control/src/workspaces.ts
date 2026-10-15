@@ -98,6 +98,8 @@ const INVITE_DAYS = 7;
 /** Longer than making a workspace can take, so a copy that is still at it is not taken over; a copy that died is, after this. */
 const LEASE_MS = 20 * 60 * 1000;
 const LINK_INVITE_USES = 50;
+/** How long a workspace the provider has no room for is tried again (each minute) before it is said to have failed. */
+const CAPACITY_WAIT_MS = 15 * 60 * 1000;
 // No look-alikes (0/o, 1/l/i), so an id read aloud or off a screen is not misheard.
 const ID_ALPHABET = "abcdefghjkmnpqrstvwxyz23456789";
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -276,6 +278,12 @@ export class WorkspaceService {
 
   /** Pick up what a restart (or a failed removal) left half done: workspaces being made, and ones being removed. */
   async resume(): Promise<void> {
+    // The provider's own upkeep first, so that what it unlocks (the image in another region) is there for what follows.
+    try {
+      await this.options.provisioner.maintain?.();
+    } catch (error) {
+      console.error(`[Hive control] provider upkeep failed: ${this.describe(error)}`);
+    }
     // Only the unfinished ones are asked for, so this stays cheap however many workspaces there are.
     for (const value of await this.db.listWhere<WorkspaceRecord>(
       HOME,
@@ -343,10 +351,12 @@ export class WorkspaceService {
     if (running) return running;
     const job = (async () => {
       let lease: number | undefined;
+      let since = 0;
       try {
         const claimed = await this.claim(id);
         if (!claimed) return;
         lease = claimed.leaseUntil;
+        since = Date.parse(claimed.updatedAt);
         // The step the person sees. One write after another, so a slow one cannot land after the
         // step that follows it, and none after the workspace is ready.
         let steps: Promise<unknown> = Promise.resolve();
@@ -380,9 +390,19 @@ export class WorkspaceService {
           { status: "ready", url, step: null, leaseUntil: 0, updatedAt: new Date().toISOString() },
         );
       } catch (error) {
-        console.error(`[Hive control] could not start ${id}: ${this.describe(error)}`);
+        // No room at the provider is not a failure yet: the lease is let go below, and the timer
+        // starts it again each minute, until it has waited long enough.
+        const waiting =
+          error instanceof ProvisionError &&
+          error.capacity &&
+          Date.now() - since < CAPACITY_WAIT_MS;
+        console.error(
+          waiting
+            ? `[Hive control] no room for ${id} yet, trying again: ${this.describe(error)}`
+            : `[Hive control] could not start ${id}: ${this.describe(error)}`,
+        );
         // Only a copy that had the workspace says it failed; one that never got it has nothing to say.
-        if (lease !== undefined)
+        if (lease !== undefined && !waiting)
           await this.db.compareAndSwap(
             HOME,
             "workspaces",

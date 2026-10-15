@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, test } from "node:test";
+import { after, before, mock, test } from "node:test";
 import { createControlApp } from "../apps/control/src/app.ts";
 import type { ControlConfig } from "../apps/control/src/config.ts";
 import { loadSigningKeys, type SigningKeys } from "../apps/control/src/signing.ts";
@@ -391,6 +391,87 @@ test("a workspace that fails, or is tried again, does not keep the step it stopp
   assert.equal(retried.status, "provisioning");
   assert.equal("step" in retried, false);
   await control.workspaces.settled(created.id);
+});
+
+test("a workspace the provider has no room for is tried again by the timer, not failed at once", async () => {
+  const owner = await signIn("room1@example.com", "Rory");
+  const logged = mock.method(console, "error", () => {});
+  try {
+    provisioner.failCapacity = 1;
+    const created = await (await owner.post("/v1/workspaces", { name: "Crowded" })).json();
+    await control.workspaces.settled(created.id);
+    const waiting = await (await owner.get(`/v1/workspaces/${created.id}`)).json();
+    assert.equal(waiting.status, "provisioning");
+    assert.equal("error" in waiting, false);
+    assert.match(String(logged.mock.calls[0]?.arguments[0]), /no room for .* yet, trying again/);
+    // The timer starts it again, and this time there is room.
+    await control.workspaces.resume();
+    await control.workspaces.settled(created.id);
+    const ready = await (await owner.get(`/v1/workspaces/${created.id}`)).json();
+    assert.equal(ready.status, "ready");
+  } finally {
+    provisioner.failCapacity = 0;
+    logged.mock.restore();
+  }
+});
+
+test("a workspace the provider keeps having no room for fails after fifteen minutes, in words that fit", async () => {
+  const owner = await signIn("room2@example.com", "Ronnie");
+  const logged = mock.method(console, "error", () => {});
+  try {
+    provisioner.failCapacity = 5;
+    const created = await (await owner.post("/v1/workspaces", { name: "Packed" })).json();
+    await control.workspaces.settled(created.id);
+    // Not yet, however many times it is tried.
+    await control.workspaces.resume();
+    await control.workspaces.settled(created.id);
+    assert.equal(
+      (await (await owner.get(`/v1/workspaces/${created.id}`)).json()).status,
+      "provisioning",
+    );
+    // Pretend it has been waiting a long time.
+    await db.compareAndSwap(
+      "control",
+      "workspaces",
+      created.id,
+      { status: "provisioning" },
+      { updatedAt: new Date(Date.now() - 16 * 60_000).toISOString() },
+    );
+    await control.workspaces.resume();
+    await control.workspaces.settled(created.id);
+    const failed = await (await owner.get(`/v1/workspaces/${created.id}`)).json();
+    assert.equal(failed.status, "failed");
+    assert.match(failed.error, /out of room/);
+  } finally {
+    provisioner.failCapacity = 0;
+    logged.mock.restore();
+  }
+});
+
+test("the timer asks the provider for its upkeep every time, and a failure there stops nothing", async () => {
+  const before = provisioner.maintained;
+  await control.workspaces.resume();
+  assert.equal(provisioner.maintained, before + 1);
+
+  const owner = await signIn("room3@example.com", "Robin");
+  const logged = mock.method(console, "error", () => {});
+  try {
+    provisioner.failCapacity = 1;
+    const created = await (await owner.post("/v1/workspaces", { name: "Upkeep" })).json();
+    await control.workspaces.settled(created.id);
+    provisioner.failMaintain = true;
+    await control.workspaces.resume();
+    await control.workspaces.settled(created.id);
+    assert.equal((await (await owner.get(`/v1/workspaces/${created.id}`)).json()).status, "ready");
+    assert.match(
+      logged.mock.calls.map((call) => String(call.arguments[0])).join("\n"),
+      /provider upkeep failed/,
+    );
+  } finally {
+    provisioner.failMaintain = false;
+    provisioner.failCapacity = 0;
+    logged.mock.restore();
+  }
 });
 
 test("a workspace that fails to start says so, and the owner can try again", async () => {
