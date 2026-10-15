@@ -178,9 +178,40 @@ test("a deployment that manages its own firewall is not given one", async () => 
 });
 
 test("two creations racing to make the firewall both succeed", async () => {
-  digitalocean.failNext(/POST \/v2\/firewalls$/, 422, 1);
+  // The other creation's firewall appears just as this one's request is refused for the name.
+  digitalocean.failNext(
+    /POST \/v2\/firewalls$/,
+    422,
+    1,
+    undefined,
+    "Name has already been taken",
+    () =>
+      digitalocean.firewalls.set("fw-other", {
+        id: "fw-other",
+        name: "hive-workspaces",
+        status: "succeeded",
+        inbound_rules: [],
+        outbound_rules: [],
+        droplet_ids: [],
+        tags: ["hive-workspace"],
+      }),
+  );
   await provisioner().create(spec());
   assert.ok(digitalocean.dropletOf(ID));
+  assert.equal(digitalocean.firewalls.size, 1);
+});
+
+test("a firewall that cannot be made stops the workspace, and says why, rather than leaving it open", async () => {
+  digitalocean.failNext(/POST \/v2\/firewalls$/, 422, 1, undefined, "ports are not valid");
+  await assert.rejects(
+    provisioner().create(spec()),
+    (error) =>
+      error instanceof ProvisionError &&
+      /hive-workspaces could not be made/.test(error.message) &&
+      /ports are not valid/.test(error.message),
+  );
+  assert.equal(digitalocean.firewalls.size, 0);
+  assert.equal(digitalocean.droplets.size, 0);
 });
 
 test("creating a workspace that exists finishes it rather than making a second", async () => {

@@ -169,6 +169,8 @@ export async function fakeDigitalOcean(
     times: number;
     headers?: Record<string, string>;
     message: string;
+    /** Run as the failure is sent, for what happened elsewhere meanwhile. */
+    effect?: () => void;
   }[] = [];
   /** Action types that will start and never finish, for as many times as they are asked for. */
   const hanging = new Map<string, number>();
@@ -333,6 +335,7 @@ export async function fakeDigitalOcean(
     const failure = failures.find((f) => f.times > 0 && f.match.test(`${method} ${path}`));
     if (failure) {
       failure.times--;
+      failure.effect?.();
       return send(
         res,
         failure.status,
@@ -615,8 +618,9 @@ export async function fakeDigitalOcean(
       times = 1,
       headers?: Record<string, string>,
       message = "injected",
+      effect?: () => void,
     ) {
-      failures.push({ match, status, times, headers, message });
+      failures.push({ match, status, times, headers, message, effect });
     },
     /** The next `times` actions of this type are accepted and never complete. */
     hang(type: string, times = 1) {

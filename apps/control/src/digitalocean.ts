@@ -395,13 +395,14 @@ export class DigitalOceanProvisioner implements Provisioner {
   private async ensureFirewall() {
     if (this.firewallReady) return;
     const name = `${this.config.namePrefix}-workspaces`.toLowerCase();
-    const existing = await this.all<{ name: string }>("/firewalls", "firewalls");
-    if (!existing.some((firewall) => firewall.name === name)) {
+    const exists = async () =>
+      (await this.all<{ name: string }>("/firewalls", "firewalls")).some(
+        (firewall) => firewall.name === name,
+      );
+    if (!(await exists())) {
       const everywhere = ["0.0.0.0/0", "::/0"];
-      await this.api(
-        "POST",
-        "/firewalls",
-        {
+      try {
+        await this.api("POST", "/firewalls", {
           name,
           inbound_rules: this.tunnels
             ? []
@@ -424,10 +425,20 @@ export class DigitalOceanProvisioner implements Provisioner {
             { protocol: "icmp", destinations: { addresses: everywhere } },
           ],
           tags: [this.allTag],
-        },
-        // Another create made it a moment ago.
-        [422],
-      );
+        });
+      } catch (error) {
+        if (!(error instanceof DigitalOceanError && error.status === 422)) throw error;
+        // A refusal is not always a failure: another create may have made it a moment ago.
+        if (!(await exists())) {
+          const said = `the firewall ${name} could not be made: ${error.message}`;
+          // Otherwise a workspace would run with no firewall at all and no one the wiser. With a
+          // tunnel nothing listens on the Droplet's network and its own packet filter drops what
+          // arrives, so the workspace is safe without the cloud's firewall and the logs say so.
+          if (!this.tunnels) throw new ProvisionError(`DigitalOcean: ${said}`);
+          console.error(`[Hive control] ${said}; carrying on without it, as nothing listens`);
+          return;
+        }
+      }
     }
     this.firewallReady = true;
   }

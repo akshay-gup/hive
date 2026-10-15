@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, test } from "node:test";
+import { afterEach, beforeEach, mock, test } from "node:test";
 import {
   type DigitalOceanConfig,
   DigitalOceanProvisioner,
@@ -85,6 +85,21 @@ beforeEach(async () => {
 afterEach(async () => {
   await digitalocean.close();
   await cloudflare.close();
+});
+
+test("with a tunnel, a firewall that cannot be made is logged with the reason and the workspace still starts", async () => {
+  const logged = mock.method(console, "error", () => {});
+  try {
+    digitalocean.failNext(/POST \/v2\/firewalls$/, 422, 1, undefined, "ports are not valid");
+    await provisioner().create(spec());
+    assert.ok(digitalocean.dropletOf(ID));
+    assert.equal(digitalocean.firewalls.size, 0);
+    const said = logged.mock.calls.map((call) => String(call.arguments[0])).join("\n");
+    assert.match(said, /hive-workspaces could not be made/);
+    assert.match(said, /ports are not valid/);
+  } finally {
+    logged.mock.restore();
+  }
 });
 
 test("it says which step it is on as it goes, starting with the address", async () => {
