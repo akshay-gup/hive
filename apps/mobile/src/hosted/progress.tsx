@@ -18,7 +18,7 @@ export function ProgressScreen({
 }) {
   return (
     <Frame>
-      <Mascot size={56} />
+      <Mascot size={72} />
       {error ? <ErrorNotice error={error} /> : <ActivityIndicator color={colors.primary} />}
       <Text style={[s.title, { textAlign: "center" }]}>{title}</Text>
       {!!detail && <Text style={[s.muted, { textAlign: "center" }]}>{detail}</Text>}

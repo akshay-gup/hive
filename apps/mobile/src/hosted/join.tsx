@@ -20,7 +20,7 @@ export function JoinScreen({
 }) {
   return (
     <Frame>
-      <Mascot size={64} />
+      <Mascot size={80} />
       <Card style={{ width: "100%", gap: 14 }}>
         {preview ? (
           <>

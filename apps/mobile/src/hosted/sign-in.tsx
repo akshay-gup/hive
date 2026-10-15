@@ -31,7 +31,7 @@ export function SignInScreen({
   const [name, setName] = useState("");
   return (
     <Frame>
-      <Mascot size={72} />
+      <Mascot size={80} />
       <Text
         style={{
           fontSize: fontSize.display,

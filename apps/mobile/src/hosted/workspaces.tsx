@@ -57,7 +57,7 @@ export function WorkspacesScreen({
   };
   return (
     <Frame wide>
-      <Mascot size={56} />
+      <Mascot size={72} />
       <View style={{ alignItems: "center", gap: 6 }}>
         <Text
           style={{
