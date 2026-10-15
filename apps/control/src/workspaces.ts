@@ -142,17 +142,8 @@ export class WorkspaceService {
     const name = rawName.trim();
     if (!name || name.length > 60 || hasControlCharacter(name))
       throw new HttpError("Give the workspace a name of up to 60 characters", 422);
-    const made = await this.db.listWhere<WorkspaceRecord>(
-      HOME,
-      "workspaces",
-      "createdBy",
-      account.id,
-    );
-    if (made.filter((w) => w.status !== "deleting").length >= this.options.maxWorkspacesPerAccount)
-      throw new HttpError(
-        `You can have up to ${this.options.maxWorkspacesPerAccount} workspaces`,
-        403,
-      );
+    if ((await this.workspacesOf(account)).length >= this.options.maxWorkspacesPerAccount)
+      throw this.limitReached();
     const now = new Date().toISOString();
     let record: WorkspaceRecord | null = null;
     for (let attempt = 0; attempt < 5 && !record; attempt++)
@@ -566,6 +557,9 @@ export class WorkspaceService {
     const memberId = `${record.id}:${account.id}`;
     const already = await this.db.get<MemberRecord>(HOME, "members", memberId);
     if (already) return this.toView(record, already.role);
+    // Before the use is counted, so a refusal does not spend the link.
+    if ((await this.workspacesOf(account)).length >= this.options.maxWorkspacesPerAccount)
+      throw this.limitReached();
     // Count the use first, so a link with one use left cannot admit two people.
     let current = invite;
     for (let attempt = 0; ; attempt++) {
@@ -595,6 +589,32 @@ export class WorkspaceService {
   }
 
   // Helpers
+
+  /** The workspaces a person is in, made or joined, not counting one on its way out. */
+  private async workspacesOf(account: Account): Promise<WorkspaceRecord[]> {
+    const memberships = await this.db.listWhere<MemberRecord>(
+      HOME,
+      "members",
+      "accountId",
+      account.id,
+    );
+    const found: WorkspaceRecord[] = [];
+    for (const membership of memberships) {
+      const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", membership.workspaceId);
+      if (record && record.status !== "deleting") found.push(record);
+    }
+    return found;
+  }
+
+  private limitReached(): HttpError {
+    const most = this.options.maxWorkspacesPerAccount;
+    return new HttpError(
+      most === 1
+        ? "You can be in only one workspace. Leave or delete yours to make or join another."
+        : `You can have up to ${most} workspaces`,
+      403,
+    );
+  }
 
   private async usableInvite(token: string) {
     const invite = await this.db.get<InviteRecord>(HOME, "invites", digest(token));

@@ -309,7 +309,7 @@ The Worker answers with an error until the signing key is set. Add `<CONTROL_PUB
 | `CONTROL_SIGNING_KEY` | The Ed25519 key it signs workspace tokens with (base64url PKCS8). Without it one is made on first start and kept in the data directory. Replacing the key locks every workspace out. |
 | `CONTROL_WEB_DIR` | The web export to serve, from `pnpm build:web` made with `EXPO_PUBLIC_CONTROL_URL`. |
 | `CONTROL_ALLOWED_ORIGINS` | Web origins besides `CONTROL_PUBLIC_URL` that may call the API; also allowed by every workspace. |
-| `CONTROL_MAX_WORKSPACES` | How many workspaces one person can make (default 3). |
+| `CONTROL_MAX_WORKSPACES` | How many workspaces one person can be in, made or joined (default 3; the hosted site sets 1). A refused join does not use up the invitation. |
 | `CONTROL_CLIENT_IP_HEADER` | The header the host's proxy puts the visitor's address in (`Fly-Client-IP` on Fly). Sign-in limits count per visitor, and without it every visitor looks like the proxy. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | The OAuth client people sign in with. Required in live mode. |
 | `CONTROL_EDGE_TOKEN` | At least 32 characters. What the edge shows to ask where a workspace is (`GET /internal/upstream/:id`); the route does not exist without it. |

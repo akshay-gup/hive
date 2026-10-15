@@ -262,6 +262,53 @@ test("the host is asked where a workspace is only when it is being made or is re
   assert.deepEqual(provisioner.upstreamAsked.slice(before), [made.id, made.id]);
 });
 
+test("with one workspace allowed, a person cannot make or join a second, and a refused link is not used up", async () => {
+  const solo = createControlApp(db, config({ maxWorkspacesPerAccount: 1 }), { provisioner, keys });
+  const as = (token: string, method: string, path: string, body?: unknown) =>
+    solo.app.request(path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  const olive = await signIn("solo1@example.com");
+  const sam = await signIn("solo2@example.com");
+
+  const first = await (await as(olive.token, "POST", "/v1/workspaces", { name: "First" })).json();
+  await solo.workspaces.settled(first.id);
+  const second = await as(olive.token, "POST", "/v1/workspaces", { name: "Second" });
+  assert.equal(second.status, 403);
+  assert.match((await second.json()).error, /only one workspace/);
+
+  // Joining counts the same as making.
+  const other = await (await as(sam.token, "POST", "/v1/workspaces", { name: "Other" })).json();
+  await solo.workspaces.settled(other.id);
+  const link = (
+    await (await as(sam.token, "POST", `/v1/workspaces/${other.id}/invites`, {})).json()
+  ).link as string;
+  const token = link.split("/").pop();
+  const refused = await as(olive.token, "POST", `/v1/invites/${token}/accept`);
+  assert.equal(refused.status, 403);
+  assert.match((await refused.json()).error, /only one workspace/);
+  const invite = (await db.list("control", "invites")).find(
+    (i) => (i as { workspaceId: string }).workspaceId === other.id,
+  ) as { uses: number };
+  assert.equal(invite.uses, 0);
+  // Asking to join the one she is already in is not a second.
+  const own = await (
+    await as(olive.token, "POST", `/v1/workspaces/${first.id}/invites`, {})
+  ).json();
+  assert.equal(
+    (await as(olive.token, "POST", `/v1/invites/${own.link.split("/").pop()}/accept`)).status,
+    200,
+  );
+
+  // Deleting hers makes room for the other.
+  assert.ok((await as(olive.token, "DELETE", `/v1/workspaces/${first.id}`)).ok);
+  const joined = await as(olive.token, "POST", `/v1/invites/${token}/accept`);
+  assert.equal(joined.status, 200);
+  assert.equal((await joined.json()).id, other.id);
+});
+
 test("names are checked, and a person can have only so many workspaces", async () => {
   const owner = await signIn("owner2@example.com");
   for (const name of ["", "   ", "x".repeat(61), "bad\u0007name"])
