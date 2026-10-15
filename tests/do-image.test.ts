@@ -80,6 +80,7 @@ test("the image is made on a Droplet of its own, which is snapshotted and delete
       "POST /v2/droplets/N/actions",
       "GET /v2/droplets/N/actions/N",
       "GET /v2/droplets/N/snapshots",
+      "GET /v2/images/N",
       "DELETE /v2/droplets/N",
     ],
   );

@@ -538,7 +538,12 @@ export async function fakeDigitalOcean(
           .map((imageId) => images.get(imageId))
           .filter((image): image is FakeImage => image !== undefined);
         const { slice, links, meta } = page(mine, url);
-        return send(res, 200, { snapshots: slice, links, meta });
+        // DigitalOcean's list of a Droplet's snapshots leaves out each one's status; the image itself has it.
+        return send(res, 200, {
+          snapshots: slice.map(({ status: _status, ...image }) => image),
+          links,
+          meta,
+        });
       }
       if (sub === "actions" && subId && method === "GET") {
         const action = actions.get(Number(subId));

@@ -250,7 +250,8 @@ export async function bakeImage(api: DigitalOceanApi, options: BakeOptions): Pro
       .filter((image) => image.name === options.name)
       .sort((a, b) => b.id - a.id)[0];
     if (!snapshot) throw left(`The snapshot ${options.name} is not among the Droplet's snapshots.`);
-    image = snapshot;
+    // The list does not say whether the snapshot is ready; the image does.
+    image = (await call<{ image: Image }>("GET", `/images/${snapshot.id}`)).image;
     const availableUntil = Date.now() + options.snapshotMinutes * 60_000;
     while (image.status.toLowerCase() !== "available") {
       if (Date.now() >= availableUntil) throw left(`The snapshot is still ${image.status}.`);
