@@ -23,6 +23,11 @@ export interface DigitalOceanConfig {
   image: string;
   /** Where workspaces run when one does not say, as DigitalOcean names regions (`nyc3`). */
   region: string;
+  /**
+   * The regions a new workspace may go to, in the order they are tried: the first with a size for
+   * it and the workspace image. The image is copied to the others by `maintain`. `[region]` when unset.
+   */
+  regions?: string[];
   /** A size slug for every plan; without one, the cheapest available size that fits the plan. */
   size?: string;
   /** A size slug for one plan, over `size`. */
@@ -98,6 +103,12 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
     const slug = env[`DO_SIZE_${plan.toUpperCase()}`]?.trim();
     if (slug) sizes[plan] = slug;
   }
+  const regions = list("DO_REGIONS").map((region) => region.toLowerCase());
+  const region = regions[0] ?? (env.DO_REGION?.trim() || "nyc3");
+  if (regions.length > 1 && env.DO_VPC_UUID?.trim())
+    throw new Error(
+      "DO_VPC_UUID is one region's network, so it cannot be used with several DO_REGIONS",
+    );
   const readyCheck = env.DO_READY_CHECK?.trim() || "public";
   if (readyCheck !== "public" && readyCheck !== "droplet")
     throw new Error("DO_READY_CHECK must be public or droplet");
@@ -112,7 +123,8 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
   return {
     token,
     image,
-    region: env.DO_REGION?.trim() || "nyc3",
+    region,
+    regions: regions.length ? regions : [region],
     size: env.DO_SIZE?.trim() || undefined,
     sizes,
     vpcUuid: env.DO_VPC_UUID?.trim() || undefined,
@@ -173,6 +185,8 @@ const DEDICATED_SIZE = /^(g|gd|g5|c|c2|c5)-/;
 /** The cache lifetimes: sizes and the image change rarely, and a Droplet's address not at all while it lives. */
 const SIZES_MS = 5 * 60_000;
 const IMAGE_MS = 60_000;
+/** After a refused copy of the workspace image to a region, how long before it is asked for again. */
+const COPY_RETRY_MS = 10 * 60_000;
 const UPSTREAM_MS = 5 * 60_000;
 /** How long a Droplet gets to shut itself down cleanly before it is powered off. */
 const SHUTDOWN_SECONDS = 90;
@@ -215,11 +229,15 @@ export function cloudConfig(
  * is let in at all: the Droplet connects out to Cloudflare, which holds the certificate and sends
  * the workspace's address down that connection.
  */
+/** A region cannot take the workspace (no size, no image copy yet): another may. */
+class RegionUnavailable extends ProvisionError {}
+
 export class DigitalOceanProvisioner implements Provisioner {
   readonly name = "digitalocean";
   private sizeCache?: { until: number; sizes: DoSize[] };
   private imageCache?: { until: number; image: DoImage };
   private firewallReady = false;
+  private readonly copyRefused = new Map<string, number>();
   private readonly upstreams = new Map<string, { until: number; value: string }>();
 
   private readonly client: DigitalOceanApi;
@@ -236,6 +254,11 @@ export class DigitalOceanProvisioner implements Provisioner {
         ...config.tunnel,
         retryMs: config.tunnel.retryMs ?? config.retryMs,
       });
+  }
+
+  /** The regions a new workspace is tried in, most wanted first. */
+  private get regionOrder(): string[] {
+    return this.config.regions?.length ? this.config.regions : [this.config.region];
   }
 
   /** `hive-<id>`: a Droplet's name is a hostname, so lowercase letters, digits and dashes. */
@@ -361,10 +384,8 @@ export class DigitalOceanProvisioner implements Provisioner {
     url: string,
     tunnelToken?: string,
   ): Promise<DoDroplet> {
-    const region = spec.region ?? this.config.region;
     if (this.config.firewall) await this.ensureFirewall();
-    const size = await this.chooseSize(spec.plan, region);
-    await this.checkImage(region, size);
+    const { region, size } = await this.place(spec);
     const made = await this.api<{ droplet: DoDroplet }>("POST", "/droplets", {
       name: this.dropletName(spec.workspaceId),
       region,
@@ -444,6 +465,67 @@ export class DigitalOceanProvisioner implements Provisioner {
   }
 
   /** The size a plan runs on: the one named for it, or the cheapest available that is big enough. */
+  /**
+   * Where a new workspace goes: the first region, in order, that has a size for it and the workspace
+   * image. When none does, the provider has no room right now, which is worth trying again for.
+   */
+  private async place(spec: WorkspaceSpec): Promise<{ region: string; size: DoSize }> {
+    const refused: string[] = [];
+    for (const region of spec.region ? [spec.region] : this.regionOrder) {
+      try {
+        const size = await this.chooseSize(spec.plan, region);
+        await this.checkImage(region, size);
+        return { region, size };
+      } catch (error) {
+        if (!(error instanceof RegionUnavailable)) throw error;
+        refused.push(error.message);
+      }
+    }
+    throw new ProvisionError(
+      `DigitalOcean could not place the workspace: ${refused.join("; ")}`,
+      "We are out of room right now. Please try again in a little while.",
+      true,
+    );
+  }
+
+  /**
+   * Copies the workspace image to the regions a workspace may fall back to, which takes DigitalOcean
+   * a few minutes each, so that a region at capacity does not stop new workspaces. Called every
+   * minute; with the image everywhere (or one region) it is a single read.
+   */
+  async maintain(): Promise<void> {
+    const id = this.config.image;
+    if (this.regionOrder.length < 2 || !/^\d+$/.test(id)) return;
+    const found = await this.api<{ image: DoImage }>("GET", `/images/${id}`, undefined, [404]);
+    if (!found) return;
+    const missing = this.regionOrder.filter((region) => !found.image.regions.includes(region));
+    if (!missing.length) return;
+    const actions = await this.api<{
+      actions?: {
+        type: string;
+        status: string;
+        region_slug?: string;
+        region?: { slug?: string };
+      }[];
+    }>("GET", `/images/${id}/actions?per_page=200`);
+    const copying = new Set(
+      (actions?.actions ?? [])
+        .filter((action) => action.type === "transfer" && action.status === "in-progress")
+        .map((action) => action.region_slug ?? action.region?.slug),
+    );
+    for (const region of missing) {
+      if (copying.has(region) || (this.copyRefused.get(region) ?? 0) > Date.now()) continue;
+      try {
+        await this.api("POST", `/images/${id}/actions`, { type: "transfer", region });
+      } catch (error) {
+        this.copyRefused.set(region, Date.now() + COPY_RETRY_MS);
+        console.error(
+          `[Hive control] could not copy the workspace image to ${region}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+  }
+
   private async chooseSize(plan: Plan, region: string): Promise<DoSize> {
     const sizes = await this.sizes();
     const named = this.config.sizes[plan.id] ?? this.config.size;
@@ -451,7 +533,7 @@ export class DigitalOceanProvisioner implements Provisioner {
       const found = sizes.find((size) => size.slug === named);
       if (!found) throw new ProvisionError(`DigitalOcean has no size ${named}`);
       if (!found.available || !found.regions.includes(region))
-        throw new ProvisionError(`DigitalOcean: size ${named} is not available in ${region}`);
+        throw new RegionUnavailable(`DigitalOcean: size ${named} is not available in ${region}`);
       return found;
     }
     const kind = plan.guest.cpuKind === "shared" ? SHARED_SIZE : DEDICATED_SIZE;
@@ -473,10 +555,10 @@ export class DigitalOceanProvisioner implements Provisioner {
     if (!cheapest) {
       // A region at capacity lists no sizes at all, and naming a size will not help there.
       if (!sizes.some((size) => size.available && size.regions.includes(region)))
-        throw new ProvisionError(
-          `DigitalOcean offers no sizes in ${region} right now (it may be out of capacity); use a region that has the workspace image (DO_REGION)`,
+        throw new RegionUnavailable(
+          `DigitalOcean offers no sizes in ${region} right now (it may be out of capacity); use a region that has the workspace image (DO_REGIONS)`,
         );
-      throw new ProvisionError(
+      throw new RegionUnavailable(
         `DigitalOcean has no available size in ${region} with ${plan.guest.cpus} vCPUs, ${plan.guest.memoryMb} MB and ${plan.volumeGb} GB; set DO_SIZE`,
       );
     }
@@ -493,7 +575,23 @@ export class DigitalOceanProvisioner implements Provisioner {
   /** The workspace image is where the Droplet is going to be, and fits on the size chosen. */
   private async checkImage(region: string, size: DoSize) {
     if (!/^\d+$/.test(this.config.image)) return;
-    if (!this.imageCache || this.imageCache.until <= Date.now()) {
+    let image = await this.imageInfo();
+    // Copied to this region since it was last looked at, perhaps.
+    if (!image.regions.includes(region)) image = await this.imageInfo(true);
+    if (image.status.toLowerCase() !== "available")
+      throw new ProvisionError(`DigitalOcean: image ${image.id} is ${image.status}, not available`);
+    if (!image.regions.includes(region))
+      throw new RegionUnavailable(
+        `DigitalOcean: image ${image.id} is not in ${region} yet (it is in ${image.regions.join(", ")})`,
+      );
+    if (size.disk < image.min_disk_size)
+      throw new RegionUnavailable(
+        `DigitalOcean: size ${size.slug} has ${size.disk} GB and image ${image.id} needs ${image.min_disk_size} GB`,
+      );
+  }
+
+  private async imageInfo(fresh = false): Promise<DoImage> {
+    if (fresh || !this.imageCache || this.imageCache.until <= Date.now()) {
       const found = await this.api<{ image: DoImage }>(
         "GET",
         `/images/${this.config.image}`,
@@ -503,17 +601,7 @@ export class DigitalOceanProvisioner implements Provisioner {
       if (!found) throw new ProvisionError(`DigitalOcean has no image ${this.config.image}`);
       this.imageCache = { until: Date.now() + IMAGE_MS, image: found.image };
     }
-    const { image } = this.imageCache;
-    if (image.status.toLowerCase() !== "available")
-      throw new ProvisionError(`DigitalOcean: image ${image.id} is ${image.status}, not available`);
-    if (!image.regions.includes(region))
-      throw new ProvisionError(
-        `DigitalOcean: image ${image.id} is not in ${region} (it is in ${image.regions.join(", ")}); transfer it there or change DO_REGION`,
-      );
-    if (size.disk < image.min_disk_size)
-      throw new ProvisionError(
-        `DigitalOcean: size ${size.slug} has ${size.disk} GB and image ${image.id} needs ${image.min_disk_size} GB`,
-      );
+    return this.imageCache.image;
   }
 
   // Droplets.

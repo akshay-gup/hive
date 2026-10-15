@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, test } from "node:test";
+import { afterEach, beforeEach, mock, test } from "node:test";
 import {
   cloudConfig,
   type DigitalOceanConfig,
@@ -409,7 +409,7 @@ test("sizes that fill several pages are all considered", async () => {
 test("an image that is not where the workspace is going is refused before anything is made", async () => {
   await assert.rejects(provisioner({ region: "fra1" }).create(spec()), (error: unknown) => {
     assert.ok(error instanceof ProvisionError);
-    assert.match(error.message, /image 1234567 is not in fra1 \(it is in nyc3, sfo3\)/);
+    assert.match(error.message, /image 1234567 is not in fra1 yet \(it is in nyc3, sfo3\)/);
     return true;
   });
   assert.equal(digitalocean.droplets.size, 0);
@@ -690,4 +690,138 @@ test("PROVISIONER=digitalocean picks this provisioner, and says what to set othe
   assert.equal(provisionerFromEnv(env).name, "digitalocean");
   assert.throws(() => provisionerFromEnv({ PROVISIONER: "nowhere" }), /fly or digitalocean/);
   assert.throws(() => provisionerFromEnv({ PROVISIONER: "digitalocean" }), /DO_API_TOKEN/);
+});
+
+// Regions: where a new workspace goes when one is full.
+
+/** What DigitalOcean listed for nyc3 one afternoon: the region is there and none of its sizes are. */
+const noRoomInNyc3 = () => {
+  for (const size of digitalocean.sizes)
+    size.regions = size.regions.filter((region) => region !== "nyc3");
+};
+/** The workspace image, in nyc3 only, as the snapshot was made. */
+const imageInNyc3Only = () => {
+  const image = digitalocean.images.get(1234567);
+  assert.ok(image);
+  image.regions = ["nyc3"];
+  return image;
+};
+
+test("the first region is used while it has room", async () => {
+  await provisioner({ regions: ["nyc3", "sfo3"] }).create(spec());
+  assert.equal(digitalocean.dropletOf(ID)?.region.slug, "nyc3");
+});
+
+test("a workspace goes to the first region, in order, that has a size for it and the image", async () => {
+  noRoomInNyc3();
+  await provisioner({ regions: ["nyc3", "sfo3"] }).create(spec());
+  assert.equal(digitalocean.dropletOf(ID)?.region.slug, "sfo3");
+});
+
+test("a region the image has not reached yet is passed over, and when none will do it is a matter of room", async () => {
+  noRoomInNyc3();
+  imageInNyc3Only();
+  await assert.rejects(
+    provisioner({ regions: ["nyc3", "sfo3"] }).create(spec()),
+    (error: unknown) => {
+      assert.ok(error instanceof ProvisionError);
+      assert.equal(error.capacity, true);
+      assert.match(error.message, /offers no sizes in nyc3/);
+      assert.match(error.message, /not in sfo3 yet/);
+      assert.match(error.userMessage, /out of room/);
+      return true;
+    },
+  );
+  assert.equal(digitalocean.droplets.size, 0);
+});
+
+test("a workspace that exists stays where it is, whatever the regions have become", async () => {
+  const p = provisioner({ regions: ["nyc3", "sfo3"] });
+  await p.create(spec());
+  noRoomInNyc3();
+  await p.create(spec());
+  assert.equal(digitalocean.droplets.size, 1);
+  assert.equal(digitalocean.dropletOf(ID)?.region.slug, "nyc3");
+});
+
+test("upkeep copies the image to the other regions, so a full region stops mattering", async () => {
+  noRoomInNyc3();
+  const image = imageInNyc3Only();
+  const p = provisioner({ regions: ["nyc3", "sfo3"] });
+  await p.maintain();
+  assert.equal(calls("POST", /^\/v2\/images\/1234567\/actions$/).length, 1);
+  assert.deepEqual([...image.regions].sort(), ["nyc3", "sfo3"]);
+  await p.create(spec());
+  assert.equal(digitalocean.dropletOf(ID)?.region.slug, "sfo3");
+});
+
+test("a copy that is under way is not asked for again, and once it is done upkeep only looks", async () => {
+  await digitalocean.close();
+  digitalocean = await fakeDigitalOcean({ holdTransfers: true });
+  imageInNyc3Only();
+  const p = provisioner({ regions: ["nyc3", "sfo3"] }, digitalocean);
+  await p.maintain();
+  await p.maintain();
+  assert.equal(calls("POST", /\/actions$/).length, 1);
+  digitalocean.finishTransfers();
+  const before = digitalocean.calls.length;
+  await p.maintain();
+  assert.deepEqual(
+    digitalocean.calls.slice(before).map((call) => call.method),
+    ["GET"],
+  );
+});
+
+test("with one region upkeep does nothing at all", async () => {
+  const before = digitalocean.calls.length;
+  await provisioner().maintain();
+  assert.equal(digitalocean.calls.length, before);
+});
+
+test("a copy DigitalOcean refuses is logged, and not asked for again straight away", async () => {
+  const logged = mock.method(console, "error", () => {});
+  try {
+    imageInNyc3Only();
+    digitalocean.failNext(
+      /POST \/v2\/images\/\d+\/actions$/,
+      422,
+      5,
+      undefined,
+      "that region is not open to you",
+    );
+    const p = provisioner({ regions: ["nyc3", "sfo3"] });
+    await p.maintain();
+    await p.maintain();
+    assert.equal(calls("POST", /\/actions$/).length, 1);
+    assert.match(
+      String(logged.mock.calls[0]?.arguments[0]),
+      /copy the workspace image to sfo3.*that region is not open to you/,
+    );
+  } finally {
+    logged.mock.restore();
+  }
+});
+
+test("DO_REGIONS lists the regions in order, DO_REGION stands alone, and a VPC fits one region only", () => {
+  const full = {
+    DO_API_TOKEN: "t",
+    DO_IMAGE: "1234567",
+    DO_PUBLIC_URL_TEMPLATE: "https://{id}.ws.example.com",
+  };
+  const one = digitalOceanConfigFromEnv({ ...full, DO_REGION: "sfo3" });
+  assert.deepEqual([one.region, one.regions], ["sfo3", ["sfo3"]]);
+  const many = digitalOceanConfigFromEnv({
+    ...full,
+    DO_REGIONS: " NYC3, tor1 ,ric1",
+    DO_REGION: "sfo3",
+  });
+  assert.deepEqual([many.region, many.regions], ["nyc3", ["nyc3", "tor1", "ric1"]]);
+  assert.throws(
+    () => digitalOceanConfigFromEnv({ ...full, DO_REGIONS: "nyc3,tor1", DO_VPC_UUID: "vpc-1" }),
+    /DO_VPC_UUID/,
+  );
+  assert.equal(
+    digitalOceanConfigFromEnv({ ...full, DO_REGIONS: "nyc3", DO_VPC_UUID: "vpc-1" }).vpcUuid,
+    "vpc-1",
+  );
 });

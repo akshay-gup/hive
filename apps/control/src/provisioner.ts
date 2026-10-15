@@ -48,6 +48,12 @@ export interface Provisioner {
    * whose public address reaches the workspace itself have none.
    */
   upstream?(workspaceId: string): Promise<string | null>;
+  /**
+   * Upkeep the provider needs from time to time, called every minute by the control plane's timer
+   * (copying the workspace image to the regions a workspace may fall back to, say). It must be
+   * cheap when there is nothing to do, and a failure is for the logs: it never stops anything else.
+   */
+  maintain?(): Promise<void>;
   /** Let go of what the provisioner itself holds (processes it started, say) when the control plane stops. */
   close?(): Promise<void>;
 }
@@ -57,6 +63,8 @@ export class ProvisionError extends Error {
   constructor(
     message: string,
     readonly userMessage = "We could not start this workspace. Try again in a minute.",
+    /** The provider has no room for it right now, which time may mend: worth trying again for a while. */
+    readonly capacity = false,
   ) {
     super(message);
     this.name = "ProvisionError";

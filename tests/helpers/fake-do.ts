@@ -138,6 +138,8 @@ export async function fakeDigitalOcean(
      * switches itself off this long after it is active; left out, it never does.
      */
     bakeMs?: number;
+    /** Copies of an image to another region start but do not finish until `finishTransfers`. */
+    holdTransfers?: boolean;
     /**
      * What stands in front of the public address: asked about a workspace before it is let through,
      * as the edge asks the control plane. Without it the address reaches the Droplet directly.
@@ -174,6 +176,22 @@ export async function fakeDigitalOcean(
   }[] = [];
   /** Action types that will start and never finish, for as many times as they are asked for. */
   const hanging = new Map<string, number>();
+  /** Copies of images to other regions, as DigitalOcean lists them under the image. */
+  const imageActions: {
+    id: number;
+    type: "transfer";
+    status: "in-progress" | "completed";
+    resource_type: "image";
+    resource_id: number;
+    region_slug: string;
+    region: { slug: string };
+  }[] = [];
+  const completeTransfer = (action: (typeof imageActions)[number]) => {
+    const image = images.get(action.resource_id);
+    if (image && !image.regions.includes(action.region_slug))
+      image.regions.push(action.region_slug);
+    action.status = "completed";
+  };
 
   images.set(1234567, {
     id: 1234567,
@@ -351,6 +369,54 @@ export async function fakeDigitalOcean(
     if (collection === "sizes" && !id && method === "GET") {
       const { slice, links, meta } = page(sizes, url);
       return send(res, 200, { sizes: slice, links, meta });
+    }
+
+    if (collection === "images" && id && sub === "actions" && !subId) {
+      const image = images.get(Number(id));
+      if (!image)
+        return problem(res, 404, "not_found", "The resource you requested could not be found.");
+      if (method === "GET") {
+        const { slice, links, meta } = page(
+          imageActions.filter((action) => action.resource_id === image.id),
+          url,
+        );
+        return send(res, 200, { actions: slice, links, meta });
+      }
+      if (method === "POST") {
+        const input = body as { type?: string; region?: string };
+        if (input.type !== "transfer")
+          return problem(res, 422, "unprocessable_entity", `Unknown action ${input.type}`);
+        if (!input.region || !REGIONS.includes(input.region))
+          return problem(res, 422, "unprocessable_entity", "Region is not available");
+        if (image.regions.includes(input.region))
+          return problem(res, 422, "unprocessable_entity", "Image already exists in that region");
+        if (
+          imageActions.some(
+            (action) =>
+              action.resource_id === image.id &&
+              action.region_slug === input.region &&
+              action.status === "in-progress",
+          )
+        )
+          return problem(
+            res,
+            422,
+            "unprocessable_entity",
+            "A transfer to that region is under way",
+          );
+        const action: (typeof imageActions)[number] = {
+          id: ++ids,
+          type: "transfer",
+          status: "in-progress",
+          resource_type: "image",
+          resource_id: image.id,
+          region_slug: input.region,
+          region: { slug: input.region },
+        };
+        imageActions.push(action);
+        if (!options.holdTransfers) completeTransfer(action);
+        return send(res, 201, { action });
+      }
     }
 
     if (collection === "images" && id && method === "GET") {
@@ -611,6 +677,12 @@ export async function fakeDigitalOcean(
     firewalls,
     sizes,
     calls,
+    imageActions,
+    /** Finish every copy of an image that `holdTransfers` kept waiting. */
+    finishTransfers() {
+      for (const action of imageActions)
+        if (action.status === "in-progress") completeTransfer(action);
+    },
     /** Answer the next `times` requests that match `method path` with `status`. */
     failNext(
       match: RegExp,

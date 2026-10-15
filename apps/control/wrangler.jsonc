@@ -4,7 +4,7 @@
   // `wrangler d1 migrations apply hive-control --remote`.
   // Secrets, set with `wrangler secret put`: CONTROL_SIGNING_KEY, GOOGLE_CLIENT_SECRET, and the
   // provider's (DO_API_TOKEN, or FLY_API_TOKEN), plus CLOUDFLARE_API_TOKEN for tunnels, and
-  // HIVE_WORKSPACE_ENV if workspaces get a model key. DO_IMAGE and DO_REGION also go in vars.
+  // HIVE_WORKSPACE_ENV if workspaces get a model key. DO_IMAGE and DO_REGIONS also go in vars.
   "name": "hive-control",
   "main": "src/worker.ts",
   "compatibility_date": "2025-10-01",
@@ -40,7 +40,8 @@
     "DO_PUBLIC_URL_TEMPLATE": "https://ws-{id}.vi-ak.com",
     "CLOUDFLARE_ACCOUNT_ID": "c582e3d8cfe5ee494d65a4987c4ec102",
     "CLOUDFLARE_ZONE_ID": "8034fb3e2eb820737c9655df47f4781e",
-    "DO_REGION": "nyc3",
+    // Tried in this order; the image is copied to the later ones by the Worker (a minute after it starts).
+    "DO_REGIONS": "nyc3,tor1,ric1",
     "DO_IMAGE": "249849027"
   }
 }

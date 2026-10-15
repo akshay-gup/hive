@@ -280,7 +280,7 @@ wrangler d1 create hive-control                          # put the database_id i
 wrangler d1 migrations apply hive-control --remote
 # In wrangler.jsonc: the route (api.vi-ak.com is an example, use your own), CONTROL_PUBLIC_URL,
 # CONTROL_ALLOWED_ORIGINS (the web app's address), GOOGLE_CLIENT_ID, PROVISIONER and the
-# provider's settings that are not secret (DO_IMAGE, DO_REGION, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, ...).
+# provider's settings that are not secret (DO_IMAGE, DO_REGIONS, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, ...).
 wrangler deploy
 node -e 'console.log(require("node:crypto").generateKeyPairSync("ed25519").privateKey.export({type:"pkcs8",format:"der"}).toString("base64url"))' \
   | wrangler secret put CONTROL_SIGNING_KEY               # once; replacing it locks every workspace out
@@ -334,7 +334,8 @@ The Worker answers with an error until the signing key is set. Add `<CONTROL_PUB
 | `DO_API_TOKEN` | A token that can create and delete Droplets and firewalls and read sizes and images. |
 | `DO_IMAGE` | The snapshot every workspace's Droplet is made from: the id `do-image.ts` printed. |
 | `DO_PUBLIC_URL_TEMPLATE` | Where people reach a workspace, an https address with `{id}` where its id goes (`https://{id}.ws.example.com`). |
-| `DO_REGION` | Where workspaces run (default `nyc3`). The image must be in it. |
+| `DO_REGIONS` | Where workspaces may run, most wanted first (`nyc3,tor1,ric1`): a new workspace goes to the first with a size for it and the image. Every minute the control plane copies the image to the ones that lack it (a few minutes each), so a region at capacity does not stop new workspaces; if none has room it keeps trying for 15 minutes before saying so. A workspace stays in the region it was made in. Cannot be used with `DO_VPC_UUID` and more than one region. |
+| `DO_REGION` | One region, when `DO_REGIONS` is not set (default `nyc3`). The image must be in it. |
 | `DO_SIZE`, `DO_SIZE_FREE`, `DO_SIZE_TEAM` | A size slug for every plan, or for one. Without one, the cheapest available shared size that fits the plan. |
 | `DO_VPC_UUID` | The private network to put Droplets in (the region's default when unset). The edge must be in it. |
 | `DO_SSH_KEYS` | SSH keys, by id or fingerprint, that can log in to a workspace's Droplet. None by default; the firewall does not open ssh either. |
