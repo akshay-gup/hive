@@ -30,7 +30,7 @@
     "CONTROL_PUBLIC_URL": "https://api.vi-ak.com",
     "CONTROL_ALLOWED_ORIGINS": "https://app.vi-ak.com",
     "CONTROL_CLIENT_IP_HEADER": "CF-Connecting-IP",
-    "GOOGLE_CLIENT_ID": "FILL-IN",
+    "GOOGLE_CLIENT_ID": "181019654698-bq4rul5547g5gjb70sc31t4i6vtd7o0o.apps.googleusercontent.com",
     "PROVISIONER": "digitalocean",
     // Each workspace reached through a Cloudflare Tunnel of its own, with no edge to run. The
     // account id and the zone id are on the zone's overview page; the zone is the one the addresses are in.
