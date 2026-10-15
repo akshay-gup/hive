@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "hive-control",
-      "database_id": "FILL-IN-AFTER-wrangler-d1-create",
+      "database_id": "f5d3bc86-8efd-4d2c-85ea-e15e5e46b731",
       "migrations_dir": "migrations"
     }
   ],
@@ -36,7 +36,9 @@
     // account id and the zone id are on the zone's overview page; the zone is the one the addresses are in.
     "DO_ACCESS": "tunnel",
     "DO_PUBLIC_URL_TEMPLATE": "https://ws-{id}.vi-ak.com",
-    "CLOUDFLARE_ACCOUNT_ID": "FILL-IN",
-    "CLOUDFLARE_ZONE_ID": "FILL-IN"
+    "CLOUDFLARE_ACCOUNT_ID": "c582e3d8cfe5ee494d65a4987c4ec102",
+    "CLOUDFLARE_ZONE_ID": "8034fb3e2eb820737c9655df47f4781e",
+    "DO_REGION": "nyc3",
+    "DO_IMAGE": "249849027"
   }
 }
