@@ -1,26 +1,39 @@
+import { Image } from "expo-image";
 import { View } from "react-native";
 import { Mascot } from "./ui";
+import { useStill } from "./use-still";
 
-export type BeeLoop = 1 | 2 | 3;
-/** The frames of the animated bee are 352 by 288; the plain one sits in the same room. */
+const loops = {
+  1: require("../assets/bee-idle-1.webp"),
+  2: require("../assets/bee-idle-2.webp"),
+  3: require("../assets/bee-idle-3.webp"),
+} as const;
+export type BeeLoop = keyof typeof loops;
+/** The frames are 352 by 288, with room around the bee for its wings. */
 const RATIO = 352 / 288;
 
 /**
- * The plain bee, in the room the animated one has on the web. The loops are animated WebP, which
- * React Native does not draw reliably on every phone (an image library that does would let this
- * play them too), so the phone and the Mac app keep the still bee for now.
+ * The bee, looking around and blinking, in one of three loops (a different one for each kind of
+ * screen, so they do not repeat). `expo-image` plays animated WebP on the phone and the Mac app,
+ * which React Native's own image does not do reliably. It holds still, as the plain bee, when the
+ * system asks for less motion.
  */
-export function AnimatedBee({ height = 120 }: { loop: BeeLoop; height?: number }) {
+export function AnimatedBee({ loop, height = 120 }: { loop: BeeLoop; height?: number }) {
+  const still = useStill();
+  const width = Math.round(height * RATIO);
   return (
-    <View
-      style={{
-        width: Math.round(height * RATIO),
-        height,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Mascot size={Math.round(height * 0.95)} />
+    <View style={{ width, height, alignItems: "center", justifyContent: "center" }}>
+      {still ? (
+        <Mascot size={Math.round(height * 0.95)} />
+      ) : (
+        <Image
+          source={loops[loop]}
+          contentFit="contain"
+          accessible
+          accessibilityLabel="Hive bee"
+          style={{ width, height }}
+        />
+      )}
     </View>
   );
 }

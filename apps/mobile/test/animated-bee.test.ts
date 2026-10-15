@@ -24,10 +24,16 @@ for (const loop of [1, 2, 3]) {
   });
 }
 
-test("the web bee plays all three loops, and the phone's keeps the still bee", () => {
-  const web = readFileSync(source("animated-bee.web.tsx"), "utf8");
-  for (const loop of [1, 2, 3]) assert.ok(web.includes(`bee-idle-${loop}.webp`), `loop ${loop}`);
-  const native = readFileSync(source("animated-bee.native.tsx"), "utf8");
-  assert.ok(!native.includes(".webp"), "the phone does not ask for an animated image");
-  assert.ok(native.includes("<Mascot"));
+test("the web and the phone both play all three loops, the phone through expo-image", () => {
+  for (const file of ["animated-bee.web.tsx", "animated-bee.native.tsx"]) {
+    const code = readFileSync(source(file), "utf8");
+    for (const loop of [1, 2, 3])
+      assert.ok(code.includes(`bee-idle-${loop}.webp`), `${file}: loop ${loop}`);
+    // Held still, as the plain bee, when the system asks for less motion.
+    assert.ok(code.includes("useStill()") && code.includes("<Mascot"), `${file}: holds still`);
+  }
+  assert.ok(
+    readFileSync(source("animated-bee.native.tsx"), "utf8").includes('from "expo-image"'),
+    "the phone's image is the one that animates WebP",
+  );
 });
