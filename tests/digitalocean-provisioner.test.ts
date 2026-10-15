@@ -351,6 +351,21 @@ test("a size that is unavailable, in the wrong region or in the wrong family is 
   assert.equal(digitalocean.droplets.size, 0);
 });
 
+test("a region that offers no sizes at all is said to be out of capacity, not blamed on the size", async () => {
+  await digitalocean.close();
+  // What DigitalOcean listed for nyc3 one afternoon: the region is there and every size is somewhere else.
+  const elsewhere: FakeSize[] = digitalocean.sizes.map((size) => ({ ...size, regions: ["sfo3"] }));
+  digitalocean = await fakeDigitalOcean({ sizes: elsewhere });
+  await assert.rejects(provisioner().create(spec()), (error: unknown) => {
+    assert.ok(error instanceof ProvisionError);
+    assert.match(error.message, /offers no sizes in nyc3/);
+    assert.match(error.message, /DO_REGION/);
+    assert.doesNotMatch(error.message, /DO_SIZE/);
+    return true;
+  });
+  assert.equal(digitalocean.droplets.size, 0);
+});
+
 test("a size named for a plan is used, and named for all plans when none is for this one", async () => {
   const p = provisioner({ size: "s-1vcpu-2gb", sizes: { team: "s-2vcpu-4gb" } });
   await p.create(spec());

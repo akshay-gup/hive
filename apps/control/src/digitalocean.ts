@@ -470,10 +470,16 @@ export class DigitalOceanProvisioner implements Provisioner {
           a.price_monthly - b.price_monthly || a.vcpus - b.vcpus || a.slug.localeCompare(b.slug),
       );
     const [cheapest] = fits;
-    if (!cheapest)
+    if (!cheapest) {
+      // A region at capacity lists no sizes at all, and naming a size will not help there.
+      if (!sizes.some((size) => size.available && size.regions.includes(region)))
+        throw new ProvisionError(
+          `DigitalOcean offers no sizes in ${region} right now (it may be out of capacity); use a region that has the workspace image (DO_REGION)`,
+        );
       throw new ProvisionError(
         `DigitalOcean has no available size in ${region} with ${plan.guest.cpus} vCPUs, ${plan.guest.memoryMb} MB and ${plan.volumeGb} GB; set DO_SIZE`,
       );
+    }
     return cheapest;
   }
 
