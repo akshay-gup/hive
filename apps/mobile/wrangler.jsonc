@@ -1,0 +1,12 @@
+{
+  // The web app on Cloudflare: static files only, no code. Build it for the control plane, then deploy:
+  //   EXPO_PUBLIC_CONTROL_URL=https://api.vi-ak.com pnpm build:web && npx wrangler deploy
+  // The fallback serves index.html for paths with no file, such as an invite link (/join/<token>).
+  "name": "hive-app",
+  "compatibility_date": "2026-10-06",
+  "routes": [{ "pattern": "app.vi-ak.com", "custom_domain": true }],
+  "assets": {
+    "directory": "dist/web",
+    "not_found_handling": "single-page-application"
+  }
+}
