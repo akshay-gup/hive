@@ -212,6 +212,9 @@ seal() {
   apt autoremove -y --purge
   apt clean
   rm -rf /var/lib/apt/lists/* /var/lib/docker /var/lib/containerd /etc/docker /root/.docker
+  # Bash remembers where it found docker when fetch ran it, and `command -v` goes on saying so after
+  # the file is gone.
+  hash -r
   if command -v docker >/dev/null; then
     echo "docker is still installed" >&2
     exit 1
