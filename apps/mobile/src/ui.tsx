@@ -850,7 +850,7 @@ export function HaloDot({ color, halo }: { color: string; halo: string }) {
     </View>
   );
 }
-/** Hive's original capybara, shared by every assistant surface. */
+/** Hive's bee, shared by every assistant surface. */
 export function Mascot({
   size = 42,
   variant = "sky",
@@ -860,20 +860,20 @@ export function Mascot({
 }) {
   const palette = mascotTints[variant];
   return (
-    <View accessibilityLabel="Hive capybara" style={{ width: size, height: size }}>
+    <View accessibilityLabel="Hive bee" style={{ width: size, height: size }}>
       <View
         style={{
           position: "absolute",
-          top: size * 0.15,
-          left: size * 0.12,
-          width: size * 0.76,
-          height: size * 0.76,
+          top: size * 0.2,
+          left: size * 0.14,
+          width: size * 0.72,
+          height: size * 0.72,
           borderRadius: size,
           backgroundColor: palette,
         }}
       />
       <Image
-        source={require("../assets/capybara.png")}
+        source={require("../assets/bee.png")}
         resizeMode="contain"
         style={{ width: size, height: size }}
         accessible={false}

@@ -6,6 +6,7 @@
     "version": "0.1.0",
     "orientation": "default",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
     "newArchEnabled": true,
     "ios": { "supportsTablet": true, "bundleIdentifier": "app.hive.mobile" },
     "android": { "package": "app.hive.mobile" },

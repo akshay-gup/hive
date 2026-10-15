@@ -1,6 +1,6 @@
 # Demos
 
-These recordings show the interface and the tool flow with scripted model replies, so they are not an evaluation of a live model; Hive's agent is [OpenCode](../README.md#configure-the-agent-and-google). Both recordings feature Hive's original capybara mascot and the composer: the send arrow changes to a stop square inside the input pill while Hive replies, then returns when the run ends. The mobile story explores websites; the desktop story starts with email and continues into related research.
+These recordings show the interface and the tool flow with scripted model replies, so they are not an evaluation of a live model; Hive's agent is [OpenCode](../README.md#configure-the-agent-and-google). Both recordings were made with Hive's earlier capybara mascot, since replaced by a bee, and show the composer: the send arrow changes to a stop square inside the input pill while Hive replies, then returns when the run ends. The mobile story explores websites; the desktop story starts with email and continues into related research.
 
 ## Mobile
 
@@ -80,4 +80,4 @@ python3 -m http.server 8081 --bind 127.0.0.1 --directory apps/mobile/dist/web
 
 Use port 8081 when the development server is stopped. `--clear` ensures the export uses the requested API URL. Open the page in a clean desktop browser and record your flow, including takeover, at 1440 × 810 or larger. Describe the model setup in the accompanying recording notes. Scroll to keep the browser card and resulting text readable.
 
-Hive's [capybara artwork and provenance](../apps/mobile/assets/README.md) are included under the repository's MIT license.
+Hive's [bee artwork and provenance](../apps/mobile/assets/README.md) are included under the repository's MIT license.

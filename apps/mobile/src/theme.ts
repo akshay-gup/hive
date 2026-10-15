@@ -198,7 +198,7 @@ export const avatarTints = [
   "rgba(150,200,205,0.14)",
 ] as const;
 
-/** Background discs behind the capybara, one per avatar the person can choose. */
+/** Background discs behind the bee, one per avatar the person can choose. */
 export const mascotTints = {
   sky: "rgba(150,175,205,0.22)",
   sand: "rgba(215,190,150,0.22)",
