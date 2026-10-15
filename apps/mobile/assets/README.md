@@ -12,4 +12,10 @@ What the app uses is made from it:
 
 To change the bee, replace `bee-original.jpg`, cut out `bee.png` the same way (square, transparent, 512 px or more, with a little margin), and move the disc in `Mascot` if the body moves.
 
+## The bee in motion
+
+`bee-idle-1.webp`, `bee-idle-2.webp` and `bee-idle-3.webp` are three short loops of the bee looking around (and, in 1 and 3, blinking). They were made from three videos of the bee made with HeyGen on October 15, 2026, each cut to the stretch that loops without a jump (frames 43 to 232, 83 to 240 and 31 to 216 of 24 fps, 7.9 s, 6.6 s and 7.75 s long), with the white background removed the same way as the still, and saved as animated WebP at 352 × 288 and 12 frames a second, under a megabyte each. They are included under this repository's MIT license.
+
+`AnimatedBee` (`src/animated-bee.web.tsx`) shows them: loop 3 in the Today banner, loop 1 while a workspace is set up, and loop 2 on the sign-in, invitation and opening screens, so no two kinds of screen repeat. It shows the still bee instead when the system asks for less motion. The phone and Mac app (`src/animated-bee.native.tsx`) keep the still bee for now, since React Native does not draw animated WebP reliably everywhere; an image library that does (`expo-image`) would let them play too. `test/animated-bee.test.ts` checks that each file is animated, transparent, the right size and light enough to load on a screen.
+
 The earlier capybara mascot, generated with an image tool on September 16, 2026, was retired on October 15, 2026. The demo recordings in `assets/demos` still show it.

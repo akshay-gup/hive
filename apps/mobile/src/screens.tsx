@@ -38,6 +38,7 @@ import type {
   CalendarEvent,
   EmailDraft,
 } from "../../../packages/domain/src";
+import { AnimatedBee } from "./animated-bee";
 import { localDateTime, zonedInstant } from "./date-time";
 import {
   avatarTints,
@@ -53,7 +54,6 @@ import {
   fontSize,
   IconButton,
   LinkRow,
-  Mascot,
   radius,
   relativeDate,
   resultSummary,
@@ -150,7 +150,7 @@ export function TodayScreen() {
                 borderColor: colors.line,
               }}
             />
-            <Mascot size={94} />
+            <AnimatedBee loop={3} height={140} />
             <View
               style={[
                 s.row,

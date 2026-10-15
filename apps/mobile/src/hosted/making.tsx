@@ -1,66 +1,11 @@
 import { Check } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import {
-  AccessibilityInfo,
-  ActivityIndicator,
-  Animated,
-  Easing,
-  Platform,
-  Text,
-  View,
-} from "react-native";
-import { colors, Mascot, radius, s } from "../ui";
+import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
+import { AnimatedBee } from "../animated-bee";
+import { colors, radius, s } from "../ui";
+import { useStill } from "../use-still";
 import { Frame } from "./frame";
 import { barFill, flavorAt, type MakingStep, stepList } from "./making-steps";
-
-/** True when the system asks for less motion. */
-function useStill(): boolean {
-  const [still, setStill] = useState(false);
-  useEffect(() => {
-    let active = true;
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then((reduce) => {
-        if (active) setStill(reduce);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
-  return still;
-}
-
-/** The bee, rocking gently while the workspace is made. */
-function BobbingMascot({ still }: { still: boolean }) {
-  const lift = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (still) return;
-    const useNativeDriver = Platform.OS !== "web";
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(lift, {
-          toValue: -6,
-          duration: 1100,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver,
-        }),
-        Animated.timing(lift, {
-          toValue: 0,
-          duration: 1100,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [still, lift]);
-  return (
-    <Animated.View style={{ transform: [{ translateY: still ? 0 : lift }] }}>
-      <Mascot size={80} />
-    </Animated.View>
-  );
-}
 
 function StepRow({ step }: { step: MakingStep }) {
   const state = { done: "done", now: "in progress", next: "waiting" }[step.state];
@@ -134,7 +79,7 @@ export function MakingScreen({ name, step }: { name: string; step?: string }) {
 
   return (
     <Frame>
-      <BobbingMascot still={still} />
+      <AnimatedBee loop={1} height={130} />
       <Text style={[s.title, { textAlign: "center" }]}>{`Setting up ${name}…`}</Text>
       {list ? (
         <View style={[s.card, { alignSelf: "stretch", gap: 14, padding: 18 }]}>

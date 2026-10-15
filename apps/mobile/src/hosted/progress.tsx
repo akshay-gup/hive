@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ActivityIndicator, Text } from "react-native";
+import { AnimatedBee } from "../animated-bee";
 import { colors, ErrorNotice, Mascot, s } from "../ui";
 import { Frame } from "./frame";
 
@@ -18,7 +19,7 @@ export function ProgressScreen({
 }) {
   return (
     <Frame>
-      <Mascot size={72} />
+      {error ? <Mascot size={72} /> : <AnimatedBee loop={2} height={100} />}
       {error ? <ErrorNotice error={error} /> : <ActivityIndicator color={colors.primary} />}
       <Text style={[s.title, { textAlign: "center" }]}>{title}</Text>
       {!!detail && <Text style={[s.muted, { textAlign: "center" }]}>{detail}</Text>}
