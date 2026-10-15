@@ -759,10 +759,14 @@ test("a copy that is under way is not asked for again, and once it is done upkee
   await digitalocean.close();
   digitalocean = await fakeDigitalOcean({ holdTransfers: true });
   imageInNyc3Only();
-  const p = provisioner({ regions: ["nyc3", "sfo3"] }, digitalocean);
+  const p = provisioner({ regions: ["nyc3", "sfo3", "fra1"] }, digitalocean);
+  await p.maintain();
+  // Both missing regions were asked for at once; DigitalOcean does not say where a copy is going,
+  // so until they are done nothing more is asked.
+  assert.equal(calls("POST", /\/actions$/).length, 2);
   await p.maintain();
   await p.maintain();
-  assert.equal(calls("POST", /\/actions$/).length, 1);
+  assert.equal(calls("POST", /\/actions$/).length, 2);
   digitalocean.finishTransfers();
   const before = digitalocean.calls.length;
   await p.maintain();

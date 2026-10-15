@@ -183,13 +183,22 @@ export async function fakeDigitalOcean(
     status: "in-progress" | "completed";
     resource_type: "image";
     resource_id: number;
-    region_slug: string;
-    region: { slug: string };
+    /** Where it is going; not shown, as DigitalOcean does not show it either. */
+    target: string;
   }[] = [];
+  /** An image action as DigitalOcean lists it: a transfer does not say where it is going. */
+  const imageActionView = (action: (typeof imageActions)[number]) => ({
+    id: action.id,
+    type: action.type,
+    status: action.status,
+    resource_type: action.resource_type,
+    resource_id: action.resource_id,
+    region: null,
+    region_slug: "",
+  });
   const completeTransfer = (action: (typeof imageActions)[number]) => {
     const image = images.get(action.resource_id);
-    if (image && !image.regions.includes(action.region_slug))
-      image.regions.push(action.region_slug);
+    if (image && !image.regions.includes(action.target)) image.regions.push(action.target);
     action.status = "completed";
   };
 
@@ -377,7 +386,7 @@ export async function fakeDigitalOcean(
         return problem(res, 404, "not_found", "The resource you requested could not be found.");
       if (method === "GET") {
         const { slice, links, meta } = page(
-          imageActions.filter((action) => action.resource_id === image.id),
+          imageActions.filter((action) => action.resource_id === image.id).map(imageActionView),
           url,
         );
         return send(res, 200, { actions: slice, links, meta });
@@ -394,7 +403,7 @@ export async function fakeDigitalOcean(
           imageActions.some(
             (action) =>
               action.resource_id === image.id &&
-              action.region_slug === input.region &&
+              action.target === input.region &&
               action.status === "in-progress",
           )
         )
@@ -410,12 +419,11 @@ export async function fakeDigitalOcean(
           status: "in-progress",
           resource_type: "image",
           resource_id: image.id,
-          region_slug: input.region,
-          region: { slug: input.region },
+          target: input.region,
         };
         imageActions.push(action);
         if (!options.holdTransfers) completeTransfer(action);
-        return send(res, 201, { action });
+        return send(res, 201, { action: imageActionView(action) });
       }
     }
 

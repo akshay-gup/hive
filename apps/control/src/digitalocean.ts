@@ -500,21 +500,16 @@ export class DigitalOceanProvisioner implements Provisioner {
     if (!found) return;
     const missing = this.regionOrder.filter((region) => !found.image.regions.includes(region));
     if (!missing.length) return;
-    const actions = await this.api<{
-      actions?: {
-        type: string;
-        status: string;
-        region_slug?: string;
-        region?: { slug?: string };
-      }[];
-    }>("GET", `/images/${id}/actions?per_page=200`);
-    const copying = new Set(
-      (actions?.actions ?? [])
-        .filter((action) => action.type === "transfer" && action.status === "in-progress")
-        .map((action) => action.region_slug ?? action.region?.slug),
+    const actions = await this.api<{ actions?: { type: string; status: string }[] }>(
+      "GET",
+      `/images/${id}/actions?per_page=200`,
     );
+    // DigitalOcean does not say where a copy is going (the action's region is empty), so while any
+    // is under way none is started: the next minute looks again.
+    if ((actions?.actions ?? []).some((a) => a.type === "transfer" && a.status === "in-progress"))
+      return;
     for (const region of missing) {
-      if (copying.has(region) || (this.copyRefused.get(region) ?? 0) > Date.now()) continue;
+      if ((this.copyRefused.get(region) ?? 0) > Date.now()) continue;
       try {
         await this.api("POST", `/images/${id}/actions`, { type: "transfer", region });
       } catch (error) {
