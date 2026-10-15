@@ -8,7 +8,14 @@ import { type Account, type Accounts, accountIdFor, HOME } from "./accounts.ts";
 import { HttpError } from "./errors.ts";
 import type { Mailer } from "./mailer.ts";
 import { DEFAULT_PLAN, type PlanId, plans } from "./plans.ts";
-import { type MachineState, ProvisionError, type Provisioner } from "./provisioner.ts";
+import {
+  type MachineState,
+  ProvisionError,
+  type Provisioner,
+  type ProvisionProgress,
+  type ProvisionStep,
+  provisionSteps,
+} from "./provisioner.ts";
 import type { SigningKeys } from "./signing.ts";
 import type { ControlStore } from "./store.ts";
 
@@ -21,6 +28,8 @@ interface WorkspaceRecord {
   status: WorkspaceStatus;
   url?: string;
   error?: string;
+  /** How far making it has got, while it is being made. */
+  step?: ProvisionStep;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -63,6 +72,8 @@ export interface WorkspaceView {
   /** Where the apps reach it; only once it is ready. */
   url?: string;
   error?: string;
+  /** How far making it has got, while it is being made, if the provider says. */
+  step?: ProvisionStep;
   createdAt: string;
 }
 export interface MemberView {
@@ -239,7 +250,7 @@ export class WorkspaceService {
       "workspaces",
       id,
       { status: "failed" },
-      { status: "provisioning", error: null, updatedAt: new Date().toISOString() },
+      { status: "provisioning", error: null, step: null, updatedAt: new Date().toISOString() },
     );
     await this.begin(id);
     return this.toView(moved ?? record, member.role);
@@ -345,19 +356,37 @@ export class WorkspaceService {
         const claimed = await this.claim(id);
         if (!claimed) return;
         lease = claimed.leaseUntil;
-        const { url } = await this.options.provisioner.create({
-          workspaceId: id,
-          name: claimed.name,
-          plan: plans[claimed.plan],
-          controlPublicKey: this.options.keys.publicKey,
-          allowedOrigins: [new URL(this.options.publicUrl).origin, ...this.options.allowedOrigins],
-        });
+        // The step the person sees. One write after another, so a slow one cannot land after the
+        // step that follows it, and none after the workspace is ready.
+        let steps: Promise<unknown> = Promise.resolve();
+        const progress: ProvisionProgress = (step) => {
+          steps = steps
+            .then(() =>
+              this.db.compareAndSwap(HOME, "workspaces", id, { status: "provisioning" }, { step }),
+            )
+            // Telling the person how it is going is never worth failing the workspace over.
+            .catch(() => {});
+        };
+        const { url } = await this.options.provisioner.create(
+          {
+            workspaceId: id,
+            name: claimed.name,
+            plan: plans[claimed.plan],
+            controlPublicKey: this.options.keys.publicKey,
+            allowedOrigins: [
+              new URL(this.options.publicUrl).origin,
+              ...this.options.allowedOrigins,
+            ],
+          },
+          progress,
+        );
+        await steps;
         await this.db.compareAndSwap(
           HOME,
           "workspaces",
           id,
           { status: "provisioning" },
-          { status: "ready", url, leaseUntil: 0, updatedAt: new Date().toISOString() },
+          { status: "ready", url, step: null, leaseUntil: 0, updatedAt: new Date().toISOString() },
         );
       } catch (error) {
         console.error(`[Hive control] could not start ${id}: ${this.describe(error)}`);
@@ -370,6 +399,7 @@ export class WorkspaceService {
             { status: "provisioning" },
             {
               status: "failed",
+              step: null,
               leaseUntil: 0,
               error:
                 error instanceof ProvisionError
@@ -597,6 +627,9 @@ export class WorkspaceService {
       role,
       ...(record.status === "ready" && record.url ? { url: record.url } : {}),
       ...(record.status === "failed" && record.error ? { error: record.error } : {}),
+      ...(record.status === "provisioning" && record.step && provisionSteps.includes(record.step)
+        ? { step: record.step }
+        : {}),
       createdAt: record.createdAt,
     };
   }

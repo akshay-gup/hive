@@ -57,6 +57,13 @@ afterEach(async () => {
   await digitalocean.close();
 });
 
+test("it says which step it is on as it goes, in the order they happen", async () => {
+  const steps: string[] = [];
+  await provisioner().create(spec(), (step) => steps.push(step));
+  // With no tunnel there is no address to make.
+  assert.deepEqual(steps, ["machine", "starting", "checking"]);
+});
+
 test("a workspace gets a Droplet of its own, from the workspace snapshot, and answers", async () => {
   const result = await provisioner().create(spec());
   assert.equal(result.url, digitalocean.publicUrlTemplate.replace("{id}", ID));

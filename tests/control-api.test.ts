@@ -304,6 +304,48 @@ test("someone who is not in a workspace cannot see it, and it looks like it is n
   assert.equal((await outsider.get("/v1/workspaces/wdoesnotexist")).status, 404);
 });
 
+test("a workspace being made says how far it has got, and stops saying so when it is done", async () => {
+  const owner = await signIn("steps1@example.com", "Stella");
+  let release: () => void = () => {};
+  provisioner.hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  provisioner.reportSteps = ["address", "machine"];
+  const created = await (await owner.post("/v1/workspaces", { name: "Steps" })).json();
+  // Nothing is known the moment it is asked for.
+  assert.equal("step" in created, false);
+  let view: { status: string; step?: string } = created;
+  for (let tries = 0; tries < 100 && view.step !== "machine"; tries++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    view = await (await owner.get(`/v1/workspaces/${created.id}`)).json();
+  }
+  assert.equal(view.status, "provisioning");
+  assert.equal(view.step, "machine");
+  release();
+  provisioner.hold = undefined;
+  provisioner.reportSteps = [];
+  await control.workspaces.settled(created.id);
+  const ready = await (await owner.get(`/v1/workspaces/${created.id}`)).json();
+  assert.equal(ready.status, "ready");
+  assert.equal("step" in ready, false);
+});
+
+test("a workspace that fails, or is tried again, does not keep the step it stopped at", async () => {
+  const owner = await signIn("steps2@example.com", "Stan");
+  provisioner.reportSteps = ["address", "machine"];
+  provisioner.failCreates = 1;
+  const created = await (await owner.post("/v1/workspaces", { name: "Steps" })).json();
+  await control.workspaces.settled(created.id);
+  const failed = await (await owner.get(`/v1/workspaces/${created.id}`)).json();
+  assert.equal(failed.status, "failed");
+  assert.equal("step" in failed, false);
+  provisioner.reportSteps = [];
+  const retried = await (await owner.post(`/v1/workspaces/${created.id}/retry`)).json();
+  assert.equal(retried.status, "provisioning");
+  assert.equal("step" in retried, false);
+  await control.workspaces.settled(created.id);
+});
+
 test("a workspace that fails to start says so, and the owner can try again", async () => {
   const owner = await signIn("owner5@example.com");
   const member = await signIn("member5@example.com");

@@ -2,6 +2,8 @@ import type {
   MachineState,
   ProvisionedWorkspace,
   Provisioner,
+  ProvisionProgress,
+  ProvisionStep,
   WorkspaceSpec,
 } from "../../apps/control/src/provisioner.ts";
 import { ProvisionError } from "../../apps/control/src/provisioner.ts";
@@ -22,10 +24,13 @@ export class FakeProvisioner implements Provisioner {
   failDestroys = 0;
   /** Resolves a create only when released, to look at a workspace while it is being made. */
   hold?: Promise<void>;
+  /** The steps a create reports before it waits on `hold`. */
+  reportSteps: ProvisionStep[] = [];
   private readonly machines = new Map<string, MachineState>();
 
-  async create(spec: WorkspaceSpec): Promise<ProvisionedWorkspace> {
+  async create(spec: WorkspaceSpec, progress?: ProvisionProgress): Promise<ProvisionedWorkspace> {
     this.created.push(spec);
+    for (const step of this.reportSteps) progress?.(step);
     if (this.hold) await this.hold;
     if (this.failCreates > 0) {
       this.failCreates--;

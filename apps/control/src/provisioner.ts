@@ -20,6 +20,15 @@ export interface ProvisionedWorkspace {
 
 export type MachineState = "running" | "starting" | "stopped" | "missing";
 
+/** Where making a workspace has got to, in the order a provider goes through it. */
+export const provisionSteps = ["address", "machine", "starting", "checking"] as const;
+export type ProvisionStep = (typeof provisionSteps)[number];
+/**
+ * Told as `create` moves on to a step, so the person watching can see it. A provider that has no
+ * such steps never calls it, and a step it skips (no address to make) is shown as done.
+ */
+export type ProvisionProgress = (step: ProvisionStep) => void;
+
 /**
  * Where workspaces run. A workspace is named by its id throughout, and every call can be made
  * again: creating one that half exists finishes it, and destroying one that is gone is not an error.
@@ -27,7 +36,7 @@ export type MachineState = "running" | "starting" | "stopped" | "missing";
 export interface Provisioner {
   readonly name: string;
   /** Create what the workspace runs on and start it. Resolves once it answers its health check. */
-  create(spec: WorkspaceSpec): Promise<ProvisionedWorkspace>;
+  create(spec: WorkspaceSpec, progress?: ProvisionProgress): Promise<ProvisionedWorkspace>;
   /** Start the workspace if it was stopped, and resolve once it answers. */
   wake(workspaceId: string): Promise<void>;
   state(workspaceId: string): Promise<MachineState>;

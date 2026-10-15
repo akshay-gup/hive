@@ -11,6 +11,7 @@ import {
   ProvisionError,
   type ProvisionedWorkspace,
   type Provisioner,
+  type ProvisionProgress,
   type WorkspaceSpec,
 } from "./provisioner.ts";
 import { WORKSPACE_PORT, workspaceEnvFromEnv, workspaceSettings } from "./workspace-env.ts";
@@ -252,15 +253,22 @@ export class DigitalOceanProvisioner implements Provisioner {
     return `${this.config.namePrefix}-workspace`.toLowerCase();
   }
 
-  async create(spec: WorkspaceSpec): Promise<ProvisionedWorkspace> {
+  async create(
+    spec: WorkspaceSpec,
+    progress: ProvisionProgress = () => {},
+  ): Promise<ProvisionedWorkspace> {
     const url = this.publicUrl(spec.workspaceId);
     try {
       let droplet = await this.droplet(spec.workspaceId);
       // The tunnel comes first: the Droplet is given its token when it is made.
+      if (this.tunnels) progress("address");
       const tunnel = await this.tunnels?.ensure(spec.workspaceId, new URL(url).hostname);
+      progress("machine");
       if (!droplet) droplet = await this.makeDroplet(spec, url, tunnel?.token);
+      progress("starting");
       if (droplet.status === "off") await this.powerOn(droplet.id);
       await this.waitActive(droplet.id);
+      progress("checking");
       await this.untilAnswering(spec.workspaceId, url);
     } catch (error) {
       if (error instanceof ProvisionError) throw error;

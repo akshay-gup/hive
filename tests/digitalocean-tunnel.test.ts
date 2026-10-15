@@ -87,6 +87,12 @@ afterEach(async () => {
   await cloudflare.close();
 });
 
+test("it says which step it is on as it goes, starting with the address", async () => {
+  const steps: string[] = [];
+  await provisioner().create(spec(), (step) => steps.push(step));
+  assert.deepEqual(steps, ["address", "machine", "starting", "checking"]);
+});
+
 test("a workspace is reached through a tunnel its Droplet runs, and answers only through it", async () => {
   const result = await provisioner().create(spec());
   assert.equal(result.url, digitalocean.publicUrlTemplate.replace("{id}", ID));
