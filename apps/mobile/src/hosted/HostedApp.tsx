@@ -14,6 +14,7 @@ import {
 import { HostedWorkspace } from "./HostedWorkspace";
 import { inviteTokenFrom, inviteTokenFromPath } from "./invite-link";
 import { JoinScreen } from "./join";
+import { MakingScreen } from "./making";
 import { type OpenedWorkspace, openWorkspace, WorkspaceUnavailable } from "./open-workspace";
 import { ProgressScreen } from "./progress";
 import { type SignInOptions, SignInScreen } from "./sign-in";
@@ -190,11 +191,18 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
   // A workspace that is being made is opened when it is ready.
   const makingId = phase.name === "making" ? phase.workspace.id : null;
   const making = phase.name === "making" ? phase.workspace : null;
+  const [makingStep, setMakingStep] = useState<string | undefined>();
   useEffect(() => {
     if (!makingId || !making) return;
     const stop = new AbortController();
+    setMakingStep(undefined);
     control
-      .untilSettled(makingId, { signal: stop.signal })
+      .untilSettled(makingId, {
+        signal: stop.signal,
+        onUpdate: (workspace) => {
+          if (!stop.signal.aborted) setMakingStep(workspace.step);
+        },
+      })
       .then((done) => {
         if (!done) return;
         if (done.status === "ready") void open(done);
@@ -428,12 +436,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
           />
         ) : null;
       case "making":
-        return (
-          <ProgressScreen
-            title={`Setting up ${phase.workspace.name}…`}
-            detail="This takes about a minute the first time. You will be taken in when it is ready."
-          />
-        );
+        return <MakingScreen name={phase.workspace.name} step={makingStep} />;
       case "opening":
         return (
           <ProgressScreen

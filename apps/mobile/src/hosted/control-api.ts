@@ -6,6 +6,8 @@ export interface ControlAccount {
   email: string;
   name: string;
 }
+/** How far making a workspace has got, as the control plane reports it. */
+export type MakingStepName = "address" | "machine" | "starting" | "checking";
 export interface WorkspaceSummary {
   id: string;
   name: string;
@@ -14,6 +16,8 @@ export interface WorkspaceSummary {
   /** Where the apps reach it; only once it is ready. */
   url?: string;
   error?: string;
+  /** While it is being made, the step it is on, if the control plane says. */
+  step?: MakingStepName;
   createdAt: string;
 }
 export interface Member {
