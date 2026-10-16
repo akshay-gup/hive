@@ -21,7 +21,7 @@ export interface FakeDroplet {
   monitoring: boolean;
   backups: boolean;
   /** What DigitalOcean reports for the Droplet's backups, when they are on. */
-  backupPolicy?: { plan: string; hour: number; weekday?: string };
+  backupPolicy?: { plan: string; hour: number; retention_period_days: number; weekday?: string };
 }
 export interface FakeSize {
   slug: string;
@@ -87,14 +87,17 @@ export interface DoCall {
 const REGIONS = ["nyc1", "nyc3", "sfo3", "fra1"];
 const STANDARD_HOURS = [0, 4, 8, 12, 16, 20];
 /** The plans `GET /droplets/backups/supported_policies` lists, and the hours a window may start at. */
-const BACKUP_PLANS: Record<string, { hours: number[]; weekly: boolean }> = {
-  daily: { hours: STANDARD_HOURS, weekly: false },
-  weekly: { hours: STANDARD_HOURS, weekly: true },
-  custom_daily: { hours: STANDARD_HOURS, weekly: false },
-  custom_weekly: { hours: STANDARD_HOURS, weekly: true },
-  intra_daily_12h: { hours: STANDARD_HOURS, weekly: false },
-  intra_daily_6h: { hours: [0, 3, 6, 9, 12, 15, 18, 21], weekly: false },
-  intra_daily_4h: { hours: STANDARD_HOURS, weekly: false },
+const BACKUP_PLANS: Record<
+  string,
+  { hours: number[]; weekly: boolean; days: number; keep: [number, number] }
+> = {
+  daily: { hours: STANDARD_HOURS, weekly: false, days: 7, keep: [7, 7] },
+  weekly: { hours: STANDARD_HOURS, weekly: true, days: 28, keep: [28, 28] },
+  custom_daily: { hours: STANDARD_HOURS, weekly: false, days: 7, keep: [7, 30] },
+  custom_weekly: { hours: STANDARD_HOURS, weekly: true, days: 28, keep: [28, 168] },
+  intra_daily_12h: { hours: STANDARD_HOURS, weekly: false, days: 7, keep: [3, 7] },
+  intra_daily_6h: { hours: [0, 3, 6, 9, 12, 15, 18, 21], weekly: false, days: 7, keep: [3, 7] },
+  intra_daily_4h: { hours: STANDARD_HOURS, weekly: false, days: 7, keep: [3, 7] },
 };
 /** A Droplet can only be made on these two, as the API's documented schema says. */
 const PLANS_AT_CREATION = ["daily", "weekly"];
@@ -627,6 +630,8 @@ export async function fakeDigitalOcean(
                   backupPolicy: {
                     plan: input.backup_policy?.plan ?? "daily",
                     hour: input.backup_policy?.hour ?? 0,
+                    retention_period_days:
+                      BACKUP_PLANS[input.backup_policy?.plan ?? "daily"]?.days ?? 7,
                     ...(input.backup_policy?.weekday
                       ? { weekday: input.backup_policy.weekday }
                       : {}),
@@ -681,7 +686,14 @@ export async function fakeDigitalOcean(
         const type = (body as { type?: string }).type;
         if (type === "change_backup_policy") {
           const policy = (
-            body as { backup_policy?: { plan?: string; hour?: number; weekday?: string } }
+            body as {
+              backup_policy?: {
+                plan?: string;
+                hour?: number;
+                weekday?: string;
+                retention_period_days?: number;
+              };
+            }
           ).backup_policy;
           const plan = policy?.plan ? BACKUP_PLANS[policy.plan] : undefined;
           if (!droplet.backups)
@@ -695,10 +707,19 @@ export async function fakeDigitalOcean(
             return problem(res, 422, "unprocessable_entity", "The backup policy is not valid");
           if (plan.weekly !== Boolean(policy.weekday))
             return problem(res, 422, "unprocessable_entity", "A weekday is for weekly plans only");
+          // As DigitalOcean does: a change names how long backups are kept, within the plan's range.
+          const days = policy.retention_period_days;
+          if (
+            !Number.isInteger(days) ||
+            (days as number) < plan.keep[0] ||
+            (days as number) > plan.keep[1]
+          )
+            return problem(res, 422, "unprocessable_entity", "retention_period_days is invalid");
           const action = queueAction(droplet, type, () => {
             droplet.backupPolicy = {
               plan: policy.plan as string,
               hour: policy.hour as number,
+              retention_period_days: days as number,
               ...(policy.weekday ? { weekday: policy.weekday } : {}),
             };
           });

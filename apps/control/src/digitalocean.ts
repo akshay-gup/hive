@@ -25,13 +25,13 @@ const STANDARD_HOURS = [0, 4, 8, 12, 16, 20];
  * two; the others are switched to once it exists.
  */
 const BACKUP_PLANS = {
-  daily: { usage: false, weekly: false, hours: STANDARD_HOURS },
-  weekly: { usage: false, weekly: true, hours: STANDARD_HOURS },
-  custom_daily: { usage: true, weekly: false, hours: STANDARD_HOURS },
-  custom_weekly: { usage: true, weekly: true, hours: STANDARD_HOURS },
-  intra_daily_12h: { usage: true, weekly: false, hours: STANDARD_HOURS },
-  intra_daily_6h: { usage: true, weekly: false, hours: [0, 3, 6, 9, 12, 15, 18, 21] },
-  intra_daily_4h: { usage: true, weekly: false, hours: STANDARD_HOURS },
+  daily: { usage: false, weekly: false, hours: STANDARD_HOURS, days: 7 },
+  weekly: { usage: false, weekly: true, hours: STANDARD_HOURS, days: 28 },
+  custom_daily: { usage: true, weekly: false, hours: STANDARD_HOURS, days: 7 },
+  custom_weekly: { usage: true, weekly: true, hours: STANDARD_HOURS, days: 28 },
+  intra_daily_12h: { usage: true, weekly: false, hours: STANDARD_HOURS, days: 7 },
+  intra_daily_6h: { usage: true, weekly: false, hours: [0, 3, 6, 9, 12, 15, 18, 21], days: 7 },
+  intra_daily_4h: { usage: true, weekly: false, hours: STANDARD_HOURS, days: 7 },
 } as const;
 export type BackupPlan = keyof typeof BACKUP_PLANS;
 
@@ -733,6 +733,8 @@ export class DigitalOceanProvisioner implements Provisioner {
           backup_policy: {
             plan: wanted,
             hour,
+            // DigitalOcean refuses a switch without it ("retention_period_days is invalid"): each plan's own default.
+            retention_period_days: BACKUP_PLANS[wanted].days,
             ...(BACKUP_PLANS[wanted].weekly ? { weekday: "SUN" } : {}),
           },
         },

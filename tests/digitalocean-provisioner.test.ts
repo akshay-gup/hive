@@ -875,9 +875,13 @@ test("a usage-based plan is switched to once the Droplet exists, because a Dropl
   assert.ok(switched);
   assert.deepEqual(switched.body, {
     type: "change_backup_policy",
-    backup_policy: { plan: "custom_daily", hour: 12 },
+    backup_policy: { plan: "custom_daily", hour: 12, retention_period_days: 7 },
   });
-  assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, { plan: "custom_daily", hour: 12 });
+  assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, {
+    plan: "custom_daily",
+    hour: 12,
+    retention_period_days: 7,
+  });
   // Made again, it finds the plan already right and changes nothing.
   const before = calls("POST", /\/actions$/).length;
   await provisioner({ backups: "custom_daily", backupHour: 12 }).create(spec());
@@ -896,6 +900,7 @@ test("a usage-based weekly plan is made on weekly and given its weekday, and a 6
   assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, {
     plan: "custom_weekly",
     hour: 8,
+    retention_period_days: 28,
     weekday: "SUN",
   });
   await digitalocean.close();
@@ -906,7 +911,11 @@ test("a usage-based weekly plan is made on weekly and given its weekday, and a 6
   const [six] = calls("POST", /^\/v2\/droplets$/);
   assert.ok(six);
   assert.deepEqual((six.body as Record<string, unknown>).backup_policy, { plan: "daily", hour: 8 });
-  assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, { plan: "intra_daily_6h", hour: 15 });
+  assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, {
+    plan: "intra_daily_6h",
+    hour: 15,
+    retention_period_days: 7,
+  });
 });
 
 test("when the switch to a usage-based plan is refused the workspace still starts, on the plan it was made on", async () => {
