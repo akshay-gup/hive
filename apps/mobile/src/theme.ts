@@ -41,6 +41,8 @@ export const colors = {
   surfaceMuted: "rgba(255,255,255,0.05)",
   /** Hover and pressed state on quiet fills and rows. */
   surfaceHover: "rgba(255,255,255,0.09)",
+  /** A tab in a row of tabs: `surfaceMuted` as an opaque colour, so tabs can touch with no seam. */
+  tile: "#2B2D30",
 
   // Lines
   /** Hairlines and default borders. */
@@ -173,6 +175,7 @@ export const textPairs: readonly (readonly [keyof Colors, keyof Colors])[] = [
   ["text", "selected"],
   ["muted", "canvas"],
   ["muted", "surfaceMuted"],
+  ["muted", "tile"],
   ["muted", "primarySoft"],
   ["onPrimary", "primary"],
   ["onPrimary", "primaryPressed"],

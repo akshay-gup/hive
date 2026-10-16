@@ -29,6 +29,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { HazeImage } from "./HazeImage";
+import { LiquidTrack } from "./liquid-track";
 import {
   colors,
   fontFamily,
@@ -468,21 +469,121 @@ export function Chip({
     </View>
   );
 }
-/** One choice out of a few, shown together (view switchers, filters, priority). */
-export function Segmented<T extends string>({
+export interface SegmentedOption<T extends string> {
+  id: T;
+  label: string;
+  dot?: string;
+  /** For a screen reader, when the label alone is not enough. */
+  accessibilityLabel?: string;
+  onLongPress?: () => void;
+}
+
+interface SegmentedProps<T extends string> {
+  label: string;
+  options: SegmentedOption<T>[];
+  value: T;
+  onChange: (id: T) => void;
+  disabled?: boolean;
+}
+
+/**
+ * The row of tabs itself, for putting beside something else. The tabs sit on one slab; the chosen
+ * one pulls out of it, and the one you leave flows back in.
+ */
+export function SegmentedRow<T extends string>({
   label,
   options,
   value,
   onChange,
   disabled,
-}: {
-  label: string;
-  options: { id: T; label: string; dot?: string }[];
-  value: T;
-  onChange: (id: T) => void;
-  disabled?: boolean;
-}) {
+}: SegmentedProps<T>) {
   const dense = useDense();
+  const height = dense ? 32 : 38;
+  // The tabs are as wide as their labels, so each reports its width, and the slab behind them is
+  // cut to fit. (Widths, not positions: a layout event comes only when a size changes.) Until they
+  // have all reported, the slab is a plain pill.
+  const [widths, setWidths] = useState<Record<string, number>>({});
+  const measured = options.every((option) => widths[option.id] !== undefined);
+  const bounds = [0];
+  if (measured)
+    for (const option of options) bounds.push(bounds[bounds.length - 1] + widths[option.id]);
+  const active = options.findIndex((option) => option.id === value);
+  return (
+    <View
+      accessibilityRole="tablist"
+      accessibilityLabel={label}
+      style={[
+        {
+          flexDirection: "row",
+          height,
+          opacity: disabled ? 0.6 : 1,
+        },
+        !measured && { borderRadius: radius.pill, backgroundColor: colors.tile },
+      ]}
+    >
+      {measured && (
+        <LiquidTrack
+          ids={options.map((option) => option.id)}
+          active={active}
+          bounds={bounds}
+          height={height}
+          gap={dense ? 6 : 8}
+          fill={colors.selected}
+          line={colors.selectedLine}
+        />
+      )}
+      {options.map((option) => {
+        const selected = option.id === value;
+        return (
+          <Pressable
+            key={option.id}
+            accessibilityRole="tab"
+            accessibilityLabel={option.accessibilityLabel}
+            accessibilityState={{ selected, disabled: !!disabled }}
+            aria-selected={selected}
+            disabled={disabled}
+            onPress={() => onChange(option.id)}
+            onLongPress={option.onLongPress}
+            delayLongPress={500}
+            onLayout={(event) => {
+              const { width } = event.nativeEvent.layout;
+              setWidths((now) => (now[option.id] === width ? now : { ...now, [option.id]: width }));
+            }}
+            style={({ pressed, hovered }: WebPressState) => ({
+              flexShrink: 0,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              height,
+              paddingHorizontal: dense ? 14 : 16,
+              borderRadius: radius.pill,
+              backgroundColor:
+                !selected && (hovered || pressed) ? colors.surfaceHover : "transparent",
+            })}
+          >
+            {!!option.dot && (
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }} />
+            )}
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: fontSize.ui,
+                fontWeight: selected ? "600" : "500",
+                color: selected ? colors.text : colors.muted,
+              }}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** One choice out of a few, shown together (view switchers, filters, priority). */
+export function Segmented<T extends string>(props: SegmentedProps<T>) {
   return (
     <ScrollView
       horizontal
@@ -490,63 +591,7 @@ export function Segmented<T extends string>({
       style={{ flexGrow: 0, maxWidth: "100%", alignSelf: "flex-start" }}
       contentContainerStyle={{ flexGrow: 0 }}
     >
-      <View
-        accessibilityRole="tablist"
-        accessibilityLabel={label}
-        style={{
-          flexDirection: "row",
-          padding: 3,
-          borderRadius: radius.md,
-          backgroundColor: colors.surfaceMuted,
-          opacity: disabled ? 0.6 : 1,
-        }}
-      >
-        {options.map((option) => {
-          const selected = option.id === value;
-          return (
-            <Pressable
-              key={option.id}
-              accessibilityRole="tab"
-              accessibilityState={{ selected, disabled: !!disabled }}
-              disabled={disabled}
-              onPress={() => onChange(option.id)}
-              style={({ pressed, hovered }: WebPressState) => ({
-                flexShrink: 0,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                minHeight: dense ? 32 : 38,
-                paddingHorizontal: dense ? 12 : 14,
-                borderRadius: radius.sm + 1,
-                borderWidth: 1,
-                borderColor: selected ? colors.line : "transparent",
-                backgroundColor: selected
-                  ? colors.surface
-                  : hovered || pressed
-                    ? colors.surfaceHover
-                    : "transparent",
-              })}
-            >
-              {!!option.dot && (
-                <View
-                  style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }}
-                />
-              )}
-              <Text
-                numberOfLines={1}
-                style={{
-                  fontSize: fontSize.ui,
-                  fontWeight: selected ? "600" : "500",
-                  color: selected ? colors.text : colors.muted,
-                }}
-              >
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <SegmentedRow {...props} />
     </ScrollView>
   );
 }

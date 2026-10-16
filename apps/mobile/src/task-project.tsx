@@ -8,9 +8,11 @@ import {
   ErrorNotice,
   Field,
   radius,
+  type SegmentedOption,
+  SegmentedRow,
   Sheet,
   s,
-  selectedCard,
+  useDense,
   type WebPressState,
 } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -32,77 +34,36 @@ export function ProjectSwitcher({
   onNew: () => void;
   onManage: (project: Project) => void;
 }) {
-  const pill = (key: string, label: string, active: boolean, onPress: () => void) => (
-    <Pressable
-      key={key}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={[
-        {
-          borderRadius: radius.md,
-          paddingHorizontal: 16,
-          paddingVertical: 10,
-          minHeight: 40,
-          justifyContent: "center",
-        },
-        selectedCard(active, colors.surfaceMuted),
-      ]}
-    >
-      <Text
-        style={[s.small, { fontWeight: active ? "700" : "600", color: colors.text }]}
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
+  const dense = useDense();
+  // The tabs are keyed by project id; "all" stands for no filter and "none" for no project.
+  const options: SegmentedOption<string>[] = [
+    { id: "all", label: "All" },
+    ...projects.map((project) => ({
+      id: project.id,
+      label: project.name,
+      accessibilityLabel: `Project: ${project.name}`,
+      onLongPress: () => onManage(project),
+    })),
+    { id: "none", label: "No project" },
+  ];
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={[s.row, { gap: 8 }]}>
-        {pill("all", "All", selected === null, () => onSelect(null))}
-        {projects.map((project) => (
-          <Pressable
-            key={project.id}
-            accessibilityRole="button"
-            accessibilityLabel={`Project: ${project.name}`}
-            onPress={() => onSelect(project.id)}
-            onLongPress={() => onManage(project)}
-            delayLongPress={500}
-            style={[
-              {
-                borderRadius: radius.md,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
-                minHeight: 40,
-                justifyContent: "center",
-              },
-              selectedCard(selected === project.id, colors.surfaceMuted),
-            ]}
-          >
-            <Text
-              style={[
-                s.small,
-                { fontWeight: selected === project.id ? "700" : "600", color: colors.text },
-              ]}
-              numberOfLines={1}
-            >
-              {project.name}
-            </Text>
-          </Pressable>
-        ))}
-        {pill("none", "No project", selected === "none", () => onSelect("none"))}
+        <SegmentedRow
+          label="Project"
+          options={options}
+          value={selected === null ? "all" : selected}
+          onChange={(id) => onSelect(id === "all" ? null : id)}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="+ New"
           onPress={onNew}
           style={({ hovered }: WebPressState) => ({
-            borderRadius: radius.md,
+            borderRadius: radius.pill,
             paddingHorizontal: 16,
-            paddingVertical: 10,
-            minHeight: 40,
+            height: dense ? 32 : 38,
             justifyContent: "center",
-            margin: 1,
             borderWidth: 1.5,
             borderStyle: "dashed",
             borderColor: colors.accent,
