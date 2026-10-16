@@ -854,9 +854,12 @@ export function HaloDot({ color, halo }: { color: string; halo: string }) {
 export function Mascot({
   size = 42,
   variant = "sky",
+  art,
 }: {
   size?: number;
   variant?: "sky" | "sand" | "lilac";
+  /** What to draw in place of the still bee, in the same box and over the same disc (the moving bee). */
+  art?: ReactNode;
 }) {
   const palette = mascotTints[variant];
   return (
@@ -872,15 +875,19 @@ export function Mascot({
           backgroundColor: palette,
         }}
       />
-      <Image
-        source={require("../assets/bee.png")}
-        resizeMode="contain"
-        style={{ width: size, height: size }}
-        accessible={false}
-      />
+      {art ?? (
+        <Image
+          source={require("../assets/bee.png")}
+          resizeMode="contain"
+          style={{ width: size, height: size }}
+          accessible={false}
+        />
+      )}
     </View>
   );
 }
+/** The size of the bee on the screens that stand alone (sign in, set up, loading), moving or not. */
+export const pageBee = 96;
 /** True while an input method is mid-composition. Enter confirms the candidate then and must not submit. */
 export function composingText(event: object): boolean {
   const { isComposing, keyCode } = event as { isComposing?: boolean; keyCode?: number };

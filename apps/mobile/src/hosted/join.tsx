@@ -1,6 +1,5 @@
 import { Text, View } from "react-native";
-import { AnimatedBee } from "../animated-bee";
-import { Button, Card, ErrorNotice, s } from "../ui";
+import { Button, Card, ErrorNotice, Mascot, pageBee, s } from "../ui";
 import type { InvitePreview } from "./control-api";
 import { Frame } from "./frame";
 
@@ -21,7 +20,7 @@ export function JoinScreen({
 }) {
   return (
     <Frame>
-      <AnimatedBee loop={2} height={110} />
+      <Mascot size={pageBee} />
       <Card style={{ width: "100%", gap: 14 }}>
         {preview ? (
           <>

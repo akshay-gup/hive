@@ -2,7 +2,7 @@ import { Check } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 import { AnimatedBee } from "../animated-bee";
-import { colors, radius, s } from "../ui";
+import { colors, pageBee, radius, s } from "../ui";
 import { useStill } from "../use-still";
 import { Frame } from "./frame";
 import { barFill, flavorAt, type MakingStep, stepList } from "./making-steps";
@@ -79,7 +79,7 @@ export function MakingScreen({ name, step }: { name: string; step?: string }) {
 
   return (
     <Frame>
-      <AnimatedBee loop={1} height={130} />
+      <AnimatedBee loop={1} size={pageBee} />
       <Text style={[s.title, { textAlign: "center" }]}>{`Setting up ${name}…`}</Text>
       {list ? (
         <View style={[s.card, { alignSelf: "stretch", gap: 14, padding: 18 }]}>

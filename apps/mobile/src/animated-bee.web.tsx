@@ -1,4 +1,5 @@
-import { Image, View } from "react-native";
+import { Image } from "react-native";
+import { beeFrame } from "./bee-frame";
 import { Mascot } from "./ui";
 import { useStill } from "./use-still";
 
@@ -8,29 +9,28 @@ const loops = {
   3: require("../assets/bee-idle-3.webp"),
 } as const;
 export type BeeLoop = keyof typeof loops;
-/** The frames are 352 by 288, with room around the bee for its wings. */
-const RATIO = 352 / 288;
 
 /**
  * The bee, looking around and blinking, in one of three loops (a different one for each kind of
- * screen, so they do not repeat). It holds still, as the plain bee, when the system asks for less motion.
+ * screen, so they do not repeat). It is the `Mascot` at the same `size`, in the same box and with
+ * the same bee under it, so a screen with this and one with the plain bee look the same size. It
+ * holds still, as the plain bee, when the system asks for less motion.
  */
-export function AnimatedBee({ loop, height = 120 }: { loop: BeeLoop; height?: number }) {
+export function AnimatedBee({ loop, size }: { loop: BeeLoop; size: number }) {
   const still = useStill();
-  const width = Math.round(height * RATIO);
+  if (still) return <Mascot size={size} />;
+  const { width, height, left, top } = beeFrame(size);
   return (
-    <View style={{ width, height, alignItems: "center", justifyContent: "center" }}>
-      {still ? (
-        <Mascot size={Math.round(height * 0.95)} />
-      ) : (
+    <Mascot
+      size={size}
+      art={
         <Image
           source={loops[loop]}
           resizeMode="contain"
-          accessible
-          accessibilityLabel="Hive bee"
-          style={{ width, height }}
+          accessible={false}
+          style={{ position: "absolute", width, height, left, top }}
         />
-      )}
-    </View>
+      }
+    />
   );
 }

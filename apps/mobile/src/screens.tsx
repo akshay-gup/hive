@@ -150,7 +150,7 @@ export function TodayScreen() {
                 borderColor: colors.line,
               }}
             />
-            <AnimatedBee loop={3} height={140} />
+            <AnimatedBee loop={3} size={154} />
             <View
               style={[
                 s.row,

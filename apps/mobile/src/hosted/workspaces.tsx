@@ -1,7 +1,18 @@
 import { Plus } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { Button, Card, CreateTile, colors, ErrorNotice, Field, fontSize, Mascot, s } from "../ui";
+import {
+  Button,
+  Card,
+  CreateTile,
+  colors,
+  ErrorNotice,
+  Field,
+  fontSize,
+  Mascot,
+  pageBee,
+  s,
+} from "../ui";
 import type { ControlAccount, Role, WorkspaceSummary } from "./control-api";
 import { Frame } from "./frame";
 import { inviteTokenFrom } from "./invite-link";
@@ -57,7 +68,7 @@ export function WorkspacesScreen({
   };
   return (
     <Frame wide>
-      <Mascot size={72} />
+      <Mascot size={pageBee} />
       <View style={{ alignItems: "center", gap: 6 }}>
         <Text
           style={{

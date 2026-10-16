@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ActivityIndicator, Text } from "react-native";
-import { AnimatedBee } from "../animated-bee";
-import { Button, Card, colors, ErrorNotice, Field, fontSize, s } from "../ui";
+import { Button, Card, colors, ErrorNotice, Field, fontSize, Mascot, pageBee, s } from "../ui";
 import type { InvitePreview } from "./control-api";
 import { Frame } from "./frame";
 
@@ -32,7 +31,7 @@ export function SignInScreen({
   const [name, setName] = useState("");
   return (
     <Frame>
-      <AnimatedBee loop={2} height={110} />
+      <Mascot size={pageBee} />
       <Text
         style={{
           fontSize: fontSize.display,
