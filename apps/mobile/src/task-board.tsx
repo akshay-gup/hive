@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { BellRing } from "lucide-react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import {
   type AgentTask,
   type TaskColumn,
@@ -7,7 +8,9 @@ import {
   type TaskStatus,
   taskColumn,
 } from "../../../packages/domain/src/agent";
+import { elapsedLabel, needsYou, orderColumn, runStartedAt, watchRuns } from "./board-order";
 import { Button, colors, fontSize, radius, s, shadow, type WebPressState } from "./ui";
+import { useStill } from "./use-still";
 
 const columns: { id: TaskColumn; title: string }[] = [
   { id: "todo", title: "To Do" },
@@ -76,15 +79,60 @@ export function excerpt(text: string | undefined | null, max = 140): string | nu
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
 }
 
-/** Rich worker card: status, current activity, plan progress, and quick actions. */
+/** Counts up from `since`, once a second. Alone in its own component so only this text redraws. */
+function RunClock({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <Text style={[s.small, { fontWeight: "700", fontVariant: ["tabular-nums"] }]}>
+      {elapsedLabel(now - since)}
+    </Text>
+  );
+}
+
+/** The mark at the start of a card's first line: a bell when it needs a person, a spinner while it runs. */
+function StatusMark({
+  attention,
+  running,
+  dot,
+}: {
+  attention: boolean;
+  running: boolean;
+  dot: string;
+}) {
+  const still = useStill();
+  if (attention) return <BellRing size={14} strokeWidth={2.4} color={colors.warningText} />;
+  if (running && !still)
+    return (
+      <View style={{ width: 14, height: 14, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator
+          size="small"
+          color={colors.primaryText}
+          style={{ transform: [{ scale: 0.7 }] }}
+        />
+      </View>
+    );
+  return <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />;
+}
+
+/**
+ * Rich worker card: status, current activity, plan progress, and quick actions. A card that needs a
+ * person is amber and has a bell, a running one has a spinner and a clock, a failed one has a red edge.
+ * `seenRunning` is when the board watched the task start, for a workspace that does not record it.
+ */
 export function TaskBoardCard({
   task,
   onPress,
   onControl,
+  seenRunning,
 }: {
   task: AgentTask;
   onPress: () => void;
   onControl?: (taskId: string, action: "pause" | "resume" | "retry") => Promise<void>;
+  seenRunning?: number;
 }) {
   const [busy, setBusy] = useState(false);
   const manual = task.kind === "manual";
@@ -96,6 +144,18 @@ export function TaskBoardCard({
   const overdue = isOverdue(task);
   const noteCount = task.notes?.length ?? 0;
   const fileCount = task.attachments?.length ?? 0;
+  const attention = !manual && needsYou(task.status);
+  const running = !manual && task.status === "running";
+  const failed = task.status === "failed";
+  const finished = task.status === "succeeded" || task.status === "cancelled";
+  const since = running ? runStartedAt(task, seenRunning) : undefined;
+  const stripe = attention
+    ? colors.warning
+    : running
+      ? colors.primary
+      : failed
+        ? colors.danger
+        : undefined;
 
   // What the card leads with under the title: the live step, a question or
   // error needing attention, or the task's own description.
@@ -128,31 +188,76 @@ export function TaskBoardCard({
         backgroundColor: colors.surface,
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor: task.status === "failed" ? colors.dangerLine : colors.line,
+        borderColor: attention ? colors.warningLine : failed ? colors.dangerLine : colors.line,
         boxShadow: shadow.card,
         overflow: "hidden",
       }}
     >
+      {attention && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: colors.warningBg,
+          }}
+        />
+      )}
+      {!!stripe && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            backgroundColor: stripe,
+          }}
+        />
+      )}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open ${manual ? "issue" : "task"}: ${task.title}`}
+        accessibilityLabel={`Open ${manual ? "issue" : "task"}: ${task.title}, ${taskStatusLabel(task).toLowerCase()}`}
         onPress={onPress}
         style={({ pressed, hovered }: WebPressState) => ({
           padding: 14,
           gap: 10,
-          backgroundColor: pressed || hovered ? colors.surfaceMuted : "transparent",
+          backgroundColor:
+            pressed || hovered
+              ? attention
+                ? colors.warningBg
+                : colors.surfaceMuted
+              : "transparent",
         })}
       >
         <View style={[s.row, { gap: 8 }]}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: meta.dot }} />
-          <Text style={[s.small, { fontWeight: "800", letterSpacing: 0.5 }]}>
+          <StatusMark attention={attention} running={running} dot={meta.dot} />
+          <Text
+            style={[
+              s.small,
+              { fontWeight: "800", letterSpacing: 0.5 },
+              attention && { color: colors.warningText },
+            ]}
+          >
             {taskStatusLabel(task)}
           </Text>
           <View style={{ flex: 1 }} />
-          {!!updated && <Text style={s.small}>{updated}</Text>}
+          {since !== undefined ? (
+            <RunClock since={since} />
+          ) : (
+            !!updated && <Text style={s.small}>{attention ? `waiting ${updated}` : updated}</Text>
+          )}
         </View>
         <Text
-          style={[s.text, { fontSize: fontSize.ui, lineHeight: 20, fontWeight: "600" }]}
+          style={[
+            s.text,
+            { fontSize: fontSize.ui, lineHeight: 20, fontWeight: "600" },
+            finished && { color: colors.muted },
+          ]}
           numberOfLines={3}
         >
           {task.title}
@@ -293,8 +398,11 @@ export function TaskBoard({
   onControl?: (taskId: string, action: "pause" | "resume" | "retry") => Promise<void>;
 }) {
   const [width, setWidth] = useState(0);
+  const [watch] = useState(watchRuns);
   const wide = width >= 4 * 260 + 3 * 12;
-  const byColumn = (column: TaskColumn) => tasks.filter((t) => taskColumn(t.status) === column);
+  const byColumn = (column: TaskColumn) =>
+    orderColumn(tasks.filter((t) => taskColumn(t.status) === column));
+  const seen = watch(tasks, Date.now());
   return (
     <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ minWidth: 0 }}>
       <ScrollView
@@ -311,6 +419,7 @@ export function TaskBoard({
       >
         {columns.map((column) => {
           const items = byColumn(column.id);
+          const waiting = items.filter((task) => task.kind !== "manual" && needsYou(task.status));
           return (
             <View
               key={column.id}
@@ -339,6 +448,20 @@ export function TaskBoard({
                 >
                   <Text style={[s.small, { fontWeight: "700" }]}>{items.length}</Text>
                 </View>
+                {waiting.length > 0 && (
+                  <View
+                    style={{
+                      backgroundColor: colors.warningBg,
+                      borderRadius: radius.md,
+                      paddingHorizontal: 9,
+                      paddingVertical: 3,
+                    }}
+                  >
+                    <Text style={[s.small, { fontWeight: "700", color: colors.warningText }]}>
+                      {waiting.length} {waiting.length === 1 ? "needs" : "need"} you
+                    </Text>
+                  </View>
+                )}
               </View>
               {items.map((task) => (
                 <TaskBoardCard
@@ -346,6 +469,7 @@ export function TaskBoard({
                   task={task}
                   onPress={() => onSelect(task)}
                   onControl={onControl}
+                  seenRunning={seen.get(task.id)}
                 />
               ))}
               {!items.length && <Text style={[s.small, { padding: 8 }]}>Nothing here.</Text>}
