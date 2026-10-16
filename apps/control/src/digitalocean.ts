@@ -16,6 +16,10 @@ import {
 } from "./provisioner.ts";
 import { WORKSPACE_PORT, workspaceEnvFromEnv, workspaceSettings } from "./workspace-env.ts";
 
+/** DigitalOcean's backup plans for a Droplet. */
+export type BackupPlan = "daily" | "weekly";
+const BACKUP_HOURS = [0, 4, 8, 12, 16, 20];
+
 export interface DigitalOceanConfig {
   /** A token that can create and delete Droplets and firewalls and read sizes and images. */
   token: string;
@@ -50,10 +54,12 @@ export interface DigitalOceanConfig {
    */
   tunnel?: CloudflareTunnelConfig;
   /**
-   * Have DigitalOcean back up each workspace's Droplet weekly (it keeps the last four, for a fifth
-   * of the Droplet's price). Off when unset. A backup belongs to its Droplet and goes with it.
+   * Have DigitalOcean back up each workspace's Droplet, daily or weekly (`DO_BACKUPS`). Off when
+   * unset. A backup belongs to its Droplet and goes with it.
    */
-  backups?: boolean;
+  backups?: BackupPlan;
+  /** The hour (UTC) a backup window starts, four hours long: 0, 4, 8, 12, 16 or 20. 8 when unset. */
+  backupHour?: number;
   /** Make the firewall that lets only the edge (or, with `tunnel`, nothing) reach workspaces, if there is not one. */
   firewall: boolean;
   /** The tag the edge's Droplets carry: what the firewall lets reach a workspace. */
@@ -114,6 +120,16 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
     throw new Error(
       "DO_VPC_UUID is one region's network, so it cannot be used with several DO_REGIONS",
     );
+  const backupsSetting = env.DO_BACKUPS?.trim().toLowerCase() ?? "";
+  const backupPlan: BackupPlan | undefined =
+    backupsSetting === "weekly"
+      ? "weekly"
+      : ["on", "true", "1", "yes", "daily"].includes(backupsSetting)
+        ? "daily"
+        : undefined;
+  const backupHour = env.DO_BACKUP_HOUR?.trim() ? Number(env.DO_BACKUP_HOUR) : undefined;
+  if (backupHour !== undefined && !BACKUP_HOURS.includes(backupHour))
+    throw new Error(`DO_BACKUP_HOUR must be one of ${BACKUP_HOURS.join(", ")} (UTC)`);
   const readyCheck = env.DO_READY_CHECK?.trim() || "public";
   if (readyCheck !== "public" && readyCheck !== "droplet")
     throw new Error("DO_READY_CHECK must be public or droplet");
@@ -147,7 +163,8 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
           )
         : undefined,
     firewall: env.DO_FIREWALL?.trim().toLowerCase() !== "off",
-    backups: ["on", "true", "1", "yes"].includes(env.DO_BACKUPS?.trim().toLowerCase() ?? ""),
+    backups: backupPlan,
+    backupHour,
     edgeTag,
     edgeAddresses: list("DO_EDGE_ADDRESSES"),
     upstreamNetwork,
@@ -399,6 +416,16 @@ export class DigitalOceanProvisioner implements Provisioner {
       image: /^\d+$/.test(this.config.image) ? Number(this.config.image) : this.config.image,
       ssh_keys: this.config.sshKeys.map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
       backups: Boolean(this.config.backups),
+      // The plan is said outright: left to DigitalOcean it is whatever its default is.
+      ...(this.config.backups
+        ? {
+            backup_policy: {
+              plan: this.config.backups,
+              hour: this.config.backupHour ?? 8,
+              ...(this.config.backups === "weekly" ? { weekday: "SUN" } : {}),
+            },
+          }
+        : {}),
       ipv6: false,
       monitoring: true,
       ...(this.config.vpcUuid ? { vpc_uuid: this.config.vpcUuid } : {}),

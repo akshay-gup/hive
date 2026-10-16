@@ -42,8 +42,10 @@
     "CLOUDFLARE_ZONE_ID": "8034fb3e2eb820737c9655df47f4781e",
     // Tried in this order; the image is copied to the later ones by the Worker (a minute after it starts).
     "DO_REGIONS": "nyc3,tor1,ric1",
-    // DigitalOcean backs each workspace's Droplet up weekly (a fifth of its price extra).
-    "DO_BACKUPS": "on",
+    // DigitalOcean backs each workspace's Droplet up daily, in the window that starts at 08:00 UTC
+    // (4 a.m. in New York), at 30% of the Droplet's price (or its usage-based rate).
+    "DO_BACKUPS": "daily",
+    "DO_BACKUP_HOUR": "8",
     "DO_IMAGE": "249849027"
   }
 }

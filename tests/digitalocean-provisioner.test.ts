@@ -830,20 +830,52 @@ test("DO_REGIONS lists the regions in order, DO_REGION stands alone, and a VPC f
   );
 });
 
-test("DigitalOcean's weekly backups are asked for when switched on, and not otherwise", async () => {
-  await provisioner({ backups: true }).create(spec());
-  const [made] = calls("POST", /^\/v2\/droplets$/);
-  assert.ok(made);
-  assert.equal((made.body as Record<string, unknown>).backups, true);
+test("backups are asked for with the plan said outright, and not at all when off", async () => {
+  await provisioner().create(spec());
+  const [plain] = calls("POST", /^\/v2\/droplets$/);
+  assert.ok(plain);
+  assert.equal((plain.body as Record<string, unknown>).backups, false);
+  assert.equal("backup_policy" in (plain.body as object), false);
+  await digitalocean.close();
 
+  digitalocean = await fakeDigitalOcean();
+  await provisioner({ backups: "daily" }).create(spec());
+  const [daily] = calls("POST", /^\/v2\/droplets$/);
+  assert.ok(daily);
+  const dailyBody = daily.body as Record<string, unknown>;
+  assert.equal(dailyBody.backups, true);
+  // Daily, in the window that starts at 08:00 UTC unless told otherwise, with no weekday.
+  assert.deepEqual(dailyBody.backup_policy, { plan: "daily", hour: 8 });
+  await digitalocean.close();
+
+  digitalocean = await fakeDigitalOcean();
+  await provisioner({ backups: "weekly", backupHour: 4 }).create(spec());
+  const [weekly] = calls("POST", /^\/v2\/droplets$/);
+  assert.ok(weekly);
+  assert.deepEqual((weekly.body as Record<string, unknown>).backup_policy, {
+    plan: "weekly",
+    hour: 4,
+    weekday: "SUN",
+  });
+});
+
+test("DO_BACKUPS says which plan, DO_BACKUP_HOUR when, and anything else is off or refused", () => {
   const full = {
     DO_API_TOKEN: "t",
     DO_IMAGE: "1234567",
     DO_PUBLIC_URL_TEMPLATE: "https://{id}.ws.example.com",
   };
-  assert.equal(digitalOceanConfigFromEnv(full).backups, false);
-  for (const on of ["on", "ON", "true", "1", " yes "])
-    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: on }).backups, true, on);
+  assert.equal(digitalOceanConfigFromEnv(full).backups, undefined);
+  for (const daily of ["on", "ON", "true", "1", " yes ", "daily"])
+    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: daily }).backups, "daily", daily);
+  assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: "Weekly" }).backups, "weekly");
   for (const off of ["off", "false", "0", "", "maybe"])
-    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: off }).backups, false, off);
+    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: off }).backups, undefined, off);
+  assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUP_HOUR: "12" }).backupHour, 12);
+  for (const bad of ["7", "24", "noon"])
+    assert.throws(
+      () => digitalOceanConfigFromEnv({ ...full, DO_BACKUP_HOUR: bad }),
+      /DO_BACKUP_HOUR/,
+      bad,
+    );
 });

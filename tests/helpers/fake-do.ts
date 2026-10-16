@@ -514,6 +514,8 @@ export async function fakeDigitalOcean(
             ssh_keys?: unknown[];
             vpc_uuid?: string;
             monitoring?: boolean;
+            backups?: boolean;
+            backup_policy?: { plan?: string; hour?: number; weekday?: string };
           };
           if (!input.name || !/^[a-zA-Z0-9.-]+$/.test(input.name))
             return problem(
@@ -568,6 +570,15 @@ export async function fakeDigitalOcean(
               "unprocessable_entity",
               "Tags may only contain letters, digits, colons, dashes and underscores",
             );
+          const policy = input.backup_policy;
+          if (
+            policy &&
+            (!["daily", "weekly"].includes(policy.plan ?? "") ||
+              ![0, 4, 8, 12, 16, 20].includes(policy.hour ?? -1) ||
+              (policy.weekday !== undefined &&
+                !["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].includes(policy.weekday)))
+          )
+            return problem(res, 422, "unprocessable_entity", "The backup policy is not valid");
           if ((input.user_data ?? "").length > 65536)
             return problem(res, 422, "unprocessable_entity", "user_data is too large");
           const n = ++ids;
