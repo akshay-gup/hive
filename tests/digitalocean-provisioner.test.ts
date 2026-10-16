@@ -829,3 +829,21 @@ test("DO_REGIONS lists the regions in order, DO_REGION stands alone, and a VPC f
     "vpc-1",
   );
 });
+
+test("DigitalOcean's weekly backups are asked for when switched on, and not otherwise", async () => {
+  await provisioner({ backups: true }).create(spec());
+  const [made] = calls("POST", /^\/v2\/droplets$/);
+  assert.ok(made);
+  assert.equal((made.body as Record<string, unknown>).backups, true);
+
+  const full = {
+    DO_API_TOKEN: "t",
+    DO_IMAGE: "1234567",
+    DO_PUBLIC_URL_TEMPLATE: "https://{id}.ws.example.com",
+  };
+  assert.equal(digitalOceanConfigFromEnv(full).backups, false);
+  for (const on of ["on", "ON", "true", "1", " yes "])
+    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: on }).backups, true, on);
+  for (const off of ["off", "false", "0", "", "maybe"])
+    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: off }).backups, false, off);
+});

@@ -49,6 +49,11 @@ export interface DigitalOceanConfig {
    * alone. Left out, workspaces are reached through the edge.
    */
   tunnel?: CloudflareTunnelConfig;
+  /**
+   * Have DigitalOcean back up each workspace's Droplet weekly (it keeps the last four, for a fifth
+   * of the Droplet's price). Off when unset. A backup belongs to its Droplet and goes with it.
+   */
+  backups?: boolean;
   /** Make the firewall that lets only the edge (or, with `tunnel`, nothing) reach workspaces, if there is not one. */
   firewall: boolean;
   /** The tag the edge's Droplets carry: what the firewall lets reach a workspace. */
@@ -142,6 +147,7 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
           )
         : undefined,
     firewall: env.DO_FIREWALL?.trim().toLowerCase() !== "off",
+    backups: ["on", "true", "1", "yes"].includes(env.DO_BACKUPS?.trim().toLowerCase() ?? ""),
     edgeTag,
     edgeAddresses: list("DO_EDGE_ADDRESSES"),
     upstreamNetwork,
@@ -392,7 +398,7 @@ export class DigitalOceanProvisioner implements Provisioner {
       size: size.slug,
       image: /^\d+$/.test(this.config.image) ? Number(this.config.image) : this.config.image,
       ssh_keys: this.config.sshKeys.map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
-      backups: false,
+      backups: Boolean(this.config.backups),
       ipv6: false,
       monitoring: true,
       ...(this.config.vpcUuid ? { vpc_uuid: this.config.vpcUuid } : {}),

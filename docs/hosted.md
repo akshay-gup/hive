@@ -258,7 +258,7 @@ The limits are DigitalOcean's: Droplets per account (ask them to raise it), and 
 
 A new snapshot is used by workspaces made after it. A Droplet that exists is not changed: Ubuntu installs security updates on it by itself but does not restart it, so restart a Droplet now and then to take a new kernel. Rolling a new workspace version onto existing Droplets is not written.
 
-Hive makes no copy of a workspace's disk. A Droplet can be lost with its host, and its data with it. Turn on DigitalOcean's backups for the Droplets, or snapshot them (`doctl compute droplet-action snapshot <id>`), before charging anyone, and keep a copy somewhere that is not DigitalOcean.
+Hive makes no copy of a workspace's disk itself. A Droplet can be lost with its host, and its data with it. Set `DO_BACKUPS=on` and DigitalOcean backs up each new workspace's Droplet weekly, keeping the last four, for a fifth of the Droplet's price extra (the hosted site sets it). There is no restore button in Hive: to bring a workspace back, restore the backup in the DigitalOcean console (Backups, then Restore) onto the same Droplet. A backup belongs to its Droplet and goes with it, so it is not a way to undelete a workspace, and Droplets made before the setting was on have none (turn them on in the console). Keep a copy somewhere that is not DigitalOcean before charging anyone.
 
 ## Deploy the control plane on Cloudflare
 
@@ -335,6 +335,7 @@ The Worker answers with an error until the signing key is set. Add `<CONTROL_PUB
 | `DO_IMAGE` | The snapshot every workspace's Droplet is made from: the id `do-image.ts` printed. |
 | `DO_PUBLIC_URL_TEMPLATE` | Where people reach a workspace, an https address with `{id}` where its id goes (`https://{id}.ws.example.com`). |
 | `DO_REGIONS` | Where workspaces may run, most wanted first (`nyc3,tor1,ric1`): a new workspace goes to the first with a size for it and the image. Every minute the control plane copies the image to the ones that lack it (a few minutes each), so a region at capacity does not stop new workspaces; if none has room it keeps trying for 15 minutes before saying so. A workspace stays in the region it was made in. Cannot be used with `DO_VPC_UUID` and more than one region. |
+| `DO_BACKUPS` | `on` to have DigitalOcean back up each new workspace's Droplet weekly (default off). |
 | `DO_REGION` | One region, when `DO_REGIONS` is not set (default `nyc3`). The image must be in it. |
 | `DO_SIZE`, `DO_SIZE_FREE`, `DO_SIZE_TEAM` | A size slug for every plan, or for one. Without one, the cheapest available shared size that fits the plan. |
 | `DO_VPC_UUID` | The private network to put Droplets in (the region's default when unset). The edge must be in it. |
