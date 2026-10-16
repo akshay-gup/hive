@@ -149,6 +149,8 @@ export interface AgentTask {
   nextRunAt?: string;
   leaseId?: string | null;
   leaseUntil?: string | null;
+  /** When the agent picked the task up for the run now going on. Only meaningful while it runs. */
+  runStartedAt?: string;
   attempts: number;
   actionId?: string | null;
   result?: string;

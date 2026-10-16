@@ -138,11 +138,13 @@ export class TaskWorker {
       leaseId: previous.leaseId ?? null,
     };
     if (previous.status === "running") expected.leaseUntil = previous.leaseUntil;
+    const claimedAt = new Date(this.now()).toISOString();
     let task = await this.db.compareAndSwap<AgentTask>(owner, "tasks", previous.id, expected, {
       status: "running",
       leaseId,
       leaseUntil: new Date(this.now() + leaseMs).toISOString(),
-      updatedAt: new Date(this.now()).toISOString(),
+      runStartedAt: claimedAt,
+      updatedAt: claimedAt,
       attempts: previous.attempts + 1,
     });
     if (!task) return;

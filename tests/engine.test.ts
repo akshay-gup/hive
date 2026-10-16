@@ -46,6 +46,23 @@ test("two workers claim one task only once", async () => {
     await db.close();
   }
 });
+test("a task records when the agent picked it up, for the clock on its card", async () => {
+  const db = await createStore();
+  try {
+    await db.put("owner", "tasks", task());
+    let seen: AgentTask | undefined;
+    const before = Date.now();
+    await new TaskWorker(db, async (owner, value) => {
+      seen = (await db.get<AgentTask>(owner, "tasks", value.id)) ?? undefined;
+      return { status: "succeeded" as const, result: "done" };
+    }).tick();
+    const started = Date.parse(seen?.runStartedAt ?? "");
+    assert.ok(started >= before && started <= Date.now(), "set when the task was claimed");
+    assert.equal(seen?.runStartedAt, seen?.updatedAt, "the claim is one write");
+  } finally {
+    await db.close();
+  }
+});
 test("cancellation invalidates a stale worker before its next effect", async () => {
   const db = await createStore();
   try {
