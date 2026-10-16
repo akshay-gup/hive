@@ -440,6 +440,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
       case "opening":
         return (
           <ProgressScreen
+            moving
             title={`Opening ${phase.workspace.name}…`}
             detail={
               phase.step === "waking"

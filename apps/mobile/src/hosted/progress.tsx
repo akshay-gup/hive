@@ -9,17 +9,20 @@ export function ProgressScreen({
   title,
   detail,
   error,
+  moving,
   children,
 }: {
   title: string;
   detail?: string;
   error?: string;
+  /** Show the bee moving, for a wait that can run on (a workspace waking up); the plain bee when it is brief. */
+  moving?: boolean;
   /** The buttons that go with it, once there is something to do. */
   children?: ReactNode;
 }) {
   return (
     <Frame>
-      {error ? <Mascot size={pageBee} /> : <AnimatedBee loop={2} size={pageBee} />}
+      {moving && !error ? <AnimatedBee loop={2} size={pageBee} /> : <Mascot size={pageBee} />}
       {error ? <ErrorNotice error={error} /> : <ActivityIndicator color={colors.primary} />}
       <Text style={[s.title, { textAlign: "center" }]}>{title}</Text>
       {!!detail && <Text style={[s.muted, { textAlign: "center" }]}>{detail}</Text>}

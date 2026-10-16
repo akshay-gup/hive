@@ -81,3 +81,12 @@ test("the web and the phone both play all three loops, the phone through expo-im
     "the phone's image is the one that animates WebP",
   );
 });
+
+test("the landing screens show the plain bee, and only the waits that can run on show it moving", () => {
+  for (const file of ["hosted/sign-in.tsx", "hosted/join.tsx", "hosted/workspaces.tsx"])
+    assert.ok(!readFileSync(source(file), "utf8").includes("AnimatedBee"), `${file} stays still`);
+  const app = readFileSync(source("hosted/HostedApp.tsx"), "utf8");
+  // "Opening Hive…" is the first thing anyone sees; "Opening <workspace>…" may be a wait for it to wake.
+  assert.match(app, /<ProgressScreen title="Opening Hive…" \/>/);
+  assert.match(app, /<ProgressScreen\s+moving\s+title=\{`Opening \$\{phase\.workspace\.name\}…`\}/);
+});
