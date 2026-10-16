@@ -19,6 +19,9 @@ export interface FakeDroplet {
   userData: string;
   sshKeys: unknown[];
   monitoring: boolean;
+  backups: boolean;
+  /** What DigitalOcean reports for the Droplet's backups, when they are on. */
+  backupPolicy?: { plan: string; hour: number; weekday?: string };
 }
 export interface FakeSize {
   slug: string;
@@ -82,6 +85,19 @@ export interface DoCall {
 }
 
 const REGIONS = ["nyc1", "nyc3", "sfo3", "fra1"];
+const STANDARD_HOURS = [0, 4, 8, 12, 16, 20];
+/** The plans `GET /droplets/backups/supported_policies` lists, and the hours a window may start at. */
+const BACKUP_PLANS: Record<string, { hours: number[]; weekly: boolean }> = {
+  daily: { hours: STANDARD_HOURS, weekly: false },
+  weekly: { hours: STANDARD_HOURS, weekly: true },
+  custom_daily: { hours: STANDARD_HOURS, weekly: false },
+  custom_weekly: { hours: STANDARD_HOURS, weekly: true },
+  intra_daily_12h: { hours: STANDARD_HOURS, weekly: false },
+  intra_daily_6h: { hours: [0, 3, 6, 9, 12, 15, 18, 21], weekly: false },
+  intra_daily_4h: { hours: STANDARD_HOURS, weekly: false },
+};
+/** A Droplet can only be made on these two, as the API's documented schema says. */
+const PLANS_AT_CREATION = ["daily", "weekly"];
 
 /** Sizes as DigitalOcean lists them: the bundled Basic plans, a premium one, and the v5 families. */
 export const defaultSizes = (): FakeSize[] => [
@@ -573,7 +589,7 @@ export async function fakeDigitalOcean(
           const policy = input.backup_policy;
           if (
             policy &&
-            (!["daily", "weekly"].includes(policy.plan ?? "") ||
+            (!PLANS_AT_CREATION.includes(policy.plan ?? "") ||
               ![0, 4, 8, 12, 16, 20].includes(policy.hour ?? -1) ||
               (policy.weekday !== undefined &&
                 !["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].includes(policy.weekday)))
@@ -605,6 +621,18 @@ export async function fakeDigitalOcean(
             userData: input.user_data ?? "",
             sshKeys: input.ssh_keys ?? [],
             monitoring: Boolean(input.monitoring),
+            backups: Boolean(input.backups),
+            ...(input.backups
+              ? {
+                  backupPolicy: {
+                    plan: input.backup_policy?.plan ?? "daily",
+                    hour: input.backup_policy?.hour ?? 0,
+                    ...(input.backup_policy?.weekday
+                      ? { weekday: input.backup_policy.weekday }
+                      : {}),
+                  },
+                }
+              : {}),
           };
           droplets.set(n, droplet);
           activeAt.set(n, Date.now() + (options.activeDelayMs ?? 0));
@@ -633,6 +661,15 @@ export async function fakeDigitalOcean(
           meta,
         });
       }
+      if (sub === "backups" && subId === "policy" && method === "GET") {
+        return send(res, 200, {
+          policy: {
+            droplet_id: droplet.id,
+            backup_enabled: droplet.backups,
+            ...(droplet.backupPolicy ? { backup_policy: droplet.backupPolicy } : {}),
+          },
+        });
+      }
       if (sub === "actions" && subId && method === "GET") {
         const action = actions.get(Number(subId));
         if (!action || action.resource_id !== droplet.id)
@@ -642,6 +679,31 @@ export async function fakeDigitalOcean(
       }
       if (sub === "actions" && !subId && method === "POST") {
         const type = (body as { type?: string }).type;
+        if (type === "change_backup_policy") {
+          const policy = (
+            body as { backup_policy?: { plan?: string; hour?: number; weekday?: string } }
+          ).backup_policy;
+          const plan = policy?.plan ? BACKUP_PLANS[policy.plan] : undefined;
+          if (!droplet.backups)
+            return problem(
+              res,
+              422,
+              "unprocessable_entity",
+              "Backups are not enabled for this Droplet",
+            );
+          if (!policy || !plan?.hours.includes(policy.hour ?? -1))
+            return problem(res, 422, "unprocessable_entity", "The backup policy is not valid");
+          if (plan.weekly !== Boolean(policy.weekday))
+            return problem(res, 422, "unprocessable_entity", "A weekday is for weekly plans only");
+          const action = queueAction(droplet, type, () => {
+            droplet.backupPolicy = {
+              plan: policy.plan as string,
+              hour: policy.hour as number,
+              ...(policy.weekday ? { weekday: policy.weekday } : {}),
+            };
+          });
+          return send(res, 201, { action: view(action) });
+        }
         if (type === "power_on") {
           if (droplet.status === "active")
             return problem(res, 422, "unprocessable_entity", "Droplet is already powered on.");

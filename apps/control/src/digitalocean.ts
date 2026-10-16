@@ -16,9 +16,24 @@ import {
 } from "./provisioner.ts";
 import { WORKSPACE_PORT, workspaceEnvFromEnv, workspaceSettings } from "./workspace-env.ts";
 
-/** DigitalOcean's backup plans for a Droplet. */
-export type BackupPlan = "daily" | "weekly";
-const BACKUP_HOURS = [0, 4, 8, 12, 16, 20];
+const STANDARD_HOURS = [0, 4, 8, 12, 16, 20];
+/**
+ * DigitalOcean's backup plans for a Droplet, by the names its API gives them (`GET
+ * /droplets/backups/supported_policies`). `daily` and `weekly` cost a share of the Droplet's price
+ * (30% and 20%); the others (`custom_*`, `intra_daily_*`) cost per GB of a backup's restorable size,
+ * which is far less for a workspace that is mostly empty. A Droplet can only be *made* on the first
+ * two; the others are switched to once it exists.
+ */
+const BACKUP_PLANS = {
+  daily: { usage: false, weekly: false, hours: STANDARD_HOURS },
+  weekly: { usage: false, weekly: true, hours: STANDARD_HOURS },
+  custom_daily: { usage: true, weekly: false, hours: STANDARD_HOURS },
+  custom_weekly: { usage: true, weekly: true, hours: STANDARD_HOURS },
+  intra_daily_12h: { usage: true, weekly: false, hours: STANDARD_HOURS },
+  intra_daily_6h: { usage: true, weekly: false, hours: [0, 3, 6, 9, 12, 15, 18, 21] },
+  intra_daily_4h: { usage: true, weekly: false, hours: STANDARD_HOURS },
+} as const;
+export type BackupPlan = keyof typeof BACKUP_PLANS;
 
 export interface DigitalOceanConfig {
   /** A token that can create and delete Droplets and firewalls and read sizes and images. */
@@ -54,11 +69,11 @@ export interface DigitalOceanConfig {
    */
   tunnel?: CloudflareTunnelConfig;
   /**
-   * Have DigitalOcean back up each workspace's Droplet, daily or weekly (`DO_BACKUPS`). Off when
-   * unset. A backup belongs to its Droplet and goes with it.
+   * Have DigitalOcean back up each workspace's Droplet on this plan (`DO_BACKUPS`). Off when unset.
+   * A backup belongs to its Droplet and goes with it.
    */
   backups?: BackupPlan;
-  /** The hour (UTC) a backup window starts, four hours long: 0, 4, 8, 12, 16 or 20. 8 when unset. */
+  /** The hour (UTC) a backup window starts: 0, 4, 8, 12, 16 or 20 (0, 3, 6, … for `intra_daily_6h`). 8 when unset. */
   backupHour?: number;
   /** Make the firewall that lets only the edge (or, with `tunnel`, nothing) reach workspaces, if there is not one. */
   firewall: boolean;
@@ -120,16 +135,21 @@ export function digitalOceanConfigFromEnv(env: Env = process.env): DigitalOceanC
     throw new Error(
       "DO_VPC_UUID is one region's network, so it cannot be used with several DO_REGIONS",
     );
-  const backupsSetting = env.DO_BACKUPS?.trim().toLowerCase() ?? "";
-  const backupPlan: BackupPlan | undefined =
-    backupsSetting === "weekly"
-      ? "weekly"
-      : ["on", "true", "1", "yes", "daily"].includes(backupsSetting)
-        ? "daily"
-        : undefined;
+  const backupsSetting = (env.DO_BACKUPS ?? "").trim().toLowerCase().replace(/-/g, "_");
+  let backupPlan: BackupPlan | undefined;
+  if (["on", "true", "1", "yes"].includes(backupsSetting)) backupPlan = "daily";
+  else if (backupsSetting in BACKUP_PLANS) backupPlan = backupsSetting as BackupPlan;
+  else if (!["", "off", "false", "0", "no"].includes(backupsSetting))
+    // A typo must not quietly mean no backups.
+    throw new Error(
+      `DO_BACKUPS must be off, on, or one of ${Object.keys(BACKUP_PLANS).join(", ")}`,
+    );
   const backupHour = env.DO_BACKUP_HOUR?.trim() ? Number(env.DO_BACKUP_HOUR) : undefined;
-  if (backupHour !== undefined && !BACKUP_HOURS.includes(backupHour))
-    throw new Error(`DO_BACKUP_HOUR must be one of ${BACKUP_HOURS.join(", ")} (UTC)`);
+  const backupHours: readonly number[] = backupPlan
+    ? BACKUP_PLANS[backupPlan].hours
+    : STANDARD_HOURS;
+  if (backupHour !== undefined && !backupHours.includes(backupHour))
+    throw new Error(`DO_BACKUP_HOUR must be one of ${backupHours.join(", ")} (UTC)`);
   const readyCheck = env.DO_READY_CHECK?.trim() || "public";
   if (readyCheck !== "public" && readyCheck !== "droplet")
     throw new Error("DO_READY_CHECK must be public or droplet");
@@ -314,6 +334,7 @@ export class DigitalOceanProvisioner implements Provisioner {
       progress("starting");
       if (droplet.status === "off") await this.powerOn(droplet.id);
       await this.waitActive(droplet.id);
+      await this.settleBackups(droplet.id);
       progress("checking");
       await this.untilAnswering(spec.workspaceId, url);
     } catch (error) {
@@ -419,11 +440,10 @@ export class DigitalOceanProvisioner implements Provisioner {
       // The plan is said outright: left to DigitalOcean it is whatever its default is.
       ...(this.config.backups
         ? {
-            backup_policy: {
-              plan: this.config.backups,
-              hour: this.config.backupHour ?? 8,
-              ...(this.config.backups === "weekly" ? { weekday: "SUN" } : {}),
-            },
+            // Made on a plan DigitalOcean takes at creation; `settleBackups` moves it to a usage-based one.
+            backup_policy: this.backupPolicy(
+              BACKUP_PLANS[this.config.backups].weekly ? "weekly" : "daily",
+            ),
           }
         : {}),
       ipv6: false,
@@ -666,6 +686,64 @@ export class DigitalOceanProvisioner implements Provisioner {
       type,
     });
     return (result as { action: DoAction }).action;
+  }
+
+  // Backups.
+
+  /** The hour a backup window starts, on the plan asked for: the one set if it fits, else 8 (or 6, where 8 is not one). */
+  private backupHourFor(plan: BackupPlan): number {
+    const hours: readonly number[] = BACKUP_PLANS[plan].hours;
+    const set = this.config.backupHour;
+    return set !== undefined && hours.includes(set) ? set : hours.includes(8) ? 8 : 6;
+  }
+
+  /** A backup policy as DigitalOcean takes it: the plan, when its window starts, and the weekday for a weekly one. */
+  private backupPolicy(plan: BackupPlan): { plan: string; hour: number; weekday?: string } {
+    // A plan a Droplet is made on has the standard hours; the real hour is set when it is switched.
+    const hour = this.backupHourFor(plan);
+    return {
+      plan,
+      hour: (STANDARD_HOURS as readonly number[]).includes(hour) ? hour : 8,
+      ...(BACKUP_PLANS[plan].weekly ? { weekday: "SUN" } : {}),
+    };
+  }
+
+  /**
+   * Moves a new Droplet from the plan it was made on to the usage-based one asked for. A Droplet
+   * cannot be made on those, so this follows creation; if DigitalOcean refuses, the Droplet keeps
+   * the plan it was made on (still backed up, at the flat price) and the logs say why. It never
+   * stops a workspace from starting.
+   */
+  private async settleBackups(dropletId: number) {
+    const wanted = this.config.backups;
+    if (!wanted || !BACKUP_PLANS[wanted].usage) return;
+    try {
+      const now = await this.api<{ policy?: { backup_policy?: { plan?: string; hour?: number } } }>(
+        "GET",
+        `/droplets/${dropletId}/backups/policy`,
+      );
+      const have = now?.policy?.backup_policy;
+      const hour = this.backupHourFor(wanted);
+      if (have?.plan === wanted && have.hour === hour) return;
+      const result = await this.api<{ action: DoAction }>(
+        "POST",
+        `/droplets/${dropletId}/actions`,
+        {
+          type: "change_backup_policy",
+          backup_policy: {
+            plan: wanted,
+            hour,
+            ...(BACKUP_PLANS[wanted].weekly ? { weekday: "SUN" } : {}),
+          },
+        },
+      );
+      // The change is an action DigitalOcean carries out; one that fails is an error, caught below.
+      if (result) await this.waitAction(dropletId, result.action.id, 60);
+    } catch (error) {
+      console.error(
+        `[Hive control] could not switch Droplet ${dropletId}'s backups to ${wanted}; it keeps the plan it was made on: ${error instanceof Error ? error.message : error}`,
+      );
+    }
   }
 
   /**

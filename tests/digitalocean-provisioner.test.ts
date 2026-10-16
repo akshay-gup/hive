@@ -830,7 +830,7 @@ test("DO_REGIONS lists the regions in order, DO_REGION stands alone, and a VPC f
   );
 });
 
-test("backups are asked for with the plan said outright, and not at all when off", async () => {
+test("backups are not asked for when off, and a flat plan is asked for outright", async () => {
   await provisioner().create(spec());
   const [plain] = calls("POST", /^\/v2\/droplets$/);
   assert.ok(plain);
@@ -846,6 +846,8 @@ test("backups are asked for with the plan said outright, and not at all when off
   assert.equal(dailyBody.backups, true);
   // Daily, in the window that starts at 08:00 UTC unless told otherwise, with no weekday.
   assert.deepEqual(dailyBody.backup_policy, { plan: "daily", hour: 8 });
+  // Nothing to switch to.
+  assert.equal(calls("POST", /\/actions$/).length, 0);
   await digitalocean.close();
 
   digitalocean = await fakeDigitalOcean();
@@ -859,18 +861,102 @@ test("backups are asked for with the plan said outright, and not at all when off
   });
 });
 
-test("DO_BACKUPS says which plan, DO_BACKUP_HOUR when, and anything else is off or refused", () => {
+test("a usage-based plan is switched to once the Droplet exists, because a Droplet cannot be made on one", async () => {
+  await provisioner({ backups: "custom_daily", backupHour: 12 }).create(spec());
+  // Made on the flat plan DigitalOcean takes at creation...
+  const [made] = calls("POST", /^\/v2\/droplets$/);
+  assert.ok(made);
+  assert.deepEqual((made.body as Record<string, unknown>).backup_policy, {
+    plan: "daily",
+    hour: 12,
+  });
+  // ...then moved to the usage-based one.
+  const [switched] = calls("POST", /\/actions$/);
+  assert.ok(switched);
+  assert.deepEqual(switched.body, {
+    type: "change_backup_policy",
+    backup_policy: { plan: "custom_daily", hour: 12 },
+  });
+  assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, { plan: "custom_daily", hour: 12 });
+  // Made again, it finds the plan already right and changes nothing.
+  const before = calls("POST", /\/actions$/).length;
+  await provisioner({ backups: "custom_daily", backupHour: 12 }).create(spec());
+  assert.equal(calls("POST", /\/actions$/).length, before);
+});
+
+test("a usage-based weekly plan is made on weekly and given its weekday, and a 6-hourly one its own hours", async () => {
+  await provisioner({ backups: "custom_weekly" }).create(spec());
+  const [made] = calls("POST", /^\/v2\/droplets$/);
+  assert.ok(made);
+  assert.deepEqual((made.body as Record<string, unknown>).backup_policy, {
+    plan: "weekly",
+    hour: 8,
+    weekday: "SUN",
+  });
+  assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, {
+    plan: "custom_weekly",
+    hour: 8,
+    weekday: "SUN",
+  });
+  await digitalocean.close();
+
+  digitalocean = await fakeDigitalOcean();
+  await provisioner({ backups: "intra_daily_6h", backupHour: 15 }).create(spec());
+  // 15:00 is not a start the plan a Droplet is made on has, so it is made at 08:00 and set after.
+  const [six] = calls("POST", /^\/v2\/droplets$/);
+  assert.ok(six);
+  assert.deepEqual((six.body as Record<string, unknown>).backup_policy, { plan: "daily", hour: 8 });
+  assert.deepEqual(digitalocean.dropletOf(ID)?.backupPolicy, { plan: "intra_daily_6h", hour: 15 });
+});
+
+test("when the switch to a usage-based plan is refused the workspace still starts, on the plan it was made on", async () => {
+  const logged = mock.method(console, "error", () => {});
+  try {
+    digitalocean.failNext(
+      /POST \/v2\/droplets\/\d+\/actions$/,
+      422,
+      1,
+      undefined,
+      "plan is not offered",
+    );
+    await provisioner({ backups: "custom_daily" }).create(spec());
+    assert.ok(digitalocean.dropletOf(ID));
+    assert.equal(digitalocean.dropletOf(ID)?.backupPolicy?.plan, "daily");
+    const said = logged.mock.calls.map((call) => String(call.arguments[0])).join("\n");
+    assert.match(said, /could not switch Droplet \d+'s backups to custom_daily/);
+    assert.match(said, /plan is not offered/);
+  } finally {
+    logged.mock.restore();
+  }
+});
+
+test("DO_BACKUPS names the plan, DO_BACKUP_HOUR when, and a typo is refused rather than meaning none", () => {
   const full = {
     DO_API_TOKEN: "t",
     DO_IMAGE: "1234567",
     DO_PUBLIC_URL_TEMPLATE: "https://{id}.ws.example.com",
   };
   assert.equal(digitalOceanConfigFromEnv(full).backups, undefined);
+  for (const off of ["off", "false", "0", "no", "  "])
+    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: off }).backups, undefined, off);
   for (const daily of ["on", "ON", "true", "1", " yes ", "daily"])
     assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: daily }).backups, "daily", daily);
   assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: "Weekly" }).backups, "weekly");
-  for (const off of ["off", "false", "0", "", "maybe"])
-    assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: off }).backups, undefined, off);
+  assert.equal(
+    digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: "custom-daily" }).backups,
+    "custom_daily",
+  );
+  assert.equal(
+    digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: "intra_daily_4h" }).backups,
+    "intra_daily_4h",
+  );
+  for (const typo of ["maybe", "dayly", "custom"])
+    assert.throws(
+      () => digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: typo }),
+      /DO_BACKUPS must be/,
+      typo,
+    );
+
   assert.equal(digitalOceanConfigFromEnv({ ...full, DO_BACKUP_HOUR: "12" }).backupHour, 12);
   for (const bad of ["7", "24", "noon"])
     assert.throws(
@@ -878,4 +964,11 @@ test("DO_BACKUPS says which plan, DO_BACKUP_HOUR when, and anything else is off 
       /DO_BACKUP_HOUR/,
       bad,
     );
+  // Every six hours starts on the third hour, which the other plans do not.
+  const six = { ...full, DO_BACKUPS: "intra_daily_6h" };
+  assert.equal(digitalOceanConfigFromEnv({ ...six, DO_BACKUP_HOUR: "15" }).backupHour, 15);
+  assert.throws(
+    () => digitalOceanConfigFromEnv({ ...full, DO_BACKUPS: "custom_daily", DO_BACKUP_HOUR: "15" }),
+    /DO_BACKUP_HOUR/,
+  );
 });
