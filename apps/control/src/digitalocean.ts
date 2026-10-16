@@ -725,22 +725,28 @@ export class DigitalOceanProvisioner implements Provisioner {
       const have = now?.policy?.backup_policy;
       const hour = this.backupHourFor(wanted);
       if (have?.plan === wanted && have.hour === hour) return;
-      const result = await this.api<{ action: DoAction }>(
-        "POST",
-        `/droplets/${dropletId}/actions`,
-        {
-          type: "change_backup_policy",
-          backup_policy: {
-            plan: wanted,
-            hour,
-            // DigitalOcean refuses a switch without it ("retention_period_days is invalid"): each plan's own default.
-            retention_period_days: BACKUP_PLANS[wanted].days,
-            ...(BACKUP_PLANS[wanted].weekly ? { weekday: "SUN" } : {}),
-          },
+      await this.api("POST", `/droplets/${dropletId}/actions`, {
+        type: "change_backup_policy",
+        backup_policy: {
+          plan: wanted,
+          hour,
+          // DigitalOcean refuses a switch without it ("retention_period_days is invalid"): each plan's own default.
+          retention_period_days: BACKUP_PLANS[wanted].days,
+          ...(BACKUP_PLANS[wanted].weekly ? { weekday: "SUN" } : {}),
         },
-      );
-      // The change is an action DigitalOcean carries out; one that fails is an error, caught below.
-      if (result) await this.waitAction(dropletId, result.action.id, 60);
+      });
+      // The action it starts cannot be asked after (`/droplets/{id}/actions/{id}` answers 404 for
+      // it), so the policy itself is read back until it is the one asked for.
+      const until = Date.now() + 60_000;
+      for (let attempt = 0; ; attempt++) {
+        const read = await this.api<{
+          policy?: { backup_policy?: { plan?: string; hour?: number } };
+        }>("GET", `/droplets/${dropletId}/backups/policy`);
+        const policy = read?.policy?.backup_policy;
+        if (policy?.plan === wanted && policy.hour === hour) return;
+        if (Date.now() >= until) throw new Error("the policy did not change within a minute");
+        await this.pause(attempt);
+      }
     } catch (error) {
       console.error(
         `[Hive control] could not switch Droplet ${dropletId}'s backups to ${wanted}; it keeps the plan it was made on: ${error instanceof Error ? error.message : error}`,

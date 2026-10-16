@@ -888,6 +888,21 @@ test("a usage-based plan is switched to once the Droplet exists, because a Dropl
   assert.equal(calls("POST", /\/actions$/).length, before);
 });
 
+test("the switch is waited for by reading the policy back, since DigitalOcean cannot be asked after the action it starts", async () => {
+  await digitalocean.close();
+  digitalocean = await fakeDigitalOcean({ actionDelayMs: 150 });
+  const logged = mock.method(console, "error", () => {});
+  try {
+    await provisioner({ backups: "custom_daily" }).create(spec());
+    // Not yet true when asked for, and true once create returned: it waited.
+    assert.equal(digitalocean.dropletOf(ID)?.backupPolicy?.plan, "custom_daily");
+    assert.equal(logged.mock.calls.length, 0);
+    assert.equal(calls("GET", /\/actions\/\d+$/).length, 0);
+  } finally {
+    logged.mock.restore();
+  }
+});
+
 test("a usage-based weekly plan is made on weekly and given its weekday, and a 6-hourly one its own hours", async () => {
   await provisioner({ backups: "custom_weekly" }).create(spec());
   const [made] = calls("POST", /^\/v2\/droplets$/);

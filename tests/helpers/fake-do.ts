@@ -667,6 +667,10 @@ export async function fakeDigitalOcean(
         });
       }
       if (sub === "backups" && subId === "policy" && method === "GET") {
+        // A policy change takes effect by itself once its time is up.
+        for (const action of actions.values())
+          if (action.resource_id === droplet.id && action.type === "change_backup_policy")
+            settleAction(action);
         return send(res, 200, {
           policy: {
             droplet_id: droplet.id,
@@ -677,7 +681,8 @@ export async function fakeDigitalOcean(
       }
       if (sub === "actions" && subId && method === "GET") {
         const action = actions.get(Number(subId));
-        if (!action || action.resource_id !== droplet.id)
+        // As DigitalOcean answers for a backup policy change: it is carried out, but not found here.
+        if (!action || action.resource_id !== droplet.id || action.type === "change_backup_policy")
           return problem(res, 404, "not_found", "The resource you requested could not be found.");
         settleAction(action);
         return send(res, 200, { action: view(action) });
