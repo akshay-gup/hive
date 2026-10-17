@@ -226,6 +226,13 @@ export class Store {
       `UPDATE records SET data=data || '{"status":"outcome_unknown","error":"Server restarted during execution. Check the provider before creating another action."}'::jsonb WHERE kind='actions' AND data->>'status'='executing'`,
     );
   }
+  async removeBelow(owner: string, kind: string, field: string, limit: number): Promise<number> {
+    const result = await this.db.query(
+      "DELETE FROM records WHERE owner=$1 AND kind=$2 AND CASE WHEN jsonb_typeof(data->$3::text)='number' THEN (data->>$3::text)::numeric END < $4::numeric RETURNING id",
+      [homeOf(owner, kind), kind, field, limit],
+    );
+    return result.rows.length;
+  }
   async take<T>(owner: string, kind: string, id: string): Promise<T | null> {
     const result = await this.db.query(
       "DELETE FROM records WHERE owner=$1 AND kind=$2 AND id=$3 RETURNING data",

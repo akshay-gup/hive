@@ -6,6 +6,8 @@ import type { ControlStore } from "./store.ts";
 export const HOME = "control";
 export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const LOGIN_CODE_MS = 5 * 60 * 1000;
+/** The kinds of record under `HOME` that carry an `expiresAt`; `oauth` is filed by `GoogleSignIn`. */
+const EXPIRING = ["sessions", "login-codes", "oauth"];
 
 export interface Account {
   id: string;
@@ -101,6 +103,18 @@ export class Accounts {
       ))
         await this.db.remove(HOME, kind, record.id);
     await this.db.remove(HOME, "accounts", accountId);
+  }
+
+  /**
+   * Sweep away what has run out and can never be used again: sessions past their month, sign-in
+   * codes nobody exchanged, and Google sign-ins the person never came back from. Nothing reads
+   * them once they have expired (each is refused with the same message whether it is missing or
+   * expired), so this only keeps the database from growing. Says how many went.
+   */
+  async sweep(now = Date.now()): Promise<number> {
+    let removed = 0;
+    for (const kind of EXPIRING) removed += await this.db.removeBelow(HOME, kind, "expiresAt", now);
+    return removed;
   }
 
   /**

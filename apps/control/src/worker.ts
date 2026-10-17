@@ -74,9 +74,25 @@ export default {
   fetch(request: Request, env: Env, ctx: unknown) {
     return runtime(env).app.fetch(request, env, ctx as never);
   },
-  /** Every minute: start what no one is making, and finish removals that did not finish. */
-  async scheduled(_event: unknown, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }) {
-    ctx.waitUntil(runtime(env).workspaces.resume());
+  /**
+   * Every minute: start what no one is making, and finish removals that did not finish. Every
+   * tenth minute, sweep away the sign-ins and sessions that have expired, which is no hurry.
+   */
+  async scheduled(
+    event: { scheduledTime: number },
+    env: Env,
+    ctx: { waitUntil(promise: Promise<unknown>): void },
+  ) {
+    const { workspaces, accounts } = runtime(env);
+    ctx.waitUntil(workspaces.resume());
+    if (new Date(event.scheduledTime).getUTCMinutes() % 10 === 0)
+      ctx.waitUntil(
+        accounts
+          .sweep()
+          .catch((error) =>
+            console.error(`[Hive control] could not sweep expired sign-ins: ${error}`),
+          ),
+      );
   },
 };
 

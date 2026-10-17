@@ -832,3 +832,44 @@ test("deleting an account clears the invitations it sent and the ones sent to it
   assert.equal((await invitesOf()).filter((i) => i.email === "guest24@example.com").length, 0);
   assert.ok((await invitesOf()).length < count, "the others' invitations are kept");
 });
+
+test("sweeping clears expired sessions, sign-in codes and Google sign-ins, and nothing else", async () => {
+  const ada = await signIn("sweeper25@example.com");
+  const now = Date.now();
+  const past = now - 1000;
+  const future = now + 60_000;
+  for (const kind of ["sessions", "login-codes", "oauth"]) {
+    await db.put("control", kind, {
+      id: `${kind}-old`,
+      accountId: ada.account.id,
+      expiresAt: past,
+    });
+    await db.put("control", kind, {
+      id: `${kind}-live`,
+      accountId: ada.account.id,
+      expiresAt: future,
+    });
+  }
+  // A record with no usable expiry is not for the sweep to judge, nor is another kind's expiry.
+  await db.put("control", "sessions", { id: "sessions-odd", accountId: ada.account.id });
+  await db.put("control", "sessions", { id: "sessions-text", expiresAt: "1" });
+  await db.put("control", "invites", { id: "invite-old", workspaceId: "w", expiresAt: past });
+  await db.put("other-owner", "sessions", { id: "sessions-elsewhere", expiresAt: past });
+
+  const removed = await control.accounts.sweep(now);
+  assert.ok(removed >= 3, `at least the three expired ones went (${removed})`);
+  for (const kind of ["sessions", "login-codes", "oauth"]) {
+    assert.equal(await db.get("control", kind, `${kind}-old`), null, `${kind} expired`);
+    assert.ok(await db.get("control", kind, `${kind}-live`), `${kind} still good`);
+  }
+  assert.ok(await db.get("control", "sessions", "sessions-odd"));
+  assert.ok(await db.get("control", "sessions", "sessions-text"));
+  assert.ok(
+    await db.get("control", "invites", "invite-old"),
+    "an expired invitation keeps its message",
+  );
+  assert.ok(await db.get("other-owner", "sessions", "sessions-elsewhere"));
+  // The person who is signed in is still signed in, and a second sweep finds nothing to do.
+  assert.equal((await ada.get("/v1/me")).status, 200);
+  assert.equal(await control.accounts.sweep(now), 0);
+});

@@ -105,6 +105,15 @@ export class D1Store implements ControlStore {
     ]);
   }
 
+  async removeBelow(owner: string, kind: string, field: string, limit: number): Promise<number> {
+    const path = jsonPath(field);
+    const removed = await this.rows(
+      `DELETE FROM records WHERE owner = ? AND kind = ? AND json_type(data, '$.${field}') IN ('integer', 'real') AND ${path} < ? RETURNING id`,
+      [owner, kind, limit],
+    );
+    return removed.length;
+  }
+
   take<T>(owner: string, kind: string, id: string): Promise<T | null> {
     return this.data<T>(
       "DELETE FROM records WHERE owner = ? AND kind = ? AND id = ? RETURNING data",

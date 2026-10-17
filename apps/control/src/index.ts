@@ -24,12 +24,19 @@ const google =
         redirectUri: config.googleRedirectUri,
       })
     : undefined;
-const { app, workspaces } = createControlApp(db, config, { provisioner, keys, google });
+const { app, accounts, workspaces } = createControlApp(db, config, { provisioner, keys, google });
 mountWeb(app, config.webDir);
 
-// Pick up workspaces a restart interrupted, and again now and then for removals that did not finish.
-await workspaces.resume();
-const sweep = setInterval(() => void workspaces.resume(), 5 * 60 * 1000);
+// Pick up workspaces a restart interrupted, and again now and then for removals that did not finish;
+// the same rounds sweep away sign-ins that have expired.
+const upkeep = async () => {
+  await workspaces.resume();
+  await accounts
+    .sweep()
+    .catch((error) => console.error(`[Hive control] could not sweep expired sign-ins: ${error}`));
+};
+await upkeep();
+const sweep = setInterval(() => void upkeep(), 5 * 60 * 1000);
 sweep.unref();
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, () =>

@@ -173,6 +173,24 @@ test("a patched field set to null goes away", async () => {
   assert.ok(!retried?.error);
 });
 
+test("removeBelow removes the records whose number is under the limit and says how many", async () => {
+  const db = store();
+  await db.put("o", "codes", { id: "old", expiresAt: 100 });
+  await db.put("o", "codes", { id: "edge", expiresAt: 200 });
+  await db.put("o", "codes", { id: "new", expiresAt: 300 });
+  await db.put("o", "codes", { id: "none" });
+  await db.put("o", "codes", { id: "text", expiresAt: "1" });
+  await db.put("o", "other", { id: "old", expiresAt: 100 });
+  await db.put("p", "codes", { id: "old", expiresAt: 100 });
+  assert.equal(await db.removeBelow("o", "codes", "expiresAt", 200), 1);
+  assert.equal(await db.get("o", "codes", "old"), null);
+  for (const id of ["edge", "new", "none", "text"]) assert.ok(await db.get("o", "codes", id), id);
+  assert.ok(await db.get("o", "other", "old"), "another kind is left alone");
+  assert.ok(await db.get("p", "codes", "old"), "another owner is left alone");
+  assert.equal(await db.removeBelow("o", "codes", "expiresAt", 200), 0);
+  await assert.rejects(db.removeBelow("o", "codes", "expiresAt') OR 1=1 --", 1));
+});
+
 test("scan lists a kind with its owners, oldest change first", async () => {
   const db = store();
   await db.put<Thing>("one", "things", { id: "a" });

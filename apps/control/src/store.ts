@@ -22,6 +22,12 @@ export interface ControlStore {
     value: T,
   ): Promise<T | null>;
   remove(owner: string, kind: string, id: string): Promise<void>;
+  /**
+   * Remove the records of a kind whose top-level number field is under `limit` (a record without
+   * that field as a number is left alone), and say how many went. This is how what has run out is
+   * swept up in one go, without reading it all.
+   */
+  removeBelow(owner: string, kind: string, field: string, limit: number): Promise<number>;
   /** Remove the record and return it, so only one caller gets it. */
   take<T>(owner: string, kind: string, id: string): Promise<T | null>;
   /**
