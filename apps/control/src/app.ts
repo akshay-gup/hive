@@ -203,6 +203,14 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
       workspaces: await workspaces.list(account),
     });
   });
+  // Deleting the account: out of every workspace first (an owner must delete theirs, which is a 409
+  // here), then the account and its sessions.
+  secure.delete("/account", async (c) => {
+    const account = c.get("account");
+    await workspaces.removePerson(account);
+    await accounts.remove(account.id);
+    return c.json({ ok: true });
+  });
   secure.post("/workspaces", async (c) => {
     const { name } = z.object({ name: z.string().max(200) }).parse(await c.req.json());
     return c.json(await workspaces.create(c.get("account"), name), 201);

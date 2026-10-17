@@ -746,3 +746,89 @@ test("deleting a workspace removes its servers and every trace of it", async () 
   );
   assert.equal((await control.app.request(`/v1/invites/${link.split("/").pop()}`)).status, 404);
 });
+
+test("deleting an account ends its sessions everywhere and takes it out of its workspace", async () => {
+  const owner = await signIn("owner21@example.com", "Olive");
+  const leaver = await signIn("leaver21@example.com", "Lee");
+  const phone = await signIn("leaver21@example.com");
+  const id = await readyWorkspace(owner);
+  const link = (await (await owner.post(`/v1/workspaces/${id}/invites`, {})).json()).link;
+  assert.equal((await leaver.post(`/v1/invites/${link.split("/").pop()}/accept`)).status, 200);
+  const before = await (await owner.get(`/v1/workspaces/${id}/members`)).json();
+  assert.equal(before.length, 2);
+
+  assert.equal((await leaver.del("/v1/account")).status, 200);
+
+  // Both devices are signed out, and the workspace carries on without them.
+  assert.equal((await leaver.get("/v1/me")).status, 401);
+  assert.equal((await phone.get("/v1/me")).status, 401);
+  const after = await (await owner.get(`/v1/workspaces/${id}/members`)).json();
+  assert.deepEqual(
+    after.map((m: { accountId: string }) => m.accountId),
+    [owner.account.id],
+  );
+  assert.equal((await owner.get(`/v1/workspaces/${id}`)).status, 200);
+
+  // The same address signing in again gets a fresh account, in no workspace.
+  const again = await signIn("leaver21@example.com");
+  const me = await (await again.get("/v1/me")).json();
+  assert.deepEqual(me.workspaces, []);
+  assert.equal((await again.post(`/v1/workspaces/${id}/token`)).status, 404);
+});
+
+test("an owner has to delete their workspace before their account, and then can", async () => {
+  const owner = await signIn("owner22@example.com", "Olive");
+  const member = await signIn("member22@example.com");
+  const id = await readyWorkspace(owner, "Acme");
+  const link = (await (await owner.post(`/v1/workspaces/${id}/invites`, {})).json()).link;
+  assert.equal((await member.post(`/v1/invites/${link.split("/").pop()}/accept`)).status, 200);
+
+  const refused = await owner.del("/v1/account");
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json()).error, /You own Acme\. Delete it before/);
+  // Nothing was taken: they are still signed in, and still the owner.
+  assert.equal((await owner.get(`/v1/workspaces/${id}`)).status, 200);
+
+  assert.equal((await owner.del(`/v1/workspaces/${id}`)).status, 200);
+  assert.equal((await owner.del("/v1/account")).status, 200);
+  assert.equal((await owner.get("/v1/me")).status, 401);
+  // The member was not touched by any of it.
+  assert.equal((await member.get("/v1/me")).status, 200);
+});
+
+test("an owner whose workspace is still being deleted is told to wait, not that they own it", async () => {
+  const owner = await signIn("owner23@example.com");
+  const id = await readyWorkspace(owner, "Going");
+  await db.compareAndSwap("control", "workspaces", id, {}, { status: "deleting" });
+  const refused = await owner.del("/v1/account");
+  assert.equal(refused.status, 409);
+  assert.match((await refused.json()).error, /Going is still being deleted/);
+});
+
+test("deleting an account clears the invitations it sent and the ones sent to it", async () => {
+  const owner = await signIn("owner24@example.com");
+  const admin = await signIn("admin24@example.com");
+  const guest = await signIn("guest24@example.com");
+  const id = await readyWorkspace(owner);
+  const adminLink = (
+    await (await owner.post(`/v1/workspaces/${id}/invites`, { role: "admin" })).json()
+  ).link;
+  assert.equal((await admin.post(`/v1/invites/${adminLink.split("/").pop()}/accept`)).status, 200);
+  // One the admin sends, and one the owner sends to the guest's address.
+  assert.equal((await admin.post(`/v1/workspaces/${id}/invites`, {})).status, 201);
+  assert.equal(
+    (await owner.post(`/v1/workspaces/${id}/invites`, { email: "guest24@example.com" })).status,
+    201,
+  );
+  const invitesOf = async () =>
+    (await db.list("control", "invites")).filter(
+      (invite) => (invite as { workspaceId: string }).workspaceId === id,
+    ) as { createdBy: string; email?: string }[];
+  const count = (await invitesOf()).length;
+
+  assert.equal((await admin.del("/v1/account")).status, 200);
+  assert.equal((await invitesOf()).filter((i) => i.createdBy === admin.account.id).length, 0);
+  assert.equal((await guest.del("/v1/account")).status, 200);
+  assert.equal((await invitesOf()).filter((i) => i.email === "guest24@example.com").length, 0);
+  assert.ok((await invitesOf()).length < count, "the others' invitations are kept");
+});

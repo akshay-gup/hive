@@ -490,6 +490,38 @@ export class WorkspaceService {
     await this.db.remove(HOME, "members", target.id);
   }
 
+  /**
+   * Take a person out of every workspace, and away from every invitation they sent or were sent,
+   * ahead of deleting their account. The account id comes from the email address, so a membership
+   * left behind would come back to life when the same person signed up again. An owner cannot go
+   * first: the workspace would be left with no one to run it, so they delete it themselves.
+   */
+  async removePerson(account: Account): Promise<void> {
+    const memberships = await this.db.listWhere<MemberRecord>(
+      HOME,
+      "members",
+      "accountId",
+      account.id,
+    );
+    for (const member of memberships) {
+      if (member.role !== "owner") continue;
+      const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", member.workspaceId);
+      const name = record?.name ?? "your workspace";
+      throw new HttpError(
+        record?.status === "deleting"
+          ? `${name} is still being deleted. Try again in a minute.`
+          : `You own ${name}. Delete it before you delete your account.`,
+        409,
+      );
+    }
+    for (const member of memberships) await this.db.remove(HOME, "members", member.id);
+    const invites = [
+      ...(await this.db.listWhere<InviteRecord>(HOME, "invites", "createdBy", account.id)),
+      ...(await this.db.listWhere<InviteRecord>(HOME, "invites", "email", account.email)),
+    ];
+    for (const invite of invites) await this.db.remove(HOME, "invites", invite.id);
+  }
+
   // Invites
 
   async createInvite(

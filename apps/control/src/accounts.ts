@@ -88,6 +88,22 @@ export class Accounts {
   }
 
   /**
+   * Delete an account: every session it has, on every device, every sign-in code it has not used,
+   * and then the account itself. Signing in with the same email again makes a new, empty account.
+   */
+  async remove(accountId: string): Promise<void> {
+    for (const kind of ["sessions", "login-codes"])
+      for (const record of await this.db.listWhere<{ id: string }>(
+        HOME,
+        kind,
+        "accountId",
+        accountId,
+      ))
+        await this.db.remove(HOME, kind, record.id);
+    await this.db.remove(HOME, "accounts", accountId);
+  }
+
+  /**
    * A single-use code that stands for a sign-in that just happened, so the app can ask for its
    * session once, and the session token itself never travels in a URL.
    */
