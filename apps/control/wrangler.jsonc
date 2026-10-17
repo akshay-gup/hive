@@ -48,6 +48,6 @@
     // the flat plan and switched; if that is refused it keeps the flat one and the log says so.
     "DO_BACKUPS": "custom_daily",
     "DO_BACKUP_HOUR": "8",
-    "DO_IMAGE": "249849027"
+    "DO_IMAGE": "250221835"
   }
 }
