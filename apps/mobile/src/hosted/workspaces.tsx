@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react-native";
+import { LogOut, Plus, Trash2 } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import {
@@ -16,6 +16,7 @@ import {
 import type { ControlAccount, Role, WorkspaceSummary } from "./control-api";
 import { Frame } from "./frame";
 import { inviteTokenFrom } from "./invite-link";
+import { Notice } from "./notice";
 
 const roleLabel: Record<Role, string> = { owner: "Owner", admin: "Admin", member: "Member" };
 
@@ -36,6 +37,9 @@ export function WorkspacesScreen({
   onRetry,
   onJoin,
   onSignOut,
+  onAccount,
+  onRemove,
+  notice,
 }: {
   account: ControlAccount;
   workspaces: WorkspaceSummary[];
@@ -46,6 +50,12 @@ export function WorkspacesScreen({
   onRetry: (workspace: WorkspaceSummary) => void;
   onJoin: (inviteToken: string) => void;
   onSignOut: () => void;
+  /** Open the account: who they are, signing out, deleting it. */
+  onAccount: () => void;
+  /** Delete the workspace (an owner) or leave it. It works on one that cannot be opened. */
+  onRemove: (workspace: WorkspaceSummary) => void;
+  /** Something that has just happened, such as a workspace being deleted. */
+  notice?: string;
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -87,6 +97,7 @@ export function WorkspacesScreen({
             : "Pick up where you left off, or start another."}
         </Text>
       </View>
+      <Notice text={notice} />
       <ErrorNotice error={error} />
       <View style={{ width: "100%", gap: 12 }}>
         {workspaces.map((workspace) => (
@@ -113,6 +124,22 @@ export function WorkspacesScreen({
             {workspace.status === "failed" && (
               <ErrorNotice error={workspace.error ?? "We could not start this workspace."} />
             )}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${workspace.role === "owner" ? "Delete" : "Leave"} workspace ${workspace.name}`}
+              hitSlop={8}
+              onPress={() => onRemove(workspace)}
+              style={[s.row, { gap: 6, alignSelf: "flex-start", paddingVertical: 4 }]}
+            >
+              {workspace.role === "owner" ? (
+                <Trash2 size={14} color={colors.danger} />
+              ) : (
+                <LogOut size={14} color={colors.danger} />
+              )}
+              <Text style={[s.small, { color: colors.danger }]}>
+                {workspace.role === "owner" ? "Delete workspace" : "Leave workspace"}
+              </Text>
+            </Pressable>
           </Card>
         ))}
         {showCreate ? (
@@ -171,9 +198,14 @@ export function WorkspacesScreen({
       )}
       <View style={{ alignItems: "center", gap: 4 }}>
         <Text style={s.small}>Signed in as {account.email}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={onSignOut}>
-          <Text style={[s.small, { color: colors.primaryText }]}>Sign out</Text>
-        </Pressable>
+        <View style={[s.row, { gap: 18 }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Account" onPress={onAccount}>
+            <Text style={[s.small, { color: colors.primaryText }]}>Account</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={onSignOut}>
+            <Text style={[s.small, { color: colors.primaryText }]}>Sign out</Text>
+          </Pressable>
+        </View>
       </View>
     </Frame>
   );

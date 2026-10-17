@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Shapes,
   SquareCheck,
+  UserRound,
   X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
@@ -404,18 +405,35 @@ export function Sidebar({
           <Text style={s.small} numberOfLines={1}>
             {workspace.profile.email || "Signed in"}
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Log out"
-            hitSlop={8}
-            onPress={() => {
-              void logout().catch((e) => setError(String(e)));
-            }}
-            style={[s.row, { gap: 6, paddingVertical: 8 }]}
-          >
-            <LogOut size={14} color={colors.muted} />
-            <Text style={s.small}>Log out</Text>
-          </Pressable>
+          <View style={[s.row, { gap: 16 }]}>
+            {hosted && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Account"
+                hitSlop={8}
+                onPress={() => {
+                  onNavigate?.();
+                  open({ type: "account" });
+                }}
+                style={[s.row, { gap: 6, paddingVertical: 8 }]}
+              >
+                <UserRound size={14} color={colors.muted} />
+                <Text style={s.small}>Account</Text>
+              </Pressable>
+            )}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Log out"
+              hitSlop={8}
+              onPress={() => {
+                void logout().catch((e) => setError(String(e)));
+              }}
+              style={[s.row, { gap: 6, paddingVertical: 8 }]}
+            >
+              <LogOut size={14} color={colors.muted} />
+              <Text style={s.small}>Log out</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </View>

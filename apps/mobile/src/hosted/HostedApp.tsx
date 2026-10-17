@@ -4,6 +4,7 @@ import { Linking, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { storage } from "../storage";
 import { Button } from "../ui";
+import { AccountSheet } from "./account-sheet";
 import {
   type ControlAccount,
   ControlApi,
@@ -17,6 +18,7 @@ import { JoinScreen } from "./join";
 import { MakingScreen } from "./making";
 import { type OpenedWorkspace, openWorkspace, WorkspaceUnavailable } from "./open-workspace";
 import { ProgressScreen } from "./progress";
+import { RemoveWorkspaceSheet } from "./remove-workspace";
 import { type SignInOptions, SignInScreen } from "./sign-in";
 import { WorkspacesScreen } from "./workspaces";
 
@@ -52,6 +54,12 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [bootCount, setBootCount] = useState(0);
+  // One line about what has just happened (a workspace deleted, the account gone), and the sheet
+  // open over the list of workspaces, if one is.
+  const [notice, setNotice] = useState("");
+  const [dialog, setDialog] = useState<
+    { name: "account" } | { name: "remove"; workspace: WorkspaceSummary } | null
+  >(null);
   // The invitation the person arrived by, kept through signing in, and what it is for.
   const [invite, setInvite] = useState<string | null>(() =>
     onWeb ? inviteTokenFromPath(window.location.pathname) : null,
@@ -100,6 +108,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
   const open = useCallback(
     async (workspace: WorkspaceSummary) => {
       setError("");
+      setNotice("");
       setPhase({ name: "opening", workspace, step: "waking" });
       try {
         const opened = await openWorkspace(control, workspace.id, {
@@ -128,6 +137,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
 
   /** Signed in, with the session set on `control`: remember it and find where the person goes. */
   const enter = useCallback(async () => {
+    setNotice("");
     const me = await loadMe();
     await storage.set(sessionKey, control.token);
     if (inviteRef.current) {
@@ -333,10 +343,25 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
     setError("");
     setPhase({ name: "signed-out" });
   }, [control, sessionKey, lastKey]);
-  const switchWorkspace = useCallback(async () => {
+  const switchWorkspace = useCallback(
+    async (about?: string) => {
+      await storage.remove(lastKey);
+      setNotice(about ?? "");
+      await goHome();
+    },
+    [goHome, lastKey],
+  );
+  /** The account is gone on the control plane: forget everything here and say so on the sign-in screen. */
+  const accountDeleted = useCallback(async () => {
+    await storage.remove(sessionKey);
     await storage.remove(lastKey);
-    await goHome();
-  }, [goHome, lastKey]);
+    setAccount(null);
+    setWorkspaces([]);
+    setError("");
+    setDialog(null);
+    setNotice("Your account was deleted.");
+    setPhase({ name: "signed-out" });
+  }, [sessionKey, lastKey]);
   const lost = useCallback(
     (why: string) => {
       setError(why);
@@ -349,6 +374,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
     async (name: string) => {
       setBusy(true);
       setError("");
+      setNotice("");
       try {
         const made = await control.createWorkspace(name);
         setWorkspaces((list) => [...list, made]);
@@ -413,27 +439,59 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
             invite={preview}
             busy={busy}
             error={error}
+            notice={notice}
             onGoogle={() => void signInWithGoogle()}
             onEmail={(email, name) => void signInByEmail(email, name)}
           />
         );
       case "home":
         return account ? (
-          <WorkspacesScreen
-            account={account}
-            workspaces={workspaces}
-            error={error}
-            busy={busy}
-            onOpen={(workspace) => void open(workspace)}
-            onCreate={(name) => void create(name)}
-            onRetry={(workspace) => void retry(workspace)}
-            onJoin={(token) => {
-              setInvite(token);
-              setPreview(undefined);
-              setPhase({ name: "join" });
-            }}
-            onSignOut={() => void signOut()}
-          />
+          <>
+            <WorkspacesScreen
+              account={account}
+              workspaces={workspaces}
+              error={error}
+              busy={busy}
+              onOpen={(workspace) => void open(workspace)}
+              onCreate={(name) => void create(name)}
+              onRetry={(workspace) => void retry(workspace)}
+              onJoin={(token) => {
+                setInvite(token);
+                setPreview(undefined);
+                setPhase({ name: "join" });
+              }}
+              onSignOut={() => void signOut()}
+              onAccount={() => setDialog({ name: "account" })}
+              onRemove={(workspace) => setDialog({ name: "remove", workspace })}
+              notice={notice}
+            />
+            {dialog?.name === "account" && (
+              <AccountSheet
+                control={control}
+                account={account}
+                workspaces={workspaces}
+                onClose={() => setDialog(null)}
+                onSignOut={() => {
+                  setDialog(null);
+                  void signOut();
+                }}
+                onDeleted={() => void accountDeleted()}
+                onOpenWorkspace={() => setDialog(null)}
+              />
+            )}
+            {dialog?.name === "remove" && (
+              <RemoveWorkspaceSheet
+                workspace={dialog.workspace}
+                control={control}
+                accountId={account.id}
+                onClose={() => setDialog(null)}
+                onDone={(about) => {
+                  setDialog(null);
+                  void switchWorkspace(about);
+                }}
+              />
+            )}
+          </>
         ) : null;
       case "making":
         return <MakingScreen name={phase.workspace.name} step={makingStep} />;
@@ -482,8 +540,9 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
             control={control}
             account={account}
             initial={phase.opened}
-            onSwitch={() => void switchWorkspace()}
+            onSwitch={(about) => void switchWorkspace(about)}
             onSignOut={signOut}
+            onAccountDeleted={() => void accountDeleted()}
             onLost={lost}
           />
         ) : null;

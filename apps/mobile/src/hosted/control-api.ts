@@ -176,6 +176,14 @@ export class ControlApi {
   async deleteWorkspace(id: string) {
     await this.call("DELETE", `/v1/workspaces/${encodeURIComponent(id)}`);
   }
+  /**
+   * Delete the account, and with it every session. The control plane says no, with a 409 and why,
+   * to an owner who still has a workspace: they delete that first.
+   */
+  async deleteAccount() {
+    await this.call("DELETE", "/v1/account");
+    this.token = "";
+  }
   /** A short-lived token to take to the workspace, which signs the person in with it. */
   workspaceToken(id: string) {
     return this.call<WorkspaceToken>("POST", `/v1/workspaces/${encodeURIComponent(id)}/token`, {});

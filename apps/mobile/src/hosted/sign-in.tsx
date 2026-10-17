@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ActivityIndicator, Text } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { Button, Card, colors, ErrorNotice, Field, fontSize, Mascot, pageBee, s } from "../ui";
 import type { InvitePreview } from "./control-api";
 import { Frame } from "./frame";
+import { Notice } from "./notice";
 
 /** The ways this control plane lets a person in. */
 export interface SignInOptions {
@@ -16,6 +17,7 @@ export function SignInScreen({
   invite,
   busy,
   error,
+  notice,
   onGoogle,
   onEmail,
 }: {
@@ -24,6 +26,8 @@ export function SignInScreen({
   invite?: InvitePreview | null;
   busy: boolean;
   error: string;
+  /** Something that has just happened, such as the account being deleted. */
+  notice?: string;
   onGoogle: () => void;
   onEmail: (email: string, name: string) => void;
 }) {
@@ -52,6 +56,11 @@ export function SignInScreen({
         <ActivityIndicator color={colors.primary} />
       ) : (
         <Card style={{ width: "100%" }}>
+          {!!notice && (
+            <View style={{ marginBottom: 12 }}>
+              <Notice text={notice} />
+            </View>
+          )}
           <ErrorNotice error={error} />
           {options.google && (
             <Button primary onPress={onGoogle}>

@@ -25,6 +25,7 @@ export type Detail =
   | { type: "notifications" }
   | { type: "computer" }
   | { type: "people" }
+  | { type: "account" }
   | { type: "menu" };
 export interface WorkspaceContextValue {
   workspace: Workspace;

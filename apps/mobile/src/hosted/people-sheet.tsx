@@ -17,6 +17,7 @@ import { useWorkspace } from "../workspace";
 import { useHosted } from "./context";
 import type { InviteSummary, Member } from "./control-api";
 import { describeInvite, roleLabel } from "./people-text";
+import { RemoveWorkspaceSheet } from "./remove-workspace";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -68,6 +69,7 @@ export function PeopleSheet() {
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [removing, setRemoving] = useState(false);
   const control = hosted?.control;
   const workspace = hosted?.workspace;
   const mine = workspace?.role;
@@ -326,7 +328,7 @@ export function PeopleSheet() {
 
       <View style={{ marginTop: 28, gap: 12 }}>
         <SectionHeading title="Workspace" />
-        <View style={[s.row, { gap: 10, flexWrap: "wrap" }]}>
+        <View style={s.row}>
           <Button
             onPress={() => {
               close();
@@ -335,44 +337,52 @@ export function PeopleSheet() {
           >
             Switch workspace
           </Button>
-          {mine !== "owner" && (
-            <Confirm
-              icon={LogOut}
-              label="Leave workspace"
-              confirmLabel="Leave this workspace"
-              busy={busy === "leave"}
-              onConfirm={() =>
-                void run("leave", async () => {
-                  await control.removeMember(workspaceId, hosted.account.id);
-                  close();
-                  hosted.switchWorkspace();
-                })
-              }
-            />
-          )}
-          {mine === "owner" && (
-            <Confirm
-              icon={Trash2}
-              label="Delete workspace"
-              confirmLabel={`Delete ${workspace.name} for everyone`}
-              busy={busy === "delete"}
-              onConfirm={() =>
-                void run("delete", async () => {
-                  await control.deleteWorkspace(workspaceId);
-                  close();
-                  hosted.switchWorkspace();
-                })
-              }
-            />
-          )}
         </View>
-        {mine === "owner" && (
-          <Text style={s.small}>
-            Deleting removes the workspace's chat, files and agent for everyone. It cannot be
-            undone.
-          </Text>
+      </View>
+
+      <View style={{ marginTop: 28, gap: 12 }}>
+        <SectionHeading title="Danger zone" />
+        {mine === "owner" ? (
+          <>
+            <Text style={s.muted}>
+              The owner cannot leave. Delete the workspace instead, which removes it for everyone:
+              its chat, files and agent. It cannot be undone.
+            </Text>
+            <View style={[s.row, { gap: 10, flexWrap: "wrap" }]}>
+              <Button small disabled icon={LogOut} onPress={() => {}}>
+                Leave workspace
+              </Button>
+              <Button small danger icon={Trash2} onPress={() => setRemoving(true)}>
+                Delete workspace…
+              </Button>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={s.muted}>
+              Leaving removes your access to its chat and files. Someone here can invite you back.
+            </Text>
+            <View style={s.row}>
+              <Button small danger icon={LogOut} onPress={() => setRemoving(true)}>
+                Leave workspace…
+              </Button>
+            </View>
+          </>
         )}
       </View>
+
+      {removing && (
+        <RemoveWorkspaceSheet
+          workspace={workspace}
+          control={control}
+          accountId={hosted.account.id}
+          onClose={() => setRemoving(false)}
+          onDone={(about) => {
+            close();
+            hosted.switchWorkspace(about);
+          }}
+        />
+      )}
     </Sheet>
   );
 }

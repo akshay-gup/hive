@@ -9,9 +9,11 @@ export interface HostedContextValue {
   account: ControlAccount;
   /** The person as this workspace knows them, with their role in it. */
   user: WorkspaceUser;
-  /** Back to the list of workspaces. */
-  switchWorkspace: () => void;
+  /** Back to the list of workspaces, with a line to say about what brought them there, if any. */
+  switchWorkspace: (notice?: string) => void;
   signOut: () => Promise<void>;
+  /** The account has been deleted: forget the session and show the sign-in screen. */
+  accountDeleted: () => void;
 }
 
 export const HostedContext = createContext<HostedContextValue | null>(null);

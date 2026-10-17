@@ -24,13 +24,15 @@ export function HostedWorkspace({
   initial,
   onSwitch,
   onSignOut,
+  onAccountDeleted,
   onLost,
 }: {
   control: ControlApi;
   account: ControlAccount;
   initial: OpenedWorkspace;
-  onSwitch: () => void;
+  onSwitch: (notice?: string) => void;
   onSignOut: () => Promise<void>;
+  onAccountDeleted: () => void;
   /** The person can no longer be in this workspace. */
   onLost: (message: string) => void;
 }) {
@@ -84,8 +86,9 @@ export function HostedWorkspace({
       user: opened.user,
       switchWorkspace: onSwitch,
       signOut: onSignOut,
+      accountDeleted: onAccountDeleted,
     }),
-    [control, opened.workspace, opened.user, account, onSwitch, onSignOut],
+    [control, opened.workspace, opened.user, account, onSwitch, onSignOut, onAccountDeleted],
   );
   return (
     <HostedContext.Provider value={hosted}>
