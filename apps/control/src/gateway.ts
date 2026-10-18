@@ -25,6 +25,13 @@ export interface GatewaySettings {
   providers: Record<string, GatewayProvider>;
   /** The `provider/model-id` every workspace runs the agent on; the provider is one of `providers`. */
   model: string;
+  /**
+   * What the agent should know of `model` when its own list does not have it yet (a model released
+   * this week): OpenCode's model settings, such as `{"name":…,"tool_call":true,"reasoning":true,
+   * "interleaved":{"field":"reasoning_content"},"limit":{"context":…,"output":…}}`. Left out, the
+   * model is used as the agent already knows it.
+   */
+  modelConfig?: Record<string, unknown>;
   /** Counts requests per workspace. Left out, each process counts for itself (120 a minute). */
   limiter?: SignInLimiter;
   /** For tests: the `fetch` that reaches the provider. */
@@ -36,7 +43,8 @@ export interface GatewaySettings {
 /**
  * GATEWAY_PROVIDERS is a JSON object of the providers workspaces may use, each with its API address
  * and key, e.g. `{"anthropic":{"baseUrl":"https://api.anthropic.com/v1","key":"…"}}`, and
- * GATEWAY_MODEL the `provider/model-id` they run on. Neither set means no gateway.
+ * GATEWAY_MODEL the `provider/model-id` they run on. Neither set means no gateway. The optional
+ * GATEWAY_MODEL_CONFIG is a JSON object describing that model to the agent (see `modelConfig`).
  */
 export function gatewayFromEnv(
   env: Record<string, string | undefined> = process.env,
@@ -81,7 +89,17 @@ export function gatewayFromEnv(
     throw new Error(
       "GATEWAY_MODEL must be provider/model-id, with a provider in GATEWAY_PROVIDERS",
     );
-  return { providers, model };
+  const described = env.GATEWAY_MODEL_CONFIG?.trim();
+  if (!described) return { providers, model };
+  let modelConfig: unknown;
+  try {
+    modelConfig = JSON.parse(described);
+  } catch {
+    modelConfig = null;
+  }
+  if (typeof modelConfig !== "object" || modelConfig === null || Array.isArray(modelConfig))
+    throw new Error("GATEWAY_MODEL_CONFIG must be a JSON object");
+  return { providers, model, modelConfig: modelConfig as Record<string, unknown> };
 }
 
 const TOKEN = /^hwk_([a-z0-9]{1,64})\.([A-Za-z0-9_-]{43})$/;
@@ -158,8 +176,14 @@ export class ModelGateway {
   environmentFor(workspaceId: string): Record<string, string> {
     const token = this.tokenFor(workspaceId);
     const provider: Record<string, unknown> = {};
+    const [modelProvider = "", ...modelPath] = this.settings.model.split("/");
     for (const id of Object.keys(this.settings.providers))
-      provider[id] = { options: { baseURL: `${this.publicUrl}/v1/gateway/${id}`, apiKey: token } };
+      provider[id] = {
+        options: { baseURL: `${this.publicUrl}/v1/gateway/${id}`, apiKey: token },
+        ...(id === modelProvider && this.settings.modelConfig
+          ? { models: { [modelPath.join("/")]: this.settings.modelConfig } }
+          : {}),
+      };
     return {
       MODEL: this.settings.model,
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider }),

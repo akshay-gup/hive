@@ -54,6 +54,9 @@
     "DO_BACKUP_HOUR": "8",
     "DO_IMAGE": "250221835",
     // The model every new workspace runs on, through the gateway; the provider's key is the secret GATEWAY_PROVIDERS.
-    "GATEWAY_MODEL": "fireworks-ai/accounts/fireworks/models/glm-5p3"
+    "GATEWAY_MODEL": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017",
+    // This one is newer than the agent's own list, so it is described to it: it reasons, calls tools,
+    // and wants its reasoning sent back with each tool call (as the model it was made from does).
+    "GATEWAY_MODEL_CONFIG": "{\"name\":\"DeepSeek V4.1 Flash 1017\",\"reasoning\":true,\"tool_call\":true,\"attachment\":true,\"temperature\":true,\"interleaved\":{\"field\":\"reasoning_content\"},\"limit\":{\"context\":1000000,\"output\":384000}}"
   }
 }

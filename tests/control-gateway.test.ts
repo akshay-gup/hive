@@ -145,6 +145,29 @@ test("a new workspace is given the model and a key for the gateway, and never th
   assert.equal(machine.OPENAI_API_KEY, "x");
 });
 
+test("a model the agent does not know yet is described to it, for that model only", async () => {
+  const info = { name: "Newest", tool_call: true, interleaved: { field: "reasoning_content" } };
+  const control = makeControl(
+    settings({
+      model: "openai/vendor/new-model-1017",
+      modelConfig: info,
+    }),
+  );
+  const { spec } = await workspaceWith(control);
+  const given = JSON.parse(spec?.modelEnv?.OPENCODE_CONFIG_CONTENT ?? "{}");
+  assert.equal(spec?.modelEnv?.MODEL, "openai/vendor/new-model-1017");
+  // The model id is everything after the provider, slashes included.
+  assert.deepEqual(given.provider.openai.models, { "vendor/new-model-1017": info });
+  assert.equal(given.provider.anthropic.models, undefined);
+  assert.equal(given.provider.openai.options.baseURL, `${PUBLIC_URL}/v1/gateway/openai`);
+  // Not described, nothing is added.
+  const plain = await workspaceWith(makeControl(settings()));
+  assert.equal(
+    JSON.parse(plain.spec?.modelEnv?.OPENCODE_CONFIG_CONTENT ?? "{}").provider.anthropic.models,
+    undefined,
+  );
+});
+
 test("without a gateway a workspace is given no model settings and the route is not there", async () => {
   const control = makeControl(undefined);
   const { spec, key } = await workspaceWith(control);
@@ -433,6 +456,13 @@ test("the settings that turn the gateway on are checked", () => {
   assert.equal(parsed?.model, "anthropic/claude-sonnet-4-5");
   const refused = (over: Record<string, string>, text: RegExp) =>
     assert.throws(() => gatewayFromEnv({ ...ok, ...over }), text);
+  assert.deepEqual(
+    gatewayFromEnv({ ...ok, GATEWAY_MODEL_CONFIG: '{"name":"X","tool_call":true}' })?.modelConfig,
+    { name: "X", tool_call: true },
+  );
+  assert.equal(parsed?.modelConfig, undefined);
+  refused({ GATEWAY_MODEL_CONFIG: "[]" }, /GATEWAY_MODEL_CONFIG/);
+  refused({ GATEWAY_MODEL_CONFIG: "nope" }, /GATEWAY_MODEL_CONFIG/);
   refused({ GATEWAY_MODEL: "" }, /both/);
   assert.throws(() => gatewayFromEnv({ GATEWAY_MODEL: "a/b" }), /both/);
   refused({ GATEWAY_MODEL: "mistral/large" }, /GATEWAY_MODEL/);
