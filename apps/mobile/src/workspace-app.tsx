@@ -27,6 +27,7 @@ import type { MuseApi } from "./api";
 import { ChatScreen, WorkspaceTools } from "./chat";
 import { ComputerDraftProvider } from "./computer-drafts";
 import { Details } from "./details";
+import { ProgressScreen } from "./hosted/progress";
 import { BrowserScreen, CalendarScreen, FilesScreen, MailScreen } from "./screens";
 import { ShellHeader } from "./shell-header";
 import { Sidebar } from "./sidebar";
@@ -104,6 +105,9 @@ export function WorkspaceApp({
     setPrompt({ id: Date.now(), text });
     setSection("chat");
   }, []);
+  // While it loads it is the same screen as "Opening <workspace>…" that comes just before it, in the
+  // same place at the same size, so one turns into the other without anything moving.
+  if (!workspace && !error) return <ProgressScreen moving title="Opening your workspace…" />;
   if (!workspace)
     return (
       <SafeAreaView
@@ -118,19 +122,8 @@ export function WorkspaceApp({
       >
         <Backdrop />
         <Mascot size={56} />
-        {error ? (
-          <>
-            <ErrorNotice error={error} />
-            <Button onPress={() => void refresh().catch((e) => setError(String(e)))}>
-              Try again
-            </Button>
-          </>
-        ) : (
-          <>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={s.muted}>Opening your workspace…</Text>
-          </>
-        )}
+        <ErrorNotice error={error} />
+        <Button onPress={() => void refresh().catch((e) => setError(String(e)))}>Try again</Button>
       </SafeAreaView>
     );
   return (
@@ -273,7 +266,21 @@ function WorkspaceShell({
                     {threadsError ? (
                       <Button onPress={retryThreads}>Retry main chat</Button>
                     ) : threadsLoading ? (
-                      <ActivityIndicator color={colors.primary} />
+                      // Over the middle of the chat, out of the flow, so it moves nothing when it goes.
+                      <View
+                        pointerEvents="none"
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <ActivityIndicator color={colors.primary} />
+                      </View>
                     ) : null}
                     {!threadsLoading && selection.id !== mainId && (
                       <Text style={[s.small, { textAlign: "center", marginBottom: 8 }]}>

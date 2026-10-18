@@ -900,13 +900,18 @@ export function Mascot({
   size = 42,
   variant = "sky",
   art,
+  ready = true,
 }: {
   size?: number;
   variant?: "sky" | "sand" | "lilac";
   /** What to draw in place of the still bee, in the same box and over the same disc (the moving bee). */
   art?: ReactNode;
+  /** With `art`: whether it has loaded. The disc waits for it, since a disc with no bee in it reads as a flash. */
+  ready?: boolean;
 }) {
   const palette = mascotTints[variant];
+  const [pictured, setPictured] = useState(false);
+  const shown = art ? ready : pictured;
   return (
     <View accessibilityLabel="Hive bee" style={{ width: size, height: size }}>
       <View
@@ -918,14 +923,17 @@ export function Mascot({
           height: size * 0.72,
           borderRadius: size,
           backgroundColor: palette,
+          opacity: shown ? 1 : 0,
         }}
       />
       {art ?? (
         <Image
           source={require("../assets/bee.png")}
           resizeMode="contain"
-          style={{ width: size, height: size }}
+          style={{ width: size, height: size, opacity: shown ? 1 : 0 }}
           accessible={false}
+          onLoad={() => setPictured(true)}
+          onError={() => setPictured(true)}
         />
       )}
     </View>

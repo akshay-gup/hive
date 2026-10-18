@@ -22,6 +22,7 @@ import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/
 import { useAgentWorkspace } from "./agent-workspace";
 import { useHosted } from "./hosted/context";
 import { roleLabel } from "./hosted/people-text";
+import { readLastCount, writeLastCount } from "./last-count";
 import { useMuseThread } from "./threads";
 import {
   Button,
@@ -86,6 +87,54 @@ function SidebarRow({
   );
 }
 
+/** The channels the sidebar lists: not the main chat's own, and not archived ones. */
+const isListed = (channel: Channel) =>
+  channel.id !== ORCHESTRATOR_CHANNEL_ID && channel.status !== "archived";
+
+/**
+ * Room for the channels while they load, as many as there were last time, drawn as rows with a
+ * bar for the name. Each is a real row made unseen, so it is exactly as tall as the row that
+ * replaces it, and the groups under the channels stay where they are.
+ */
+function ChannelPlaceholders({ count, dense }: { count: number; dense: boolean }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, index) => (
+        <View
+          // The rows are all alike and never reorder.
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed placeholders
+          key={index}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+        >
+          <View style={{ opacity: 0 }}>
+            <SidebarRow dense={dense} icon={Hash} label="channel" onPress={() => {}} />
+          </View>
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: 12 + (dense ? 16 + 10 : 17 + 12),
+              justifyContent: "center",
+            }}
+          >
+            <View
+              style={{
+                width: index % 2 ? 72 : 104,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: colors.line,
+              }}
+            />
+          </View>
+        </View>
+      ))}
+    </>
+  );
+}
+
 /**
  * Persistent Slack-style conversation sidebar, rendered on desktop widths.
  * The orchestrator is a single Slackbot-like tab (no threads); channels open
@@ -104,6 +153,8 @@ export function Sidebar({
   const hosted = useHosted();
   const { enabled, selection, select, mainId } = useMuseThread();
   const { data } = useAgentWorkspace();
+  // Each workspace remembers how many channels it had, to hold room for them while they load.
+  const channelsKey = `channels:${hosted?.workspace.id ?? "local"}`;
   const [channels, setChannels] = useState<Channel[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -116,13 +167,15 @@ export function Sidebar({
     setError("");
     setLoading(true);
     try {
-      setChannels(await api.request<Channel[]>("/api/agent/channels"));
+      const loaded = await api.request<Channel[]>("/api/agent/channels");
+      setChannels(loaded);
+      writeLastCount(channelsKey, loaded.filter(isListed).length);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, channelsKey]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -194,7 +247,7 @@ export function Sidebar({
     { id: "files", label: "Files", icon: FileText },
   ];
   const userChannels = (channels ?? [])
-    .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && channel.status !== "archived")
+    .filter(isListed)
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -283,12 +336,23 @@ export function Sidebar({
             onPress={() => void load()}
             style={{ padding: 10 }}
           >
-            <RefreshCw size={14} color={colors.muted} />
+            {/* The refresh icon is the spinner while it loads, in the same 14 px, so nothing is added to the page. */}
+            <View style={{ width: 14, height: 14, alignItems: "center", justifyContent: "center" }}>
+              {loading ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.muted}
+                  style={{ transform: [{ scale: 0.7 }] }}
+                />
+              ) : (
+                <RefreshCw size={14} color={colors.muted} />
+              )}
+            </View>
           </Pressable>
         </View>
         <ErrorNotice error={error} />
         {loading && !channels ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} />
+          <ChannelPlaceholders count={readLastCount(channelsKey)} dense={!compact} />
         ) : (
           userChannels.map((channel) => (
             <SidebarRow

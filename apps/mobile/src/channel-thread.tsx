@@ -1,7 +1,7 @@
 import { useAgentContext } from "@copilotkit/react-native/headless";
 import { ChevronDown, FolderOpen, Hash, ShieldCheck } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import {
   type AgentTask,
   type Channel,
@@ -122,8 +122,8 @@ export function ChannelThreadBanner({
     };
   }, [api, threadId, mainId]);
 
-  if (binding === undefined) return <ActivityIndicator color={colors.primary} />;
-  if (binding === null) return null;
+  // Nothing while it looks, rather than a spinner that is taken away (or replaced by the bar) a moment later.
+  if (!binding) return null;
 
   return (
     <View style={{ gap: 8, paddingBottom: 4 }}>

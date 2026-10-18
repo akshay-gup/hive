@@ -818,6 +818,10 @@ export function ChatScreen({
             )}
             {!visible.length && !threadParent ? (
               <View
+                // It holds its place while the conversation loads, unseen, so that a conversation
+                // that has messages is not flashed an empty page first, and one that is empty
+                // does not move when it appears.
+                pointerEvents={loaded || historyError ? "auto" : "none"}
                 style={{
                   flexGrow: 1,
                   flexShrink: 0,
@@ -825,6 +829,7 @@ export function ChatScreen({
                   alignItems: "center",
                   paddingVertical: 34,
                   gap: 15,
+                  opacity: loaded || historyError ? 1 : 0,
                 }}
               >
                 <Text

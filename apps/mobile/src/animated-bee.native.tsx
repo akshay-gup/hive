@@ -1,4 +1,5 @@
 import { Image } from "expo-image";
+import { useState } from "react";
 import { beeFrame } from "./bee-frame";
 import { Mascot } from "./ui";
 import { useStill } from "./use-still";
@@ -19,17 +20,21 @@ export type BeeLoop = keyof typeof loops;
  */
 export function AnimatedBee({ loop, size }: { loop: BeeLoop; size: number }) {
   const still = useStill();
+  const [ready, setReady] = useState(false);
   if (still) return <Mascot size={size} />;
   const { width, height, left, top } = beeFrame(size);
   return (
     <Mascot
       size={size}
+      ready={ready}
       art={
         <Image
           source={loops[loop]}
           contentFit="contain"
           accessible={false}
-          style={{ position: "absolute", width, height, left, top }}
+          onLoad={() => setReady(true)}
+          onError={() => setReady(true)}
+          style={{ position: "absolute", width, height, left, top, opacity: ready ? 1 : 0 }}
         />
       }
     />

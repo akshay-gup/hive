@@ -109,8 +109,14 @@ function errorText(e: unknown) {
 function activeTask(task: AgentTask) {
   return !["succeeded", "failed", "cancelled"].includes(task.status);
 }
+/**
+ * What is wrong with the agent, when something is. While it is still being checked it says
+ * nothing: a "Checking…" row above everything else is taken away a moment later, and the whole
+ * screen below it jumps up when it goes. It is also one more thing spinning.
+ */
 export function AgentStatus() {
   const { data, error, refresh } = useAgentWorkspace();
+  if (!data && !error) return null;
   if (data?.worker.running && !error) return null;
   return (
     <View style={{ gap: 12 }}>
@@ -119,12 +125,6 @@ export function AgentStatus() {
         <Button small onPress={() => void refresh().catch(() => {})}>
           Reconnect agent
         </Button>
-      )}
-      {!data && !error && (
-        <View style={[s.row, { gap: 10, paddingVertical: 16, justifyContent: "center" }]}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={s.muted}>Checking the agent…</Text>
-        </View>
       )}
       {data && !data.worker.running && (
         <Text style={s.small}>Worker is offline. Saved work will continue when it reconnects.</Text>
