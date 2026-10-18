@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import {
+  defaultSessionRuleset,
   invalidRuleLines,
   PermissionRulesStore,
   PermissionTracker,
@@ -56,8 +57,15 @@ test("invalidRuleLines accepts valid rules and names bad ones", () => {
   assert.deepEqual(invalidRuleLines(["nocolons"]), ["nocolons"]);
 });
 
-test("taskSessionRuleset is allow-all", () => {
-  assert.deepEqual(taskSessionRuleset(), [{ permission: "*", pattern: "*", action: "allow" }]);
+test("taskSessionRuleset is allow-all, except for the tools that stop to ask the person", () => {
+  assert.deepEqual(taskSessionRuleset(), [
+    { permission: "*", pattern: "*", action: "allow" },
+    { permission: "question", pattern: "*", action: "deny" },
+    { permission: "plan_enter", pattern: "*", action: "deny" },
+    { permission: "plan_exit", pattern: "*", action: "deny" },
+  ]);
+  // The same three that a chat thread denies, and after the wildcard, so they are the ones that win.
+  assert.deepEqual(taskSessionRuleset().slice(1), defaultSessionRuleset().slice(1));
 });
 
 test("tracker records permission asks, deduped by request id", () => {

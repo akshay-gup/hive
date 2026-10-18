@@ -64,10 +64,21 @@ export function parsePermissionRules(raw: unknown): PermissionRuleset {
 export function defaultSessionRuleset(mode: PermissionMode = "ask"): PermissionRuleset {
   return [
     { permission: "*", pattern: "*", action: mode === "auto" ? "allow" : "ask" },
-    { permission: "question", pattern: "*", action: "deny" },
-    { permission: "plan_enter", pattern: "*", action: "deny" },
-    { permission: "plan_exit", pattern: "*", action: "deny" },
+    ...nonInteractiveTools(),
   ];
+}
+
+/**
+ * The agent's own ways of stopping to ask the person something. Hive has no screen for them, so a
+ * run that calls one waits for an answer that can never be given. They are denied outright, which
+ * also keeps the tools from being offered to the model at all, so it asks in its reply instead.
+ */
+function nonInteractiveTools(): PermissionRuleset {
+  return ["question", "plan_enter", "plan_exit"].map((permission) => ({
+    permission,
+    pattern: "*",
+    action: "deny" as const,
+  }));
 }
 
 /**
@@ -98,7 +109,11 @@ export function invalidRuleLines(rules: string[]): string[] {
  * allow-all. The scoping boundary is the channel workspace directory
  * (session cwd) plus the server config's directory rules — not these rules.
  * Interactive chat threads still get the default-ask base.
+ *
+ * The tools that stop to ask the person are still denied: with allow-all alone the agent is
+ * offered `question`, calls it, and waits for good (a task that needs an answer says so with
+ * TASK_BLOCKED instead).
  */
 export function taskSessionRuleset(): PermissionRuleset {
-  return [{ permission: "*", pattern: "*", action: "allow" }];
+  return [{ permission: "*", pattern: "*", action: "allow" }, ...nonInteractiveTools()];
 }
