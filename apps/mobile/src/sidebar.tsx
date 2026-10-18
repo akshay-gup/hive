@@ -474,9 +474,12 @@ export function Sidebar({
     // Apps is also where mail and the browser are reached from, so it stays lit in them.
     const lit = (id: Section) =>
       id === "apps" ? ["apps", "mail", "browser"].includes(section) : section === id;
+    // Two children of the shell's row, not one: the shell puts a gap between its children, and the
+    // strip takes back its share of it, so the first panel after the strip is the same distance
+    // from it on every page (a list beside it in the conversations, the screen itself elsewhere).
     return (
-      <View style={{ flexDirection: "row" }}>
-        <View style={{ width: RAIL_WIDTH, alignItems: "center" }}>
+      <>
+        <View style={{ width: RAIL_WIDTH, alignItems: "center", marginRight: -layout.gap }}>
           <View style={{ height: layout.headerHeight, justifyContent: "center" }}>
             {hosted ? (
               <Pressable
@@ -575,7 +578,7 @@ export function Sidebar({
             {conversations}
           </ScrollView>
         </View>
-      </View>
+      </>
     );
   }
 
