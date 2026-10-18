@@ -292,6 +292,16 @@ export function progressItems<Call extends ToolCallLike, Message extends ToolMes
   return items;
 }
 
+/**
+ * Whether a step that is under way is on screen, with its own spinner. When one is, nothing else
+ * needs to say the agent is working: one thing moving is enough.
+ */
+export function showsRunningStep(items: readonly ProgressItem<unknown, unknown>[]): boolean {
+  return items.some(
+    (item) => item.kind === "steps" && item.steps.some((step) => step.state === "running"),
+  );
+}
+
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /** One line for a list of steps: what is happening now, or how the work went. */

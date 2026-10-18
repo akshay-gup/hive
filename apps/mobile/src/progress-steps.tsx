@@ -5,7 +5,14 @@ import { type ProgressStep, summarizeSteps } from "./run-progress";
 import { colors, radius, s, type WebPressState } from "./ui";
 
 function StepIcon({ state }: { state: ProgressStep["state"] }) {
-  if (state === "running") return <ActivityIndicator size="small" color={colors.muted} />;
+  // The line above already has the spinner; a second one on the step would be two things moving.
+  if (state === "running")
+    return (
+      <View
+        style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted }}
+        accessibilityLabel="In progress"
+      />
+    );
   const Icon = state === "done" ? Check : state === "failed" ? X : Minus;
   return (
     <Icon

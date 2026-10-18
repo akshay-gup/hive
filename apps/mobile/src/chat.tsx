@@ -70,7 +70,7 @@ import {
   writePanelWidth,
 } from "./panel-width";
 import { RunProgress } from "./progress-steps";
-import { progressItems } from "./run-progress";
+import { progressItems, showsRunningStep } from "./run-progress";
 import { FileThreadCard, TaskThreadCard } from "./thread-artifacts";
 import { countThreadReplies } from "./thread-replies";
 import { resolveThreadId, type Selection, useMuseThread } from "./threads";
@@ -756,6 +756,16 @@ export function ChatScreen({
     (m, index) => (m.role === "user" || m.role === "assistant") && index > parentIndex,
   );
   const replying = busy || agent.isRunning;
+  // A step that is under way has its own spinner, so the dots are for when nothing says it is working.
+  const stepShown =
+    replying &&
+    visible.some(
+      (message) =>
+        messages.indexOf(message) > latestUserIndex &&
+        showsRunningStep(
+          progressItems("toolCalls" in message ? message.toolCalls || [] : [], toolMessages, true),
+        ),
+    );
   const agentName = agentWorkspace?.identity.name || "Hive";
   // On a wide window a channel is a panel of its own, with its header inside, beside the thread's.
   const panels = !!channelId && !threadParent && width >= 900;
@@ -1054,7 +1064,7 @@ export function ChatScreen({
             {!channelId && !threadParent && (!richThreads || selection.id === mainId) && (
               <BackgroundUpdates />
             )}
-            {(busy || agent.isRunning) && (
+            {(busy || agent.isRunning) && !stepShown && (
               <View
                 accessibilityLabel="Agent is working"
                 style={[

@@ -6,6 +6,7 @@ import {
   type ProgressStep,
   progressItems,
   progressStep,
+  showsRunningStep,
   summarizeSteps,
 } from "../src/run-progress.ts";
 
@@ -164,4 +165,20 @@ test("the chat draws a card for exactly the tools that are kept out of the list"
     (match) => match[1],
   );
   assert.deepEqual([...drawn].sort(), [...CARD_TOOLS].sort());
+});
+
+test("a step that is under way is the one thing that says the agent is working", () => {
+  const calls = [call("a", "read", { filePath: "/w/a.md" }), call("b", "bash", { command: "ls" })];
+  // The second has not answered yet and the run is going: a step is moving.
+  assert.equal(showsRunningStep(progressItems(calls, [result("a", "# a")], true)), true);
+  // Everything answered: nothing is moving, so the dots may say it is still thinking.
+  assert.equal(
+    showsRunningStep(progressItems(calls, [result("a", "# a"), result("b", "x")], true)),
+    false,
+  );
+  // A call that was cut off is stopped, not running.
+  assert.equal(showsRunningStep(progressItems(calls, [result("a", "# a")], false)), false);
+  // Nothing to show at all, or only hidden tools.
+  assert.equal(showsRunningStep([]), false);
+  assert.equal(showsRunningStep(progressItems([call("c", "todowrite")], [], true)), false);
 });
