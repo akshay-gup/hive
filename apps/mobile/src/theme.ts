@@ -208,6 +208,14 @@ export const mascotTints = {
   lilac: "rgba(175,165,210,0.22)",
 } as const;
 
+/** The four colours of Google's "G", which are Google's and stay the same in any theme. */
+export const googleBrand = {
+  red: "#EA4335",
+  blue: "#4285F4",
+  yellow: "#FBBC05",
+  green: "#34A853",
+} as const;
+
 /** Bars on the task timeline. */
 export const chart = {
   agent: colors.primary,

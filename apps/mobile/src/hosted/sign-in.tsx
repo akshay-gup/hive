@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { GoogleMark } from "../google-mark";
 import { Button, Card, colors, ErrorNotice, Field, fontSize, Mascot, pageBee, s } from "../ui";
 import type { InvitePreview } from "./control-api";
 import { Frame } from "./frame";
@@ -69,7 +70,8 @@ export function SignInScreen({
             )}
             <ErrorNotice error={error} />
             {options.google && (
-              <Button primary onPress={onGoogle}>
+              // Not the teal of the app's own actions: Google's mark is in its own colours, on a plain button.
+              <Button icon={GoogleMark} onPress={onGoogle}>
                 Continue with Google
               </Button>
             )}

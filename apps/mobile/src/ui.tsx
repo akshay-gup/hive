@@ -7,7 +7,7 @@ import {
   Search,
   X,
 } from "lucide-react-native";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -306,7 +306,8 @@ export function Button({
   children: ReactNode;
   onPress: () => void;
   accessibilityLabel?: string;
-  icon?: LucideIcon;
+  /** A Lucide icon, or any mark that is drawn at `size` (one with colours of its own ignores `color`). */
+  icon?: ComponentType<{ size?: number; color?: string }>;
   primary?: boolean;
   disabled?: boolean;
   busy?: boolean;
