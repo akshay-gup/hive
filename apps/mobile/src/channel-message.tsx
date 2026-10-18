@@ -12,6 +12,7 @@ import {
   s,
   shadow,
   useDense,
+  useHoverTip,
   type WebPressState,
 } from "./ui";
 
@@ -92,15 +93,35 @@ export function ChannelMessage({
   grouped?: boolean;
   timestamp?: number;
 }) {
-  const [hovered, setHovered] = useState(false);
+  const [rowHovered, setHovered] = useState(false);
+  // How many of the toolbar's buttons the pointer is on (one, or none). React Native for the web
+  // takes the hover away from a hoverable that has another inside it while the pointer is on the
+  // inner one, so the message loses its hover on reaching a button; the toolbar and the message's
+  // highlight must not go with it, or the toolbar hides, the pointer falls through to the message,
+  // the hover comes back and the toolbar shows again, over and over.
+  const [onButtons, setOnButtons] = useState(0);
+  const hovered = rowHovered || onButtons > 0;
   const [focused, setFocused] = useState(false);
+  const webCopy = Platform.OS === "web";
+  const replyTip = useHoverTip("Reply in thread");
+  const copyTip = useHoverTip(webCopy ? "Copy message" : "Share message");
+  const overButton = (tip: ReturnType<typeof useHoverTip>) => ({
+    ...tip.props,
+    onHoverIn: () => {
+      setOnButtons((n) => n + 1);
+      tip.props.onHoverIn();
+    },
+    onHoverOut: () => {
+      setOnButtons((n) => Math.max(0, n - 1));
+      tip.props.onHoverOut();
+    },
+  });
   const [expanded, setExpanded] = useState(false);
   const { data } = useAgentWorkspace();
   // Pointer devices get a hover toolbar. Touch layouts tap a message to reveal its actions
   // inline, because a floating toolbar on every message covers the text it belongs to.
   const hoverUi = useDense();
   const toolbarVisible = hovered || focused;
-  const webCopy = Platform.OS === "web";
   async function copy() {
     try {
       if (webCopy) {
@@ -251,6 +272,7 @@ export function ChannelMessage({
               accessibilityLabel="Reply in thread"
               disabled={replyDisabled}
               onPress={onReply}
+              {...overButton(replyTip)}
               style={({ pressed, hovered: over }: WebPressState) => ({
                 padding: 7,
                 borderRadius: radius.sm,
@@ -263,12 +285,14 @@ export function ChannelMessage({
               })}
             >
               <MessageSquare size={16} color={colors.muted} />
+              {replyTip.tip}
             </Pressable>
           )}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Copy message"
             onPress={() => void copy()}
+            {...overButton(copyTip)}
             style={({ pressed, hovered: over }: WebPressState) => ({
               padding: 7,
               borderRadius: radius.sm,
@@ -280,6 +304,7 @@ export function ChannelMessage({
             })}
           >
             <Copy size={16} color={colors.muted} />
+            {copyTip.tip}
           </Pressable>
         </View>
       )}

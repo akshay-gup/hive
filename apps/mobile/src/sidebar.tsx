@@ -20,6 +20,7 @@ import {
   panelStyle,
   radius,
   s,
+  useHoverTip,
   type WebPressState,
 } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -319,6 +320,7 @@ export function Sidebar({
     .filter(isListed)
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const newChannelTip = useHoverTip("New channel");
   const dense = !compact;
   const personName = workspace.profile.name || "You";
   const initial = personName.slice(0, 1).toUpperCase();
@@ -396,6 +398,7 @@ export function Sidebar({
           disabled={busy}
           hitSlop={6}
           onPress={() => setCreating(true)}
+          {...newChannelTip.props}
           style={({ pressed, hovered }: WebPressState) => ({
             width: 28,
             height: 28,
@@ -406,6 +409,7 @@ export function Sidebar({
           })}
         >
           <Plus size={16} color={colors.muted} />
+          {newChannelTip.tip}
         </Pressable>
       </View>
       <ErrorNotice error={error} />

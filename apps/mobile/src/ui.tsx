@@ -364,6 +364,67 @@ export function Button({
     </Pressable>
   );
 }
+/**
+ * The name of an icon-only button, shown under it once a pointer has rested on it for a moment.
+ * A touch has no hover and a screen reader has the label, so this is only for the pointer. Spread
+ * `props` on the Pressable and render `tip` inside it. `align` is which edge of the button the
+ * name lines up with, so a button at the edge of its panel has its name run inward, not off it.
+ */
+export function useHoverTip(label: string, align: "center" | "end" = "end") {
+  const [shown, setShown] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const hide = () => {
+    clearTimeout(timer.current);
+    setShown(false);
+  };
+  const props = {
+    onHoverIn: () => {
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setShown(true), 450);
+    },
+    onHoverOut: hide,
+    // Pressing it is an answer to the question.
+    onPressIn: hide,
+  };
+  const tip = shown ? (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top: "100%",
+        marginTop: 6,
+        // Room for a name wider than the button, which runs one way from its edge.
+        left: align === "end" ? -180 : -90,
+        right: align === "end" ? 0 : -90,
+        alignItems: align === "end" ? "flex-end" : "center",
+        zIndex: 20,
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: colors.inverse,
+          borderRadius: radius.sm,
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+        }}
+      >
+        <Text
+          numberOfLines={1}
+          style={{
+            color: colors.onInverse,
+            fontSize: fontSize.caption,
+            lineHeight: 16,
+            fontWeight: "500",
+          }}
+        >
+          {label}
+        </Text>
+      </View>
+    </View>
+  ) : null;
+  return { props, tip };
+}
 export function IconButton({
   icon: Icon,
   label,
@@ -373,11 +434,13 @@ export function IconButton({
   label: string;
   onPress: () => void;
 }) {
+  const { props, tip } = useHoverTip(label);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
+      {...props}
       style={({ pressed, hovered }: WebPressState) => [
         {
           width: 44,
@@ -390,6 +453,7 @@ export function IconButton({
       ]}
     >
       <Icon size={20} strokeWidth={1.8} color={colors.text} />
+      {tip}
     </Pressable>
   );
 }
