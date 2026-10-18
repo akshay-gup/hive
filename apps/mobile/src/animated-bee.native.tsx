@@ -12,7 +12,9 @@ const loops = {
 export type BeeLoop = keyof typeof loops;
 
 /** The loops are in the app already, so there is nothing to fetch ahead of the screen that shows one. */
-export function warmBee(_loop: BeeLoop): void {}
+export function WarmBee(_props: { loop: BeeLoop }) {
+  return null;
+}
 
 /**
  * The bee, looking around and blinking, in one of three loops (a different one for each kind of

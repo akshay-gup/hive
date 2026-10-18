@@ -12,12 +12,20 @@ const loops = {
 export type BeeLoop = keyof typeof loops;
 
 /**
- * Starts fetching a loop, so that by the screen that shows it the file (a megabyte or so) is
- * already in the browser. Call it on the screen before.
+ * Fetches a loop in the browser ahead of the screen that shows it, so the file (a megabyte or so)
+ * is already there. It is the picture itself, a pixel big, unseen and out of the layout, so it asks
+ * for the file the way the screen will and can fail only as that picture could. (Asking for the
+ * file's address instead takes an API this platform's `Image` does not have, which once left the
+ * screen after sign-in blank.)
  */
-export function warmBee(loop: BeeLoop): void {
-  const uri = Image.resolveAssetSource(loops[loop])?.uri;
-  if (uri) Image.prefetch(uri).catch(() => {});
+export function WarmBee({ loop }: { loop: BeeLoop }) {
+  return (
+    <Image
+      source={loops[loop]}
+      accessible={false}
+      style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
+    />
+  );
 }
 
 /**

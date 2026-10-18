@@ -1,7 +1,7 @@
 import { LogOut, Plus, Trash2 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { warmBee } from "../animated-bee";
+import { WarmBee } from "../animated-bee";
 import {
   Button,
   Card,
@@ -65,10 +65,6 @@ export function WorkspacesScreen({
   const [linkError, setLinkError] = useState("");
   const empty = workspaces.length === 0;
   const showCreate = creating || empty;
-  // The screen after this one has the moving bee, a megabyte or so: fetch it while a name is typed.
-  useEffect(() => {
-    if (showCreate) warmBee(1);
-  }, [showCreate]);
   const submit = () => {
     if (name.trim()) onCreate(name.trim());
   };
@@ -83,6 +79,8 @@ export function WorkspacesScreen({
   };
   return (
     <Frame wide>
+      {/* The screen after this one has the moving bee, a megabyte or so: fetch it while a name is typed. */}
+      {showCreate && <WarmBee loop={1} />}
       <Mascot size={pageBee} />
       <View style={{ alignItems: "center", gap: 6 }}>
         <Text
