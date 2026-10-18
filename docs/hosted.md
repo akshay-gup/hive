@@ -315,6 +315,23 @@ The Worker answers with an error until the signing key is set. Add `<CONTROL_PUB
 | `CONTROL_EDGE_TOKEN` | At least 32 characters. What the edge shows to ask where a workspace is (`GET /internal/upstream/:id`); the route does not exist without it. |
 | `PROVISIONER` | `fly`, `digitalocean` or `local`. |
 
+### The model gateway (keeping the provider's key off the workspaces)
+
+`HIVE_WORKSPACE_ENV` hands every workspace the provider's key, which the agent's shell and any member can then read. The gateway keeps the key at the control plane instead: set `GATEWAY_PROVIDERS` (a secret) and `GATEWAY_MODEL` (a var) and each new workspace is given the model and a key of its own that works only at `<CONTROL_PUBLIC_URL>/v1/gateway/<provider>/…`. People never set up a key or choose a model.
+
+```sh
+wrangler secret put GATEWAY_PROVIDERS   # {"anthropic":{"baseUrl":"https://api.anthropic.com/v1","key":"sk-ant-…"}}
+# and in wrangler.jsonc vars:  "GATEWAY_MODEL": "anthropic/claude-sonnet-4-5"
+```
+
+A provider takes `baseUrl` (https, as its SDK takes it), `key`, and `auth` (`"x-api-key"`, the default for a provider named `anthropic`, or `"bearer"`, the default for any other). More than one may be listed; `GATEWAY_MODEL` picks the one workspaces run on.
+
+- **A pass-through.** The gateway reads a request's headers to learn which workspace is asking and to put the real key in. The body goes to the provider and the answer comes back as streams it never reads, keeps or logs, and nothing is written to the database. It does not count tokens or cost, so the hard spend limit is the one on the provider's key.
+- **The workspace's key** is derived from the control plane's signing key and the workspace id (`hwk_<id>.<mac>`), so there is nothing to store, making the workspace again gives it the same key, and it is worth nothing anywhere else. It stops working when the workspace is removed (the control plane's records are asked at most every 30 seconds).
+- **Limits.** Each workspace gets 120 requests a minute (`GATEWAY_LIMITER` on Cloudflare, counted per process elsewhere), then a 429 with `retry-after`. All workspaces share the provider's own rate limits.
+- **Only workspaces made after it is turned on** use it; existing ones keep the settings they were made with. It reaches the agent through `OPENCODE_CONFIG_CONTENT`, so no new workspace image is needed.
+- `PROVISIONER=local` workspaces are not given the gateway's settings.
+
 ### Fly (`PROVISIONER=fly`)
 
 | Variable | Meaning |
@@ -389,7 +406,7 @@ A workspace stores the role it was told, but does not yet use it: inside a works
 ## What is not built
 
 - **Billing.** There is no payment, and the plans are not enforced.
-- **A model the platform pays for, safely.** `HIVE_WORKSPACE_ENV` puts the provider key in each workspace, where the agent's shell and any member can read it. Use a key with a spend limit, and one per workspace if you can, until the key lives in a gateway the workspaces call.
+- **Per-workspace usage and budgets for the model.** The [gateway](#the-model-gateway-keeping-the-providers-key-off-the-workspaces) keeps the provider's key off the workspaces and limits each one's request rate, but it does not read what passes through, so it counts no tokens and sets no budget per workspace. The spend limit on the provider's key is the ceiling. (`HIVE_WORKSPACE_ENV` still works, and puts the key in each workspace, where the agent's shell and any member can read it: use a key with a spend limit.)
 - **Gmail and Calendar in a hosted workspace.** A workspace connects Google on its own address, and an OAuth client lists a fixed set of redirect URIs, not one per workspace. It needs the connection to go through the control plane.
 - **Email.** Invitations for an address are made but not sent: the control plane prints them, and the person who invites shares the link. `apps/control/src/mailer.ts` is the interface to implement.
 - **Staying awake while the agent works.** See [Plans](#plans): a workspace that stops when idle can stop in the middle of a task.

@@ -122,6 +122,8 @@ export interface WorkspaceServiceOptions {
   publicUrl: string;
   allowedOrigins: string[];
   maxWorkspacesPerAccount: number;
+  /** The model settings a new workspace is given: its model, and the address and key to reach it by. */
+  modelEnvironment?: (workspaceId: string) => Record<string, string>;
   /**
    * Where making a workspace is started. Left out, it is done in this process, which is right for
    * one long-running server. Somewhere that cannot keep work going after a request (a Worker), it
@@ -378,6 +380,9 @@ export class WorkspaceService {
               new URL(this.options.publicUrl).origin,
               ...this.options.allowedOrigins,
             ],
+            ...(this.options.modelEnvironment
+              ? { modelEnv: this.options.modelEnvironment(id) }
+              : {}),
           },
           progress,
         );

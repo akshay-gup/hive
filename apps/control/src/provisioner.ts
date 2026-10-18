@@ -11,6 +11,8 @@ export interface WorkspaceSpec {
   controlPublicKey: string;
   /** Web origins that may call the workspace's API from a browser: the control plane's own web app. */
   allowedOrigins: string[];
+  /** Which model the agent runs on and how it reaches it (see `ModelGateway.environmentFor`), when the control plane keeps the key. */
+  modelEnv?: Record<string, string>;
 }
 
 export interface ProvisionedWorkspace {

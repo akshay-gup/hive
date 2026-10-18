@@ -7,6 +7,7 @@ import { z } from "zod";
 import { type Account, Accounts } from "./accounts.ts";
 import type { ControlConfig } from "./config.ts";
 import { HttpError } from "./errors.ts";
+import { type GatewaySettings, ModelGateway } from "./gateway.ts";
 import { RateLimiter, type SignInLimiter } from "./limits.ts";
 import { consoleMailer, type Mailer } from "./mailer.ts";
 import type { Provisioner } from "./provisioner.ts";
@@ -22,6 +23,8 @@ export interface ControlDeps {
   google?: GoogleLogin;
   /** Counts sign-in attempts per visitor. Left out, each process counts for itself. */
   signInLimiter?: SignInLimiter;
+  /** Lets workspaces use the model without holding its key; without it each workspace is given its own settings. */
+  gateway?: GatewaySettings;
   /** See `WorkspaceServiceOptions`: where making a workspace is started, when not in this process. */
   startProvisioning?: WorkspaceServiceOptions["startProvisioning"];
 }
@@ -50,6 +53,15 @@ const sameSecret = (given: string | undefined, expected: string) =>
 
 export function createControlApp(db: ControlStore, config: ControlConfig, deps: ControlDeps) {
   const accounts = new Accounts(db);
+  const gateway = deps.gateway
+    ? new ModelGateway(
+        db,
+        config.publicUrl,
+        deps.keys.privateKey,
+        deps.gateway,
+        deps.gateway.limiter ?? new RateLimiter(120),
+      )
+    : undefined;
   const workspaces = new WorkspaceService({
     db,
     accounts,
@@ -59,6 +71,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     publicUrl: config.publicUrl,
     allowedOrigins: config.allowedOrigins,
     maxWorkspacesPerAccount: config.maxWorkspacesPerAccount,
+    modelEnvironment: gateway ? (id) => gateway.environmentFor(id) : undefined,
     startProvisioning: deps.startProvisioning,
   });
   const origins = new Set([new URL(config.publicUrl).origin, ...config.allowedOrigins]);
@@ -80,10 +93,12 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
       allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     }),
   );
-  app.use(
-    "*",
-    bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "Too large" }, 413) }),
-  );
+  const limitBody = bodyLimit({
+    maxSize: 64 * 1024,
+    onError: (c) => c.json({ error: "Too large" }, 413),
+  });
+  // A model request carries the whole conversation, and is not read here: the gateway passes it on.
+  app.use("*", (c, next) => (c.req.path.startsWith("/v1/gateway/") ? next() : limitBody(c, next)));
   app.onError((error, c) => {
     if (error instanceof HttpError) return c.json({ error: error.message }, error.status as 400);
     if (error instanceof z.ZodError)
@@ -102,6 +117,12 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
       provisioner: deps.provisioner.name,
     }),
   );
+
+  // A workspace's way to the model. It is signed with the workspace's own key, not a person's session.
+  if (gateway)
+    app.all("/v1/gateway/:provider/*", (c) =>
+      gateway.handle(c.req.raw, c.req.param("provider") ?? ""),
+    );
 
   // The edge proxy asks where a workspace is. It is not for people: it takes the edge's own token.
   app.get("/internal/upstream/:id", async (c) => {

@@ -40,6 +40,8 @@ export function workspaceSettings(
 ): Record<string, string> {
   return {
     ...shared,
+    // Over the shared settings: where there is a gateway, its model and address are the ones that count.
+    ...spec.modelEnv,
     WORKSPACE_MODE: "live",
     WORKSPACE_ID: spec.workspaceId,
     CONTROL_PLANE_PUBLIC_KEY: spec.controlPublicKey,

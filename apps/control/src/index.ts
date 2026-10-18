@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { createStore } from "../../server/src/db.ts";
 import { createControlApp } from "./app.ts";
 import { readControlConfig } from "./config.ts";
+import { gatewayFromEnv } from "./gateway.ts";
 import { GoogleSignIn } from "./google.ts";
 import { provisionerFromEnv } from "./provisioners.ts";
 import { loadSigningKeys } from "./signing.ts";
@@ -24,7 +25,12 @@ const google =
         redirectUri: config.googleRedirectUri,
       })
     : undefined;
-const { app, accounts, workspaces } = createControlApp(db, config, { provisioner, keys, google });
+const { app, accounts, workspaces } = createControlApp(db, config, {
+  provisioner,
+  keys,
+  google,
+  gateway: gatewayFromEnv(),
+});
 mountWeb(app, config.webDir);
 
 // Pick up workspaces a restart interrupted, and again now and then for removals that did not finish;

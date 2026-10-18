@@ -4,6 +4,7 @@ import { workspacePublicKeyOf } from "../../../packages/integrations/src/workspa
 import { createControlApp } from "./app.ts";
 import { readControlConfig } from "./config.ts";
 import { type D1Database, D1Store } from "./d1-store.ts";
+import { gatewayFromEnv } from "./gateway.ts";
 import { GoogleSignIn } from "./google.ts";
 import { RateLimiter, type SignInLimiter } from "./limits.ts";
 import { remoteProvisionerFromEnv } from "./provisioners-remote.ts";
@@ -24,6 +25,8 @@ export interface Env {
   };
   /** A Cloudflare rate limit binding, for the sign-in limit. Without it each copy counts alone. */
   SIGNIN_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  /** The same kind of binding, for the model requests of each workspace. */
+  GATEWAY_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }
 
 const settings = (env: Env) => env as unknown as Record<string, string | undefined>;
@@ -48,11 +51,19 @@ function build(env: Env) {
   const signInLimiter: SignInLimiter = shared
     ? { allow: async (key) => (await shared.limit({ key })).success }
     : new RateLimiter(20);
+  const gateway = gatewayFromEnv(vars);
+  const modelLimiter = env.GATEWAY_LIMITER;
   return createControlApp(db, config, {
     provisioner,
     keys: { privateKey, publicKey: workspacePublicKeyOf(privateKey) },
     google,
     signInLimiter,
+    gateway: gateway && {
+      ...gateway,
+      limiter: modelLimiter
+        ? { allow: async (key) => (await modelLimiter.limit({ key })).success }
+        : undefined,
+    },
     // Not started in the request, which would end it: a Workflow instance makes the workspace.
     startProvisioning: async (workspaceId) => {
       await env.PROVISION.create({

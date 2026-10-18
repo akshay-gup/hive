@@ -4,7 +4,9 @@
   // `wrangler d1 migrations apply hive-control --remote`.
   // Secrets, set with `wrangler secret put`: CONTROL_SIGNING_KEY, GOOGLE_CLIENT_SECRET, and the
   // provider's (DO_API_TOKEN, or FLY_API_TOKEN), plus CLOUDFLARE_API_TOKEN for tunnels, and
-  // HIVE_WORKSPACE_ENV if workspaces get a model key. DO_IMAGE and DO_REGIONS also go in vars.
+  // HIVE_WORKSPACE_ENV if workspaces get a model key, or GATEWAY_PROVIDERS (a JSON object of the
+  // providers and their keys) with the var GATEWAY_MODEL if the control plane keeps the key and
+  // workspaces call it. DO_IMAGE and DO_REGIONS also go in vars.
   "name": "hive-control",
   "main": "src/worker.ts",
   "compatibility_date": "2025-10-01",
@@ -23,7 +25,9 @@
   ],
   "triggers": { "crons": ["* * * * *"] },
   "ratelimits": [
-    { "name": "SIGNIN_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }
+    { "name": "SIGNIN_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+    // Model requests per workspace, when the gateway is on (GATEWAY_PROVIDERS and GATEWAY_MODEL).
+    { "name": "GATEWAY_LIMITER", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }
   ],
   "vars": {
     "CONTROL_MODE": "live",
@@ -48,6 +52,8 @@
     // the flat plan and switched; if that is refused it keeps the flat one and the log says so.
     "DO_BACKUPS": "custom_daily",
     "DO_BACKUP_HOUR": "8",
-    "DO_IMAGE": "250221835"
+    "DO_IMAGE": "250221835",
+    // The model every new workspace runs on, through the gateway; the provider's key is the secret GATEWAY_PROVIDERS.
+    "GATEWAY_MODEL": "fireworks-ai/accounts/fireworks/models/glm-5p3"
   }
 }
