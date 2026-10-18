@@ -991,6 +991,8 @@ export function HaloDot({ color, halo }: { color: string; halo: string }) {
     </View>
   );
 }
+/** Whether the still bee has loaded once, so a bee that appears later is there on its first frame. */
+let stillBeeLoaded = false;
 /** Hive's bee, shared by every assistant surface. */
 export function Mascot({
   size = 42,
@@ -1002,12 +1004,16 @@ export function Mascot({
   variant?: "sky" | "sand" | "lilac";
   /** What to draw in place of the still bee, in the same box and over the same disc (the moving bee). */
   art?: ReactNode;
-  /** With `art`: whether it has loaded. The disc waits for it, since a disc with no bee in it reads as a flash. */
+  /** With `art`: whether it has loaded. Until it has, the still bee holds its place. */
   ready?: boolean;
 }) {
   const palette = mascotTints[variant];
-  const [pictured, setPictured] = useState(false);
-  const shown = art ? ready : pictured;
+  const [pictured, setPictured] = useState(stillBeeLoaded);
+  // The moving bee takes over from the still one, which is the same size in the same place, so the
+  // bee is there the whole time and only starts to move. The disc waits for a bee to be in it,
+  // since a disc with no bee reads as a flash.
+  const moving = !!art && ready;
+  const shown = moving || pictured;
   return (
     <View accessibilityLabel="Hive bee" style={{ width: size, height: size }}>
       <View
@@ -1022,16 +1028,18 @@ export function Mascot({
           opacity: shown ? 1 : 0,
         }}
       />
-      {art ?? (
-        <Image
-          source={require("../assets/bee.png")}
-          resizeMode="contain"
-          style={{ width: size, height: size, opacity: shown ? 1 : 0 }}
-          accessible={false}
-          onLoad={() => setPictured(true)}
-          onError={() => setPictured(true)}
-        />
-      )}
+      <Image
+        source={require("../assets/bee.png")}
+        resizeMode="contain"
+        style={{ width: size, height: size, opacity: !moving && pictured ? 1 : 0 }}
+        accessible={false}
+        onLoad={() => {
+          stillBeeLoaded = true;
+          setPictured(true);
+        }}
+        onError={() => setPictured(true)}
+      />
+      {art}
     </View>
   );
 }

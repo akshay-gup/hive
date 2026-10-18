@@ -15,24 +15,22 @@ const steps: { key: MakingStepName; label: string; from: number }[] = [
   { key: "checking", label: "Saying hello", from: 0.72 },
 ];
 
-/** The steps in order, so a screen can hold their room before it knows which one is current. */
-export const stepKeys: MakingStepName[] = steps.map((step) => step.key);
-
 /** Where the bar stands when a step has just begun, and where it is heading. A step never fills past the next one's start. */
 const END = 0.96;
 
 /**
- * The checklist for a workspace on `step`, or null when the control plane did not say (an older
- * one, or a host with no steps of its own) and only a spinner is honest. Steps before the current
- * one count as done, including ones the host skipped.
+ * The checklist for a workspace on `step`. The steps are always these four, so they are there from
+ * the first moment; what the control plane has not said yet is only which one it is on. Before it
+ * says (or if it names one this app does not know) every step is waiting, since ticking one off
+ * or calling it current would be a guess. Steps before the current one count as done, including
+ * ones the host skipped.
  */
-export function stepList(step: string | undefined): MakingStep[] | null {
+export function stepList(step: string | undefined): MakingStep[] {
   const at = steps.findIndex((candidate) => candidate.key === step);
-  if (at < 0) return null;
   return steps.map(({ key, label }, index) => ({
     key,
     label,
-    state: index < at ? "done" : index === at ? "now" : "next",
+    state: at < 0 ? "next" : index < at ? "done" : index === at ? "now" : "next",
   }));
 }
 
@@ -47,6 +45,27 @@ export function barFill(step: string | undefined, secondsInStep: number): number
   const end = steps[at + 1]?.from ?? END;
   const creep = 1 - Math.exp(-Math.max(0, secondsInStep) / 12);
   return start + (end - start) * 0.9 * creep;
+}
+
+/**
+ * The bar's memory: the step it is on, when that began, and the furthest it has been. Its fill is
+ * kept here, not worked out afresh each time, so it can only go forward.
+ */
+export interface BarState {
+  step: string | undefined;
+  /** When `step` was first seen, in milliseconds. */
+  since: number;
+  fill: number;
+}
+
+/**
+ * The bar after `now`. A step is timed from when it was first seen, not from the one before it: a
+ * new step measured with the old one's clock would leap to the end of its stretch and fall back to
+ * the start on the next tick. And whatever the clock says, the bar does not move backwards.
+ */
+export function advanceBar(state: BarState, step: string | undefined, now: number): BarState {
+  const since = state.step === step ? state.since : now;
+  return { step, since, fill: Math.max(state.fill, barFill(step, (now - since) / 1000)) };
 }
 
 /** Said while waiting, a few seconds each. Nothing here is a claim about what the machine is doing. */

@@ -11,6 +11,9 @@ const loops = {
 } as const;
 export type BeeLoop = keyof typeof loops;
 
+/** The loops are in the app already, so there is nothing to fetch ahead of the screen that shows one. */
+export function warmBee(_loop: BeeLoop): void {}
+
 /**
  * The bee, looking around and blinking, in one of three loops (a different one for each kind of
  * screen, so they do not repeat). It is the `Mascot` at the same `size`, in the same box and with

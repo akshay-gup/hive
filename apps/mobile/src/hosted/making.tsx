@@ -2,11 +2,10 @@ import { Check } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 import { AnimatedBee } from "../animated-bee";
-import { colors, IconSlot, pageBee, radius, s, type } from "../ui";
+import { colors, pageBee, radius, s } from "../ui";
 import { useStill } from "../use-still";
-import type { MakingStepName } from "./control-api";
 import { Frame } from "./frame";
-import { barFill, flavorAt, type MakingStep, stepKeys, stepList } from "./making-steps";
+import { advanceBar, type BarState, flavorAt, type MakingStep, stepList } from "./making-steps";
 
 function StepRow({ step }: { step: MakingStep }) {
   const state = { done: "done", now: "in progress", next: "waiting" }[step.state];
@@ -44,89 +43,47 @@ function StepRow({ step }: { step: MakingStep }) {
   );
 }
 
-/** How long each placeholder line is, as a share of the card, so the bars do not look ruled. */
-const placeholderWidths: Record<MakingStepName, `${number}%`> = {
-  address: "62%",
-  machine: "48%",
-  starting: "56%",
-  checking: "40%",
-};
-
 /**
- * The card of steps before the control plane has said which one it is on: the same size, with
- * bars where the words will be. It names no step, since which one is current is not known, and a
- * list made up to fill the space would be a guess. What is below the card does not move when it
- * fills in.
- */
-function StepsPlaceholder() {
-  return (
-    <View
-      accessibilityRole="progressbar"
-      accessibilityLabel="Setting up"
-      style={[s.card, { alignSelf: "stretch", gap: 14, padding: 18 }]}
-    >
-      {stepKeys.map((key) => (
-        <View
-          key={key}
-          style={{ flexDirection: "row", alignItems: "center", gap: 12, opacity: 0.45 }}
-        >
-          <IconSlot>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted }} />
-          </IconSlot>
-          <View style={{ minHeight: type.body.lineHeight, flex: 1, justifyContent: "center" }}>
-            <View
-              style={{
-                height: 10,
-                width: placeholderWidths[key],
-                borderRadius: radius.pill,
-                backgroundColor: colors.surfaceHover,
-              }}
-            />
-          </View>
-        </View>
-      ))}
-      <View
-        style={{
-          height: 4,
-          borderRadius: radius.pill,
-          backgroundColor: colors.primarySoft,
-          marginTop: 4,
-        }}
-      />
-    </View>
-  );
-}
-
-/**
- * What a workspace being made shows: the steps the control plane says it is on, ticked off as it
- * goes, a bar that keeps creeping, and a line or two of company. When the control plane does not
- * say which step, the card is there but empty, since a made-up list would be a guess.
+ * What a workspace being made shows: the four steps it goes through, ticked off as the control
+ * plane says where it is, a bar that keeps creeping and never goes back, and a line or two of
+ * company. The steps are there from the first frame, waiting, so only their marks change.
  */
 export function MakingScreen({ name, step }: { name: string; step?: string }) {
   const still = useStill();
   const began = useRef(Date.now());
-  const stepAt = useRef(Date.now());
   const [now, setNow] = useState(Date.now());
+  const [bar, setBar] = useState<BarState>(() =>
+    advanceBar({ step, since: now, fill: 0 }, step, now),
+  );
   useEffect(() => {
-    stepAt.current = Date.now();
-  }, [step]);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 500);
+    const tick = () => {
+      const at = Date.now();
+      setNow(at);
+      setBar((before) => advanceBar(before, step, at));
+    };
+    // A new step is timed from here, at once, not at the next beat.
+    tick();
+    const timer = setInterval(tick, 500);
     return () => clearInterval(timer);
-  }, []);
+  }, [step]);
 
   const list = stepList(step);
-  const fill = barFill(step, (now - stepAt.current) / 1000);
+  const fill = bar.fill;
   const width = useRef(new Animated.Value(fill)).current;
+  const previous = useRef(fill);
   useEffect(() => {
+    // The beat-to-beat creep is a few percent: linear, so one beat runs into the next. A jump to
+    // a new step eases out.
+    const jump = fill - previous.current > 0.05;
+    previous.current = fill;
     if (still) {
       width.setValue(fill);
       return;
     }
     Animated.timing(width, {
       toValue: fill,
-      duration: 600,
-      easing: Easing.out(Easing.quad),
+      duration: jump ? 800 : 600,
+      easing: jump ? Easing.out(Easing.quad) : Easing.linear,
       useNativeDriver: false,
     }).start();
   }, [fill, still, width]);
@@ -135,36 +92,32 @@ export function MakingScreen({ name, step }: { name: string; step?: string }) {
     <Frame>
       <AnimatedBee loop={1} size={pageBee} />
       <Text style={[s.title, { textAlign: "center" }]}>{`Setting up ${name}…`}</Text>
-      {list ? (
-        <View style={[s.card, { alignSelf: "stretch", gap: 14, padding: 18 }]}>
-          {list.map((item) => (
-            <StepRow key={item.key} step={item} />
-          ))}
-          <View
-            accessibilityRole="progressbar"
-            accessibilityLabel="Setting up"
-            accessibilityValue={{ min: 0, max: 100, now: Math.round(fill * 100) }}
+      <View style={[s.card, { alignSelf: "stretch", gap: 14, padding: 18 }]}>
+        {list.map((item) => (
+          <StepRow key={item.key} step={item} />
+        ))}
+        <View
+          accessibilityRole="progressbar"
+          accessibilityLabel="Setting up"
+          accessibilityValue={{ min: 0, max: 100, now: Math.round(fill * 100) }}
+          style={{
+            height: 4,
+            borderRadius: radius.pill,
+            backgroundColor: colors.primarySoft,
+            overflow: "hidden",
+            marginTop: 4,
+          }}
+        >
+          <Animated.View
             style={{
               height: 4,
               borderRadius: radius.pill,
-              backgroundColor: colors.primarySoft,
-              overflow: "hidden",
-              marginTop: 4,
+              backgroundColor: colors.primary,
+              width: width.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }),
             }}
-          >
-            <Animated.View
-              style={{
-                height: 4,
-                borderRadius: radius.pill,
-                backgroundColor: colors.primary,
-                width: width.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }),
-              }}
-            />
-          </View>
+          />
         </View>
-      ) : (
-        <StepsPlaceholder />
-      )}
+      </View>
       <Text style={[s.muted, { textAlign: "center" }]}>
         {flavorAt((now - began.current) / 1000)}
       </Text>

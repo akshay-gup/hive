@@ -12,9 +12,19 @@ const loops = {
 export type BeeLoop = keyof typeof loops;
 
 /**
+ * Starts fetching a loop, so that by the screen that shows it the file (a megabyte or so) is
+ * already in the browser. Call it on the screen before.
+ */
+export function warmBee(loop: BeeLoop): void {
+  const uri = Image.resolveAssetSource(loops[loop])?.uri;
+  if (uri) Image.prefetch(uri).catch(() => {});
+}
+
+/**
  * The bee, looking around and blinking, in one of three loops (a different one for each kind of
  * screen, so they do not repeat). It is the `Mascot` at the same `size`, in the same box and with
- * the same bee under it, so a screen with this and one with the plain bee look the same size. It
+ * the same bee under it, so a screen with this and one with the plain bee look the same size. The
+ * plain bee stays until the moving one has loaded, then the moving one takes over in its place. It
  * holds still, as the plain bee, when the system asks for less motion.
  */
 export function AnimatedBee({ loop, size }: { loop: BeeLoop; size: number }) {
