@@ -1,28 +1,12 @@
-import {
-  Bot,
-  CalendarDays,
-  ChevronsUpDown,
-  FileText,
-  Hash,
-  Lightbulb,
-  LogOut,
-  Monitor,
-  PanelsTopLeft,
-  Plus,
-  RefreshCw,
-  Shapes,
-  SquareCheck,
-  UserRound,
-  X,
-} from "lucide-react-native";
+import { Bot, ChevronDown, Hash, LogOut, Monitor, Plus, SquarePen, X } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { AppState, Pressable, ScrollView, Text, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
 import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { useHosted } from "./hosted/context";
-import { roleLabel } from "./hosted/people-text";
 import { readLastCount, writeLastCount } from "./last-count";
+import { places } from "./places";
 import { useMuseThread } from "./threads";
 import {
   Button,
@@ -36,10 +20,18 @@ import {
   panelStyle,
   radius,
   s,
-  shadow,
   type WebPressState,
 } from "./ui";
 import { useWorkspace } from "./workspace";
+
+/**
+ * How a row is laid out. On a wide window a row is 30 px, as in a chat app's list; where it is
+ * touched it is 40 px. The icon starts 16 px in on both, in line with the header above.
+ */
+const rowMetrics = (dense: boolean) =>
+  dense
+    ? { padX: 8, padY: 5, gap: 10, icon: 16, radius: 8 }
+    : { padX: 8, padY: 10, gap: 12, icon: 17, radius: 10 };
 
 function SidebarRow({
   icon: Icon,
@@ -56,6 +48,7 @@ function SidebarRow({
   accessibilityLabel?: string;
   dense?: boolean;
 }) {
+  const m = rowMetrics(!!dense);
   return (
     <Pressable
       accessibilityRole="button"
@@ -63,21 +56,20 @@ function SidebarRow({
       onPress={onPress}
       style={({ pressed, hovered }: WebPressState) => ({
         flexDirection: "row",
-        gap: dense ? 10 : 12,
+        gap: m.gap,
         alignItems: "center",
-        paddingVertical: dense ? 7 : 12,
-        paddingHorizontal: 12,
-        borderRadius: dense ? 8 : 12,
+        paddingVertical: m.padY,
+        paddingHorizontal: m.padX,
+        borderRadius: m.radius,
         backgroundColor: active || hovered || pressed ? colors.surfaceHover : "transparent",
-        ...(active ? { boxShadow: shadow.active } : null),
       })}
     >
-      <Icon size={dense ? 16 : 17} color={active ? colors.primaryText : colors.muted} />
+      <Icon size={m.icon} color={active ? colors.primaryText : colors.muted} />
       <Text
         style={[
           s.text,
           dense && { fontSize: fontSize.ui, lineHeight: 20 },
-          { flex: 1, fontWeight: active ? "600" : "400" },
+          { flex: 1, fontWeight: active ? "500" : "400" },
         ]}
         numberOfLines={1}
       >
@@ -97,6 +89,7 @@ const isListed = (channel: Channel) =>
  * replaces it, and the groups under the channels stay where they are.
  */
 function ChannelPlaceholders({ count, dense }: { count: number; dense: boolean }) {
+  const m = rowMetrics(dense);
   return (
     <>
       {Array.from({ length: count }, (_, index) => (
@@ -116,7 +109,7 @@ function ChannelPlaceholders({ count, dense }: { count: number; dense: boolean }
               position: "absolute",
               top: 0,
               bottom: 0,
-              left: 12 + (dense ? 16 + 10 : 17 + 12),
+              left: m.padX + m.icon + m.gap,
               justifyContent: "center",
             }}
           >
@@ -135,12 +128,83 @@ function ChannelPlaceholders({ count, dense }: { count: number; dense: boolean }
   );
 }
 
+/** The width of the strip of icons, and of one icon in it. */
+const RAIL_WIDTH = 64;
+/** The width of the list beside the strip, which is there while in the conversations. */
+const LIST_WIDTH = 232;
+
+/** One place in the strip: its icon, and its name under it, so no one has to guess what an icon is. */
+function RailItem({
+  icon: Icon,
+  label,
+  active,
+  onPress,
+  accessibilityLabel,
+}: {
+  icon: typeof Bot;
+  label: string;
+  active?: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ selected: !!active }}
+      onPress={onPress}
+      style={{ width: RAIL_WIDTH - 4, alignItems: "center", gap: 3, paddingVertical: 4 }}
+    >
+      {(state) => {
+        const { pressed, hovered } = state as WebPressState;
+        return (
+          <>
+            <View
+              style={{
+                width: 40,
+                height: 32,
+                borderRadius: radius.md,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: active
+                  ? colors.surfaceHover
+                  : pressed || hovered
+                    ? colors.surfaceMuted
+                    : "transparent",
+              }}
+            >
+              <Icon size={19} strokeWidth={1.8} color={active ? colors.text : colors.muted} />
+            </View>
+            <Text
+              style={{
+                fontSize: fontSize.micro,
+                lineHeight: 14,
+                fontWeight: "500",
+                color: active ? colors.text : colors.muted,
+              }}
+              numberOfLines={1}
+            >
+              {label}
+            </Text>
+          </>
+        );
+      }}
+    </Pressable>
+  );
+}
+
 /**
  * Persistent Slack-style conversation sidebar, rendered on desktop widths.
  * The orchestrator is a single Slackbot-like tab (no threads); channels open
  * directly as chat surfaces — no thread needed. Threads auto-create from
  * replies and @hive mentions. The menu sheet remains the navigation on
  * narrow screens.
+ *
+ * On a wide window it is two parts, as in Slack: a thin strip of icons for the places in the
+ * workspace, and, only while in the conversations, a list of them (the agent and the channels).
+ * Elsewhere the list steps aside and the screen has its room. Where it is touched it is one list
+ * in a drawer, with the places in it and the person at the foot. It says as little as it can: no
+ * section titles for what is plain, no subtitles, no email.
  */
 export function Sidebar({
   compact = false,
@@ -163,21 +227,34 @@ export function Sidebar({
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setError("");
-    setLoading(true);
-    try {
-      const loaded = await api.request<Channel[]>("/api/agent/channels");
-      setChannels(loaded);
-      writeLastCount(channelsKey, loaded.filter(isListed).length);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [api, channelsKey]);
+  const load = useCallback(
+    async (quiet = false) => {
+      if (!quiet) {
+        setError("");
+        setLoading(true);
+      }
+      try {
+        const loaded = await api.request<Channel[]>("/api/agent/channels");
+        setChannels(loaded);
+        writeLastCount(channelsKey, loaded.filter(isListed).length);
+      } catch (e) {
+        // Coming back to the app and finding no network is not worth a message here.
+        if (!quiet) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!quiet) setLoading(false);
+      }
+    },
+    [api, channelsKey],
+  );
   useEffect(() => {
     void load();
+  }, [load]);
+  // There is no refresh button: the list is fetched again when the person comes back to the app.
+  useEffect(() => {
+    const listener = AppState.addEventListener("change", (state) => {
+      if (state === "active") void load(true);
+    });
+    return () => listener.remove();
   }, [load]);
 
   const isMainActive = enabled ? selection.id === mainId : selection.id === "local";
@@ -238,267 +315,387 @@ export function Sidebar({
     select(next);
     onNavigate?.();
   }
-  const workspaceLinks: { id: Section; label: string; icon: typeof Bot }[] = [
-    { id: "activity", label: "Activity", icon: PanelsTopLeft },
-    { id: "ideas", label: "Ideas", icon: Lightbulb },
-    { id: "goals", label: "Goals", icon: SquareCheck },
-    { id: "apps", label: "Apps", icon: Shapes },
-    { id: "calendar", label: "Calendar", icon: CalendarDays },
-    { id: "files", label: "Files", icon: FileText },
-  ];
   const userChannels = (channels ?? [])
     .filter(isListed)
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const dense = !compact;
+  const personName = workspace.profile.name || "You";
+  const initial = personName.slice(0, 1).toUpperCase();
+  const delegate = () => {
+    onNavigate?.();
+    open({ type: "delegate", threadId: delegateThreadId });
+  };
+  const openComputer = () => {
+    onNavigate?.();
+    open({ type: "computer" });
+  };
+  const openPeople = () => {
+    onNavigate?.();
+    open({ type: "people" });
+  };
+  const openAccount = () => {
+    onNavigate?.();
+    open({ type: "account" });
+  };
+  const signOut = () => {
+    void logout().catch((e) => setError(String(e)));
+  };
+
+  // The workspace's name. A hosted person has workspaces: it is the way to the people in this one
+  // and to another. The drawer has no strip above it, so there it carries the bee too.
+  const title = hosted ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${hosted.workspace.name}: people and workspaces`}
+      onPress={openPeople}
+      style={({ pressed, hovered }: WebPressState) => [
+        s.row,
+        {
+          flexShrink: 1,
+          minWidth: 0,
+          gap: 8,
+          paddingVertical: 6,
+          paddingHorizontal: 6,
+          marginLeft: -6,
+          borderRadius: radius.md,
+          backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
+        },
+      ]}
+    >
+      {compact && <Mascot size={24} variant={data?.identity.avatar} />}
+      <Text style={[s.heading, { flexShrink: 1 }]} numberOfLines={1}>
+        {hosted.workspace.name}
+      </Text>
+      <ChevronDown size={14} color={colors.muted} />
+    </Pressable>
+  ) : (
+    <>
+      {compact && <Mascot size={24} variant={data?.identity.avatar} />}
+      <Text style={[s.heading, { flexShrink: 1 }]} numberOfLines={1}>
+        {data?.identity.name || "Hive"}
+      </Text>
+    </>
+  );
+
+  // The conversations: the agent, then the channels with a plus to add one.
+  const conversations = (
+    <>
+      <SidebarRow
+        dense={dense}
+        icon={Bot}
+        label={data?.identity.name || "Hive"}
+        active={section === "chat" && isMainActive}
+        onPress={() => conversation(mainSelection)}
+      />
+      <View style={[s.row, { marginTop: 14, paddingLeft: 8 }]}>
+        <Text style={[s.label, { flex: 1 }]}>Channels</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="New channel"
+          disabled={busy}
+          hitSlop={6}
+          onPress={() => setCreating(true)}
+          style={({ pressed, hovered }: WebPressState) => ({
+            width: 28,
+            height: 28,
+            borderRadius: radius.sm,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
+          })}
+        >
+          <Plus size={16} color={colors.muted} />
+        </Pressable>
+      </View>
+      <ErrorNotice error={error} />
+      {!!error && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Try loading the channels again"
+          onPress={() => void load()}
+          style={{ paddingHorizontal: 8, paddingVertical: 6, alignSelf: "flex-start" }}
+        >
+          <Text style={[s.small, { color: colors.primaryText }]}>Try again</Text>
+        </Pressable>
+      )}
+      {loading && !channels ? (
+        <ChannelPlaceholders count={readLastCount(channelsKey)} dense={dense} />
+      ) : (
+        userChannels.map((channel) => (
+          <SidebarRow
+            dense={dense}
+            key={channel.id}
+            icon={Hash}
+            label={channel.name}
+            accessibilityLabel={`Open channel: ${channel.name}`}
+            active={section === "chat" && !isMainActive && activeChannelId === channel.id}
+            onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
+          />
+        ))
+      )}
+      {creating && (
+        <View style={{ gap: 12, paddingHorizontal: 8, marginTop: 8 }}>
+          <Field
+            label="Channel name"
+            compact
+            autoFocus
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. family-trip"
+            returnKeyType="done"
+            onSubmitEditing={() => void createChannel()}
+            onKeyPress={(event) => {
+              if (event.nativeEvent.key === "Escape") {
+                setCreating(false);
+                setName("");
+              }
+            }}
+          />
+          <View style={[s.row, { gap: 8 }]}>
+            <Button
+              primary
+              small
+              disabled={busy || !name.trim()}
+              onPress={() => void createChannel()}
+            >
+              Create
+            </Button>
+            <Button small disabled={busy} onPress={() => setCreating(false)}>
+              Cancel
+            </Button>
+          </View>
+        </View>
+      )}
+    </>
+  );
+
+  if (!compact) {
+    // Apps is also where mail and the browser are reached from, so it stays lit in them.
+    const lit = (id: Section) =>
+      id === "apps" ? ["apps", "mail", "browser"].includes(section) : section === id;
+    return (
+      <View style={{ flexDirection: "row" }}>
+        <View style={{ width: RAIL_WIDTH, alignItems: "center" }}>
+          <View style={{ height: layout.headerHeight, justifyContent: "center" }}>
+            {hosted ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${hosted.workspace.name}: people and workspaces`}
+                hitSlop={6}
+                onPress={openPeople}
+              >
+                <Mascot size={34} variant={data?.identity.avatar} />
+              </Pressable>
+            ) : (
+              <Mascot size={34} variant={data?.identity.avatar} />
+            )}
+          </View>
+          <ScrollView
+            style={{ flex: 1, width: "100%" }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ alignItems: "center", paddingTop: 4, gap: 2 }}
+          >
+            {places.map((item) => (
+              <RailItem
+                key={item.id}
+                icon={item.icon}
+                label={item.label}
+                active={lit(item.id)}
+                onPress={() => go(item.id)}
+              />
+            ))}
+          </ScrollView>
+          <View style={{ alignItems: "center", gap: 2, paddingBottom: 6 }}>
+            <RailItem
+              icon={SquarePen}
+              label="Delegate"
+              onPress={delegate}
+              accessibilityLabel="Delegate task"
+            />
+            <RailItem
+              icon={Monitor}
+              label="Computer"
+              onPress={openComputer}
+              accessibilityLabel="Agent computer"
+            />
+            {hosted ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Account: ${personName}`}
+                hitSlop={4}
+                onPress={openAccount}
+                style={{ paddingVertical: 6 }}
+              >
+                {({ pressed, hovered }: WebPressState) => (
+                  <View
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: radius.md,
+                      backgroundColor:
+                        pressed || hovered ? colors.surfaceHover : colors.primarySoft,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={[s.text, { fontWeight: "600", fontSize: fontSize.ui }]}>
+                      {initial}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            ) : (
+              <RailItem icon={LogOut} label="Log out" onPress={signOut} />
+            )}
+          </View>
+        </View>
+        {/* Kept mounted while out of the conversations, so it is as it was when they come back. */}
+        <View
+          style={[{ width: LIST_WIDTH }, panelStyle, section !== "chat" && { display: "none" }]}
+        >
+          <View
+            style={[
+              s.row,
+              {
+                paddingHorizontal: 16,
+                height: layout.headerHeight,
+                gap: 8,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.line,
+              },
+            ]}
+          >
+            {title}
+          </View>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8, gap: 1 }}
+          >
+            {conversations}
+          </ScrollView>
+        </View>
+      </View>
+    );
+  }
+
+  const person = (
+    <>
+      <View
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: radius.md,
+          backgroundColor: colors.primarySoft,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={[s.small, { fontWeight: "600", color: colors.text }]}>{initial}</Text>
+      </View>
+      <Text
+        style={[s.text, { fontSize: fontSize.ui, lineHeight: 20, flex: 1, minWidth: 0 }]}
+        numberOfLines={1}
+      >
+        {personName}
+      </Text>
+    </>
+  );
+
   return (
-    <View style={compact ? { flex: 1, width: "100%" } : [{ width: 260 }, panelStyle]}>
+    <View style={{ flex: 1, width: "100%" }}>
       <View
         style={[
           s.row,
           {
             paddingHorizontal: 16,
             height: layout.headerHeight,
-            gap: 10,
+            gap: 8,
             borderBottomWidth: 1,
             borderBottomColor: colors.line,
           },
         ]}
       >
+        {title}
+        <View style={{ flex: 1 }} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Delegate task"
+          hitSlop={6}
+          onPress={delegate}
+          style={({ pressed, hovered }: WebPressState) => ({
+            width: 32,
+            height: 32,
+            borderRadius: radius.md,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
+          })}
+        >
+          <SquarePen size={17} color={colors.muted} />
+        </Pressable>
+        <IconButton icon={X} label="Close navigation" onPress={() => onNavigate?.()} />
+      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8, gap: 2 }}
+      >
+        {conversations}
+        <View style={[s.divider, { marginVertical: 8, marginHorizontal: 8 }]} />
+        {places
+          .filter((item) => !item.bar)
+          .map((item) => (
+            <SidebarRow
+              dense={dense}
+              key={item.id}
+              icon={item.icon}
+              label={item.label}
+              active={section === item.id}
+              onPress={() => go(item.id)}
+            />
+          ))}
+        <SidebarRow
+          dense={dense}
+          icon={Monitor}
+          label="Computer"
+          accessibilityLabel="Agent computer"
+          onPress={openComputer}
+        />
+      </ScrollView>
+      <View style={{ borderTopWidth: 1, borderTopColor: colors.line, padding: 8 }}>
         {hosted ? (
-          // A hosted person has workspaces: this one's name, who is in it, and the way to another.
+          // Who they are, and what is theirs to do with the account, are in the account.
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${hosted.workspace.name}: people and workspaces`}
-            onPress={() => {
-              onNavigate?.();
-              open({ type: "people" });
-            }}
+            accessibilityLabel={`Account: ${personName}`}
+            onPress={openAccount}
             style={({ pressed, hovered }: WebPressState) => [
               s.row,
               {
-                flex: 1,
-                minWidth: 0,
                 gap: 10,
                 paddingVertical: 6,
-                paddingHorizontal: 6,
-                marginLeft: -6,
+                paddingHorizontal: 8,
                 borderRadius: radius.md,
                 backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
               },
             ]}
           >
-            <Mascot size={28} variant={data?.identity.avatar} />
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={s.heading} numberOfLines={1}>
-                {hosted.workspace.name}
-              </Text>
-              <Text style={s.small} numberOfLines={1}>
-                {roleLabel[hosted.workspace.role]} · People
-              </Text>
-            </View>
-            <ChevronsUpDown size={16} color={colors.muted} />
+            {person}
           </Pressable>
         ) : (
-          <>
-            <Mascot size={28} variant={data?.identity.avatar} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.heading}>{data?.identity.name || "Hive"}</Text>
-              <Text style={s.small}>Your workspace</Text>
-            </View>
-          </>
-        )}
-        {compact && <IconButton icon={X} label="Close navigation" onPress={() => onNavigate?.()} />}
-      </View>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: compact ? 4 : 1 }}
-      >
-        <Text style={[s.label, { paddingHorizontal: 12, marginBottom: 4 }]}>Direct messages</Text>
-        <SidebarRow
-          dense={!compact}
-          icon={Bot}
-          label={data?.identity.name || "Hive"}
-          active={section === "chat" && isMainActive}
-          onPress={() => conversation(mainSelection)}
-        />
-        <View
-          style={[
-            s.row,
-            { alignItems: "center", marginTop: 12, marginBottom: 0, paddingHorizontal: 12 },
-          ]}
-        >
-          <Text style={[s.label, { flex: 1 }]}>Channels</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Refresh channels"
-            disabled={loading}
-            hitSlop={10}
-            onPress={() => void load()}
-            style={{ padding: 10 }}
-          >
-            {/* The refresh icon is the spinner while it loads, in the same 14 px, so nothing is added to the page. */}
-            <View style={{ width: 14, height: 14, alignItems: "center", justifyContent: "center" }}>
-              {loading ? (
-                <ActivityIndicator
-                  size="small"
-                  color={colors.muted}
-                  style={{ transform: [{ scale: 0.7 }] }}
-                />
-              ) : (
-                <RefreshCw size={14} color={colors.muted} />
-              )}
-            </View>
-          </Pressable>
-        </View>
-        <ErrorNotice error={error} />
-        {loading && !channels ? (
-          <ChannelPlaceholders count={readLastCount(channelsKey)} dense={!compact} />
-        ) : (
-          userChannels.map((channel) => (
-            <SidebarRow
-              dense={!compact}
-              key={channel.id}
-              icon={Hash}
-              label={channel.name}
-              accessibilityLabel={`Open channel: ${channel.name}`}
-              active={section === "chat" && !isMainActive && activeChannelId === channel.id}
-              onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
-            />
-          ))
-        )}
-        {creating ? (
-          <View style={{ gap: 12, paddingHorizontal: 12, marginTop: 8 }}>
-            <Field
-              label="Channel name"
-              compact
-              autoFocus
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. family-trip"
-              returnKeyType="done"
-              onSubmitEditing={() => void createChannel()}
-              onKeyPress={(event) => {
-                if (event.nativeEvent.key === "Escape") {
-                  setCreating(false);
-                  setName("");
-                }
-              }}
-            />
-            <View style={[s.row, { gap: 8 }]}>
-              <Button
-                primary
-                small
-                disabled={busy || !name.trim()}
-                onPress={() => void createChannel()}
-              >
-                Create
-              </Button>
-              <Button small disabled={busy} onPress={() => setCreating(false)}>
-                Cancel
-              </Button>
-            </View>
-          </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="New channel"
-            disabled={busy}
-            onPress={() => setCreating(true)}
-            style={[
-              s.row,
-              { gap: 10, alignItems: "center", paddingVertical: 12, paddingHorizontal: 12 },
-            ]}
-          >
-            <Plus size={16} color={colors.muted} />
-            <Text style={[s.text, { fontSize: fontSize.ui }]}>New channel</Text>
-          </Pressable>
-        )}
-        <View style={[s.divider, { marginVertical: 8 }]} />
-        <Text style={[s.label, { paddingHorizontal: 12, marginBottom: 4 }]}>Workspace</Text>
-        {workspaceLinks.map((item) => (
-          <SidebarRow
-            dense={!compact}
-            key={item.id}
-            icon={item.icon}
-            label={item.label}
-            active={section === item.id}
-            onPress={() => go(item.id)}
-          />
-        ))}
-        <View style={[s.divider, { marginVertical: 8 }]} />
-        <SidebarRow
-          dense={!compact}
-          icon={Plus}
-          label="Delegate task"
-          onPress={() => {
-            onNavigate?.();
-            open({ type: "delegate", threadId: delegateThreadId });
-          }}
-        />
-        <SidebarRow
-          dense={!compact}
-          icon={Monitor}
-          label="Agent computer"
-          onPress={() => {
-            onNavigate?.();
-            open({ type: "computer" });
-          }}
-        />
-      </ScrollView>
-      <View
-        style={[s.row, { borderTopWidth: 1, borderTopColor: colors.line, padding: 12, gap: 12 }]}
-      >
-        <View
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: radius.lg,
-            backgroundColor: colors.primarySoft,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={[s.text, { fontWeight: "600" }]}>
-            {(workspace.profile.name || "You").slice(0, 1).toUpperCase()}
-          </Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[s.text, { fontSize: fontSize.ui, fontWeight: "500" }]} numberOfLines={1}>
-            {workspace.profile.name || "You"}
-          </Text>
-          <Text style={s.small} numberOfLines={1}>
-            {workspace.profile.email || "Signed in"}
-          </Text>
-          <View style={[s.row, { gap: 16 }]}>
-            {hosted && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Account"
-                hitSlop={8}
-                onPress={() => {
-                  onNavigate?.();
-                  open({ type: "account" });
-                }}
-                style={[s.row, { gap: 6, paddingVertical: 8 }]}
-              >
-                <UserRound size={14} color={colors.muted} />
-                <Text style={s.small}>Account</Text>
-              </Pressable>
-            )}
+          <View style={[s.row, { gap: 10, paddingVertical: 6, paddingHorizontal: 8 }]}>
+            {person}
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Log out"
               hitSlop={8}
-              onPress={() => {
-                void logout().catch((e) => setError(String(e)));
-              }}
-              style={[s.row, { gap: 6, paddingVertical: 8 }]}
+              onPress={signOut}
+              style={{ padding: 4 }}
             >
-              <LogOut size={14} color={colors.muted} />
-              <Text style={s.small}>Log out</Text>
+              <LogOut size={16} color={colors.muted} />
             </Pressable>
           </View>
-        </View>
+        )}
       </View>
     </View>
   );

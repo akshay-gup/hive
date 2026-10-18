@@ -1,13 +1,4 @@
-import {
-  Check,
-  Lightbulb,
-  type LucideIcon,
-  MessageCircle,
-  PanelsTopLeft,
-  Shapes,
-  SquareCheck,
-  X,
-} from "lucide-react-native";
+import { Check, X } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,6 +19,7 @@ import { ChatScreen, WorkspaceTools } from "./chat";
 import { ComputerDraftProvider } from "./computer-drafts";
 import { Details } from "./details";
 import { ProgressScreen } from "./hosted/progress";
+import { places } from "./places";
 import { BrowserScreen, CalendarScreen, FilesScreen, MailScreen } from "./screens";
 import { ShellHeader } from "./shell-header";
 import { Sidebar } from "./sidebar";
@@ -49,13 +41,8 @@ import {
 } from "./ui";
 import { type Detail, useWorkspace, WorkspaceContext } from "./workspace";
 
-const nav: { id: Section; label: string; icon: LucideIcon }[] = [
-  { id: "chat", label: "Chat", icon: MessageCircle },
-  { id: "activity", label: "Activity", icon: PanelsTopLeft },
-  { id: "ideas", label: "Ideas", icon: Lightbulb },
-  { id: "goals", label: "Goals", icon: SquareCheck },
-  { id: "apps", label: "Apps", icon: Shapes },
-];
+/** What the bar along the bottom of a phone holds: the places that have room in it. */
+const nav = places.filter((place) => place.bar);
 /**
  * A workspace once the person is in it. `identity` is who they are here and stays the same when
  * their session is renewed, so what they were doing is kept.
