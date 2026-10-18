@@ -22,7 +22,6 @@ import {
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   Linking,
   Platform,
@@ -54,6 +53,7 @@ import {
   fontSize,
   IconButton,
   LinkRow,
+  Pending,
   radius,
   relativeDate,
   resultSummary,
@@ -803,10 +803,7 @@ export function CalendarScreen() {
           </Button>
         )}
         {loading ? (
-          <View style={[s.row, { gap: 10, paddingVertical: 35, justifyContent: "center" }]}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={s.muted}>Checking your calendar…</Text>
-          </View>
+          <Pending label="Checking your calendar…" height={160} />
         ) : events.length ? (
           events.map((e, i) => (
             <View key={e.id}>

@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, AppState, Image, Text, View } from "react-native";
 import { z } from "zod";
 import type { BrowserSession } from "../../../packages/domain/src";
-import { Button, Card, colors, ErrorNotice, fontSize, radius, s } from "./ui";
+import { Button, Card, colors, ErrorNotice, fontSize, IconSlot, radius, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 export const BrowserRunContext = createContext({ running: false, active: false });
@@ -117,11 +117,13 @@ export function BrowserToolCard({
                   : siteLabel(visited?.url)}
           </Text>
         </View>
-        {working ? (
-          <ActivityIndicator size="small" color={colors.primary} />
-        ) : visited ? (
-          <Check size={17} color={colors.success} accessibilityLabel="Page read" />
-        ) : null}
+        <IconSlot>
+          {working ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : visited ? (
+            <Check size={17} color={colors.success} accessibilityLabel="Page read" />
+          ) : null}
+        </IconSlot>
       </View>
       {preview ? (
         <Image

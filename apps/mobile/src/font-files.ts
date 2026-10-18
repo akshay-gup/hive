@@ -30,6 +30,51 @@ export const fontFiles = fontWeights.flatMap((weight) =>
 /** The two faces nearly every screen draws on first paint; they are preloaded. */
 export const preloadedFonts = [fontUrl("latin", 400), fontUrl("latin", 600)];
 
+/** The name of the stand-in drawn until Poppins has arrived. It is in `fontFamily.web`, after Poppins. */
+export const fallbackFamily = "Poppins Fallback";
+
+/**
+ * Poppins is wider than the system fonts and has taller lines, so text drawn in a system font
+ * first and in Poppins a moment later changes size when the font arrives: lines that have no
+ * `lineHeight` of their own grow, buttons and chips with them, and everything below moves down.
+ * The stand-in is a system font made the size of Poppins, so that nothing does.
+ *
+ * `adjust` is how much wider Poppins runs than the font it stands in for, measured on a few
+ * hundred characters of the app's own text at each weight (Arial for the lighter weights, Arial
+ * Bold for the heavier). The three metrics are Poppins's own, as shares of the font size: the line
+ * is 1.5 high with them, as it is in Poppins, whichever of the fonts below the device has (Liberation
+ * Sans is Arial's twin on Linux; Roboto is close to it and is what Android has). A device with
+ * none of them skips the stand-in and shows its own font until Poppins arrives, as it would
+ * without any of this.
+ */
+const poppinsMetrics = { ascent: 1.05, descent: 0.35, lineGap: 0.1 };
+const regularFonts = ["Arial", "ArialMT", "Liberation Sans", "Roboto"] as const;
+const boldFonts = [
+  "Arial Bold",
+  "Arial-BoldMT",
+  "Liberation Sans Bold",
+  "Liberation Sans-Bold",
+  "Roboto Bold",
+] as const;
+const standIns = [
+  { weight: 400, local: regularFonts, adjust: 1.121 },
+  { weight: 500, local: regularFonts, adjust: 1.131 },
+  { weight: 600, local: boldFonts, adjust: 1.056 },
+  { weight: 700, local: boldFonts, adjust: 1.069 },
+] as const;
+
+function standInCss(): string[] {
+  const percent = (share: number) => `${Number((share * 100).toFixed(2))}%`;
+  return standIns.map(
+    ({ weight, local, adjust }) =>
+      `@font-face{font-family:"${fallbackFamily}";font-style:normal;font-weight:${weight};` +
+      `src:${local.map((name) => `local("${name}")`).join(",")};size-adjust:${percent(adjust)};` +
+      `ascent-override:${percent(poppinsMetrics.ascent / adjust)};` +
+      `descent-override:${percent(poppinsMetrics.descent / adjust)};` +
+      `line-gap-override:${percent(poppinsMetrics.lineGap / adjust)}}`,
+  );
+}
+
 /**
  * The stylesheet: one @font-face per file, and the rule that makes Poppins the app font.
  *
@@ -48,6 +93,7 @@ export function fontCss(): string {
   );
   return [
     ...faces,
+    ...standInCss(),
     `body{font-family:${fontFamily.web}}`,
     `html [dir="auto"]:not([data-mono]){font-family:${fontFamily.web}}`,
   ].join("\n");

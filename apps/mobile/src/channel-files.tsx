@@ -10,7 +10,7 @@ import {
   Upload,
 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, Share, Text, View } from "react-native";
+import { Image, Platform, Pressable, Share, Text, View } from "react-native";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import type { ChannelFile, ChannelFolder } from "../../../packages/domain/src/workspace-files";
 import { crumbs, fileSize, fileType, parentOf } from "./file-format";
@@ -23,6 +23,7 @@ import {
   Empty,
   ErrorNotice,
   fontSize,
+  Pending,
   radius,
   Sheet,
   s,
@@ -110,6 +111,7 @@ export function ChannelFileSheet({ channelId, path }: { channelId: string; path:
       subtitle={file ? fileLine(file) : undefined}
       onClose={close}
       wide
+      tall
     >
       <View style={{ gap: 16 }}>
         <ErrorNotice error={error} />
@@ -118,7 +120,7 @@ export function ChannelFileSheet({ channelId, path }: { channelId: string; path:
         ) : error ? (
           <Button onPress={() => setAttempt((n) => n + 1)}>Try again</Button>
         ) : (
-          <ActivityIndicator color={colors.primary} />
+          <Pending height={240} />
         )}
         <Button
           small
@@ -269,7 +271,7 @@ export function ChannelFilesSheet({
 
   if (viewing)
     return (
-      <Sheet title={viewing.name} subtitle={fileLine(viewing)} onClose={close} wide>
+      <Sheet title={viewing.name} subtitle={fileLine(viewing)} onClose={close} wide tall>
         <View style={{ gap: 16 }}>
           <View style={[s.row, { justifyContent: "flex-start" }]}>
             <Button
@@ -301,6 +303,7 @@ export function ChannelFilesSheet({
       }
       onClose={close}
       wide
+      tall
     >
       <View style={{ gap: 14 }}>
         <View style={[s.between, { gap: 8, flexWrap: "wrap" }]}>
@@ -358,7 +361,7 @@ export function ChannelFilesSheet({
         )}
         <ErrorNotice error={error} />
         {!listing && !error ? (
-          <ActivityIndicator color={colors.primary} />
+          <Pending height={240} />
         ) : listing && !entries.length ? (
           <Empty
             icon={FolderOpen}

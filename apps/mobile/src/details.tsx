@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Image, Linking, Platform, Text, View } from "react-native";
+import { Image, Linking, Platform, Text, View } from "react-native";
 import {
   type ActionProposal,
   type Artifact,
@@ -53,6 +53,7 @@ import {
   ErrorNotice,
   Field,
   LinkRow,
+  Pending,
   radius,
   resultSummary,
   SectionHeading,
@@ -144,16 +145,12 @@ function MailDetail({ mail: m }: { mail: Mail }) {
   }, [api, m.threadId, retry]);
   return (
     <Sheet
+      tall
       title={m.subject}
       subtitle={`${thread.length} message${thread.length === 1 ? "" : "s"} in this conversation`}
       onClose={close}
     >
-      {loading && (
-        <View style={[s.row, { gap: 10, paddingBottom: 20 }]}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={s.muted}>Loading the conversation…</Text>
-        </View>
-      )}
+      {loading && <Pending label="Loading the conversation…" height={160} />}
       {!loading && !thread.length && (
         <Empty icon={MailIcon} title="Nothing here" detail="This conversation has no messages." />
       )}
@@ -963,6 +960,7 @@ function BrowserDetail({ initial }: { initial: BrowserSession }) {
       subtitle={`${browser.status} · updated ${timeLabel(browser.updatedAt)}`}
       onClose={close}
       wide
+      tall
     >
       <View style={[s.row, { gap: 12, alignItems: "flex-end", marginBottom: 16 }]}>
         <View style={{ flex: 1 }}>
@@ -992,10 +990,7 @@ function BrowserDetail({ initial }: { initial: BrowserSession }) {
       </View>
       <ErrorNotice error={error} />
       {loading ? (
-        <View style={[s.row, { gap: 12, paddingVertical: 32, justifyContent: "center" }]}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={s.muted}>Connecting to your browser…</Text>
-        </View>
+        <Pending label="Connecting to your browser…" height={240} />
       ) : error ? (
         <Empty
           icon={Globe2}

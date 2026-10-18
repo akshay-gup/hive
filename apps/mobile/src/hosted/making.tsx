@@ -2,10 +2,11 @@ import { Check } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 import { AnimatedBee } from "../animated-bee";
-import { colors, pageBee, radius, s } from "../ui";
+import { colors, IconSlot, pageBee, radius, s, type } from "../ui";
 import { useStill } from "../use-still";
+import type { MakingStepName } from "./control-api";
 import { Frame } from "./frame";
-import { barFill, flavorAt, type MakingStep, stepList } from "./making-steps";
+import { barFill, flavorAt, type MakingStep, stepKeys, stepList } from "./making-steps";
 
 function StepRow({ step }: { step: MakingStep }) {
   const state = { done: "done", now: "in progress", next: "waiting" }[step.state];
@@ -43,10 +44,63 @@ function StepRow({ step }: { step: MakingStep }) {
   );
 }
 
+/** How long each placeholder line is, as a share of the card, so the bars do not look ruled. */
+const placeholderWidths: Record<MakingStepName, `${number}%`> = {
+  address: "62%",
+  machine: "48%",
+  starting: "56%",
+  checking: "40%",
+};
+
+/**
+ * The card of steps before the control plane has said which one it is on: the same size, with
+ * bars where the words will be. It names no step, since which one is current is not known, and a
+ * list made up to fill the space would be a guess. What is below the card does not move when it
+ * fills in.
+ */
+function StepsPlaceholder() {
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel="Setting up"
+      style={[s.card, { alignSelf: "stretch", gap: 14, padding: 18 }]}
+    >
+      {stepKeys.map((key) => (
+        <View
+          key={key}
+          style={{ flexDirection: "row", alignItems: "center", gap: 12, opacity: 0.45 }}
+        >
+          <IconSlot>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted }} />
+          </IconSlot>
+          <View style={{ minHeight: type.body.lineHeight, flex: 1, justifyContent: "center" }}>
+            <View
+              style={{
+                height: 10,
+                width: placeholderWidths[key],
+                borderRadius: radius.pill,
+                backgroundColor: colors.surfaceHover,
+              }}
+            />
+          </View>
+        </View>
+      ))}
+      <View
+        style={{
+          height: 4,
+          borderRadius: radius.pill,
+          backgroundColor: colors.primarySoft,
+          marginTop: 4,
+        }}
+      />
+    </View>
+  );
+}
+
 /**
  * What a workspace being made shows: the steps the control plane says it is on, ticked off as it
  * goes, a bar that keeps creeping, and a line or two of company. When the control plane does not
- * say which step, only the spinner and the lines, since a made-up list would be a guess.
+ * say which step, the card is there but empty, since a made-up list would be a guess.
  */
 export function MakingScreen({ name, step }: { name: string; step?: string }) {
   const still = useStill();
@@ -109,7 +163,7 @@ export function MakingScreen({ name, step }: { name: string; step?: string }) {
           </View>
         </View>
       ) : (
-        <ActivityIndicator color={colors.primary} />
+        <StepsPlaceholder />
       )}
       <Text style={[s.muted, { textAlign: "center" }]}>
         {flavorAt((now - began.current) / 1000)}

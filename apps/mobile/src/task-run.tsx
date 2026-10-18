@@ -4,7 +4,7 @@ import type { AgentTask, RunEvent } from "../../../packages/domain/src/agent";
 import { AssistantResponse } from "./assistant-response";
 import { ChannelFileCard } from "./file-card";
 import { parseSharedFile } from "./tool-results";
-import { colors, ErrorNotice, fontSize, monoProps, radius, s } from "./ui";
+import { colors, ErrorNotice, fontSize, IconSlot, monoProps, radius, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 function publicText(text: string) {
@@ -31,11 +31,13 @@ function ToolActivity({ event }: { event: RunEvent }) {
         onPress={() => setExpanded(!expanded)}
         style={[s.row, { gap: 10, padding: 12 }]}
       >
-        {running ? (
-          <ActivityIndicator size="small" color={colors.primary} />
-        ) : (
-          <Text style={s.small}>{event.toolState === "error" ? "!" : "✓"}</Text>
-        )}
+        <IconSlot>
+          {running ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Text style={s.small}>{event.toolState === "error" ? "!" : "✓"}</Text>
+          )}
+        </IconSlot>
         <Text style={[s.text, { flex: 1, fontSize: fontSize.ui }]}>
           {event.toolName ?? event.title}
         </Text>

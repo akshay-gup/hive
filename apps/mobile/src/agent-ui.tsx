@@ -21,15 +21,7 @@ import {
   X,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Linking,
-  Pressable,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { Image, Linking, Pressable, Text, useWindowDimensions, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import type { Artifact, BrowserSession } from "../../../packages/domain/src";
 import type {
@@ -72,6 +64,7 @@ import {
   HaloDot,
   LinkRow,
   Mascot,
+  Pending,
   radius,
   resultSummary,
   SearchField,
@@ -542,13 +535,11 @@ export function TaskDetail({ taskId }: { taskId: string }) {
         task ? `${statusLabel(task.status)} · ${stamp(task.updatedAt)}` : "Loading saved progress…"
       }
       onClose={close}
+      tall
     >
       <ErrorNotice error={error} />
       {!task ? (
-        <View style={[s.row, { gap: 10, paddingVertical: 32, justifyContent: "center" }]}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={s.muted}>Loading saved progress…</Text>
-        </View>
+        <Pending label="Loading saved progress…" height={240} />
       ) : (
         <View style={{ gap: 24 }}>
           <Text selectable style={s.text}>

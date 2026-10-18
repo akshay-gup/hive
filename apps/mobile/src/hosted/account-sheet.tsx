@@ -25,7 +25,8 @@ export function AccountSheet({
 }: {
   control: ControlApi;
   account: ControlAccount;
-  workspaces: WorkspaceSummary[];
+  /** Null until the list has come, so the sheet is open at once and fills in. */
+  workspaces: WorkspaceSummary[] | null;
   onClose: () => void;
   onSignOut: () => void;
   /** The account is gone. */
@@ -33,7 +34,7 @@ export function AccountSheet({
   /** Where an owner with company goes to delete their workspace. */
   onOpenWorkspace: (workspace: WorkspaceSummary) => void;
 }) {
-  const owned = workspaces.find((workspace) => workspace.role === "owner");
+  const owned = workspaces?.find((workspace) => workspace.role === "owner");
   const [people, setPeople] = useState<number | undefined>();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -130,23 +131,31 @@ export function AccountSheet({
           </>
         ) : (
           <>
-            <Text style={s.muted}>
-              {plan.kind === "owner-alone"
-                ? `You own ${plan.workspace.name} and are the only one in it, so deleting your account deletes it too: its chat, files and agent.`
-                : plan.kind === "checking"
-                  ? "Checking who is in your workspace…"
-                  : "Deletes your account and signs you out everywhere. You leave any workspace you are in. It cannot be undone."}
-            </Text>
+            {/* Three lines of room, since the words are not known until the workspaces are, and the
+                button below should be where it will stay. */}
+            <View style={{ minHeight: 3 * 21 }}>
+              <Text style={s.muted}>
+                {plan.kind === "owner-alone"
+                  ? `You own ${plan.workspace.name} and are the only one in it, so deleting your account deletes it too: its chat, files and agent.`
+                  : plan.kind === "loading"
+                    ? "Checking your workspaces…"
+                    : plan.kind === "checking"
+                      ? "Checking who is in your workspace…"
+                      : "Deletes your account and signs you out everywhere. You leave any workspace you are in. It cannot be undone."}
+              </Text>
+            </View>
             <View style={[s.row, { gap: 10 }]}>
               <Button
                 danger
                 icon={Trash2}
-                disabled={plan.kind === "checking"}
+                disabled={plan.kind === "checking" || plan.kind === "loading"}
                 onPress={() => setConfirming(true)}
               >
                 Delete account…
               </Button>
-              {plan.kind === "checking" && !error && <ActivityIndicator color={colors.primary} />}
+              {(plan.kind === "checking" || plan.kind === "loading") && !error && (
+                <ActivityIndicator color={colors.primary} />
+              )}
             </View>
           </>
         )}

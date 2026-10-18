@@ -8,10 +8,10 @@ import {
   Settings2,
 } from "lucide-react-native";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { ChannelsSection } from "./channels";
 import type { Selection } from "./thread-ids";
-import { Button, colors, ErrorNotice, LinkRow, Sheet, s } from "./ui";
+import { Button, ErrorNotice, LinkRow, Pending, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 export { resolveThreadId } from "./thread-ids";
@@ -122,16 +122,13 @@ export function ThreadsSheet({ onClose }: { onClose: () => void }) {
       title="Hive"
       subtitle={workspace.mode === "sample" ? "Your workspace" : workspace.profile.name}
       onClose={onClose}
+      tall
     >
       <View style={{ gap: 14 }}>
         {enabled && loading ? (
           <>
             <ErrorNotice error={mainError} />
-            {mainError ? (
-              <Button onPress={retry}>Retry main chat</Button>
-            ) : (
-              <ActivityIndicator color={colors.primary} />
-            )}
+            {mainError ? <Button onPress={retry}>Retry main chat</Button> : <Pending height={68} />}
           </>
         ) : enabled ? (
           <LinkRow

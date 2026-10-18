@@ -11,7 +11,7 @@ import { fileLine } from "./channel-files";
 import { HtmlFrame, MediaPlayer } from "./FileEmbed";
 import { kindIcon, openFile, TextBlock } from "./file-preview";
 import { parseSharedFile } from "./tool-results";
-import { Button, Card, colors, ErrorNotice, s } from "./ui";
+import { Button, Card, colors, ErrorNotice, IconSlot, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 /** The first lines of a text file, for a card. */
@@ -145,7 +145,13 @@ export function SentFileToolCard({ result, loading }: { result: unknown; loading
   return (
     <Card style={{ padding: 14, maxWidth: 460, width: "100%" }}>
       <View style={[s.row, { gap: 10 }]}>
-        {loading && <ActivityIndicator size="small" color={colors.primary} />}
+        <IconSlot>
+          {loading ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <FileX2 size={16} color={colors.muted} />
+          )}
+        </IconSlot>
         <Text style={s.muted}>{loading ? "Sharing a file…" : "The file could not be shown."}</Text>
       </View>
     </Card>

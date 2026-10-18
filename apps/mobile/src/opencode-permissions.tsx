@@ -9,6 +9,8 @@ import {
   Empty,
   ErrorNotice,
   fontSize,
+  IconSlot,
+  Pending,
   radius,
   SectionHeading,
   s,
@@ -204,12 +206,7 @@ export function PermissionModeSelector({
     }
   }
 
-  if (mode === undefined)
-    return error ? (
-      <ErrorNotice error={error} />
-    ) : (
-      <ActivityIndicator color={colors.primary} style={{ paddingVertical: 20 }} />
-    );
+  if (mode === undefined) return error ? <ErrorNotice error={error} /> : <Pending height={96} />;
   const inheritDetail = channelMode
     ? `Channel: ${channelMode === "auto" ? "Auto-approve" : "Ask"}`
     : "Channel default";
@@ -255,7 +252,7 @@ export function PermissionModeSelector({
         <Text style={[s.small, { color: colors.muted }]}>Explicit deny rules still apply.</Text>
       )}
       <ErrorNotice error={error} />
-      {saving && <ActivityIndicator color={colors.primary} />}
+      <IconSlot>{saving && <ActivityIndicator size="small" color={colors.primary} />}</IconSlot>
     </View>
   );
 }
@@ -315,7 +312,7 @@ export function PermissionsSettings() {
       </Text>
       <ErrorNotice error={error} />
       {channels === null ? (
-        <ActivityIndicator color={colors.primary} style={{ paddingVertical: 20 }} />
+        <Pending height={96} />
       ) : !channels.length ? (
         <Empty icon={Hash} title="No channels yet" detail="Create a channel to set its rules." />
       ) : (

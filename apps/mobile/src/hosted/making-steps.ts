@@ -15,6 +15,9 @@ const steps: { key: MakingStepName; label: string; from: number }[] = [
   { key: "checking", label: "Saying hello", from: 0.72 },
 ];
 
+/** The steps in order, so a screen can hold their room before it knows which one is current. */
+export const stepKeys: MakingStepName[] = steps.map((step) => step.key);
+
 /** Where the bar stands when a step has just begun, and where it is heading. A step never fills past the next one's start. */
 const END = 0.96;
 

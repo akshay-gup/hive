@@ -22,6 +22,12 @@ test("with no workspace, or only a place in someone else's, the account is delet
   });
 });
 
+test("before the list of workspaces has come, nothing is known and nothing can be confirmed", () => {
+  assert.deepEqual(planAccountDeletion(null, undefined), { kind: "loading" });
+  assert.deepEqual(planAccountDeletion(null, 3), { kind: "loading" });
+  assert.equal(confirmationWord({ kind: "loading" }, "a@b.co"), null);
+});
+
 test("an owner is asked about the workspace only once it is known who else is in it", () => {
   const owned = workspace("owner");
   assert.deepEqual(planAccountDeletion([owned], undefined), { kind: "checking", workspace: owned });

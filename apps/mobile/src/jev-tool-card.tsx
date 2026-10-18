@@ -8,7 +8,17 @@ import {
   retryChoiceAvailable,
   selectionText,
 } from "./jev-actions";
-import { Button, Card, colors, ErrorNotice, radius, s, selectedCard } from "./ui";
+import {
+  Button,
+  Card,
+  colors,
+  ErrorNotice,
+  IconSlot,
+  radius,
+  Spinner,
+  s,
+  selectedCard,
+} from "./ui";
 
 type JevInteraction = {
   threadId: string | null;
@@ -85,11 +95,17 @@ function ChoiceButton({
           pressed && { transform: [{ scale: 0.98 }] },
         ]}
       >
-        {pending ? (
-          <ActivityIndicator size="small" color={colors.text} />
-        ) : selected ? (
-          <Check size={15} color={colors.text} />
-        ) : null}
+        <IconSlot size={15}>
+          {pending ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.text}
+              style={{ transform: [{ scale: 0.75 }] }}
+            />
+          ) : selected ? (
+            <Check size={15} color={colors.text} />
+          ) : null}
+        </IconSlot>
         <Text style={s.buttonText}>{caption}</Text>
       </Pressable>
     );
@@ -117,7 +133,7 @@ export function JevToolCard({ result, loading }: { result: unknown; loading: boo
   if (loading) {
     return (
       <View style={[s.row, { gap: 10, padding: 14 }]}>
-        <ActivityIndicator size="small" color={colors.primary} />
+        <Spinner />
         <Text style={s.muted}>Preparing choices…</Text>
       </View>
     );

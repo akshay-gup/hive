@@ -305,7 +305,7 @@ export const shadow = {
  * that rule does not reach. Native keeps each platform's system font.
  */
 export const fontFamily = {
-  web: '"Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  web: '"Poppins", "Poppins Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
   mono: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   monoIos: "Menlo",
   monoAndroid: "monospace",

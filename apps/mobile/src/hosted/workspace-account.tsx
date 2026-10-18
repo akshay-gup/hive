@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator } from "react-native";
-import { colors, Sheet } from "../ui";
 import { useWorkspace } from "../workspace";
 import { AccountSheet } from "./account-sheet";
 import { useHosted } from "./context";
@@ -30,12 +28,7 @@ export function WorkspaceAccountSheet() {
   }, [control, current]);
 
   if (!hosted) return null;
-  if (!workspaces)
-    return (
-      <Sheet title="Account" subtitle={hosted.account.email} onClose={close}>
-        <ActivityIndicator color={colors.primary} />
-      </Sheet>
-    );
+  // One sheet from the first frame: the list fills it in, so it is not closed and opened again.
   return (
     <AccountSheet
       control={hosted.control}

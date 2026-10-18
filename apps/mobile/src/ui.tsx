@@ -249,6 +249,7 @@ export const s = StyleSheet.create({
     boxShadow: shadow.card,
   },
   buttonText: { fontSize: fontSize.body, fontWeight: "600" },
+  centred: { alignItems: "center", justifyContent: "center" },
   chip: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -315,6 +316,7 @@ export function Button({
 }) {
   const color = danger ? colors.danger : primary ? colors.onPrimary : colors.text;
   const dense = useDense();
+  const covered = !!busy && !Icon;
   return (
     <Pressable
       accessibilityRole="button"
@@ -338,12 +340,27 @@ export function Button({
         style,
       ]}
     >
-      {busy ? (
-        <ActivityIndicator color={color} size="small" />
-      ) : Icon ? (
-        <Icon size={15} color={color} />
+      {Icon ? (
+        <IconSlot size={15}>
+          {busy ? (
+            <ActivityIndicator
+              color={color}
+              size="small"
+              style={{ transform: [{ scale: 0.75 }] }}
+            />
+          ) : (
+            <Icon size={15} color={color} />
+          )}
+        </IconSlot>
       ) : null}
-      <Text style={[s.buttonText, { color }]}>{children}</Text>
+      <Text style={[s.buttonText, { color }, covered && { opacity: 0 }]}>{children}</Text>
+      {covered && (
+        // A button with no icon has no room for a spinner, and one added in front of the label
+        // would make the button wider and move the label. The spinner goes over the label instead.
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, s.centred]}>
+          <ActivityIndicator color={color} size="small" />
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -565,19 +582,49 @@ export function SegmentedRow<T extends string>({
             {!!option.dot && (
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }} />
             )}
-            <Text
-              numberOfLines={1}
+            <SteadyLabel
+              bold={selected}
               style={{
                 fontSize: fontSize.ui,
-                fontWeight: selected ? "600" : "500",
                 color: selected ? colors.text : colors.muted,
               }}
             >
               {option.label}
-            </Text>
+            </SteadyLabel>
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * A label that goes from medium to semibold without its box changing size. Semibold is wider, so a
+ * tab that turns bold when chosen would push the tabs beside it along. The semibold text sits in
+ * the box, unseen and with no height, to say how wide it is; the visible one is drawn over it.
+ */
+function SteadyLabel({
+  bold,
+  style,
+  children,
+}: {
+  bold: boolean;
+  style: TextStyle;
+  children: string;
+}) {
+  return (
+    <View>
+      <Text
+        aria-hidden
+        accessible={false}
+        numberOfLines={1}
+        style={[style, { fontWeight: "600", height: 0, opacity: 0 }]}
+      >
+        {children}
+      </Text>
+      <Text numberOfLines={1} style={[style, { fontWeight: bold ? "600" : "500" }]}>
+        {children}
+      </Text>
     </View>
   );
 }
@@ -720,30 +767,78 @@ export function ErrorNotice({ error }: { error?: string }) {
     </View>
   ) : null;
 }
+/**
+ * A box for whatever stands where an icon would: the icon, a tick, or a spinner while something
+ * happens. It is the same size with any of them in it, so swapping one for another moves nothing
+ * beside it. (A bare spinner is 20 points; an icon is 14 to 19.)
+ */
+export function IconSlot({ size = 20, children }: { size?: number; children?: ReactNode }) {
+  return <View style={[{ width: size, height: size }, s.centred]}>{children}</View>;
+}
+/** A small spinner in an `IconSlot`, for the front of a row. */
+export function Spinner({ color = colors.primary }: { color?: string }) {
+  return (
+    <IconSlot>
+      <ActivityIndicator size="small" color={color} />
+    </IconSlot>
+  );
+}
+/**
+ * What stands where a list or a page will be while it loads: a spinner (and what is being waited
+ * for) in a box about as tall as the content usually is, so the room is mostly there already when
+ * the content arrives. Only what is below it has to move.
+ */
+export function Pending({ label, height = 120 }: { label?: string; height?: number }) {
+  return (
+    <View
+      accessibilityLiveRegion="polite"
+      style={[{ minHeight: height, flexDirection: "row", gap: 10 }, s.centred]}
+    >
+      <ActivityIndicator color={colors.primary} />
+      {!!label && <Text style={s.muted}>{label}</Text>}
+    </View>
+  );
+}
 export function Sheet({
   title,
   subtitle,
   children,
   onClose,
   wide,
+  tall,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  /** For a sheet whose content arrives after it opens: on a phone it opens at its full height, so the title does not move when the content comes. */
+  tall?: boolean;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const compact = width < 600;
+  // The sheet's top edge is where the eye is. A sheet centred on the screen, or standing on the
+  // bottom edge, has its top edge move whenever its content changes height (a list arriving, a
+  // spinner going), and the title with it. So on a wide screen the sheet hangs from a fixed line
+  // and only its bottom edge moves; on a phone it is fixed in height when its content is fetched.
+  const top = Math.min(72, Math.max(sp.xl, Math.round(height * 0.06)));
   return (
     <Modal transparent animationType={compact ? "slide" : "fade"} visible onRequestClose={onClose}>
-      <View style={[s.modalShade, compact && { padding: 0, justifyContent: "flex-end" }]}>
+      <View
+        style={[
+          s.modalShade,
+          compact
+            ? { padding: 0, justifyContent: "flex-end" }
+            : { justifyContent: "flex-start", paddingTop: top },
+        ]}
+      >
         <View
           accessibilityViewIsModal
           style={[
             s.sheet,
             wide && { maxWidth: 1050 },
+            !compact && { maxHeight: "100%" },
             compact && {
               borderTopLeftRadius: radius.xl,
               borderTopRightRadius: radius.xl,
@@ -752,6 +847,7 @@ export function Sheet({
               paddingBottom: Math.max(insets.bottom, 12),
               maxHeight: "94%",
             },
+            compact && tall && { height: "94%" },
           ]}
         >
           {compact && (

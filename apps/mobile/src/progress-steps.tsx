@@ -2,7 +2,7 @@ import { Check, ChevronDown, ChevronRight, Minus, X } from "lucide-react-native"
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { type ProgressStep, summarizeSteps } from "./run-progress";
-import { colors, radius, s, type WebPressState } from "./ui";
+import { colors, IconSlot, radius, s, type WebPressState } from "./ui";
 
 function StepIcon({ state }: { state: ProgressStep["state"] }) {
   // The line above already has the spinner; a second one on the step would be two things moving.
@@ -51,11 +51,13 @@ export function RunProgress({ steps }: { steps: ProgressStep[] }) {
           backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
         })}
       >
-        {running ? (
-          <ActivityIndicator size="small" color={colors.muted} />
-        ) : (
-          <Chevron size={14} strokeWidth={2} color={colors.muted} />
-        )}
+        <IconSlot>
+          {running ? (
+            <ActivityIndicator size="small" color={colors.muted} />
+          ) : (
+            <Chevron size={14} strokeWidth={2} color={colors.muted} />
+          )}
+        </IconSlot>
         <Text style={[s.small, { color: colors.muted, flexShrink: 1 }]} numberOfLines={1}>
           {summary}
         </Text>

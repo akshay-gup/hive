@@ -3,7 +3,7 @@ import { useContext } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { z } from "zod";
 import { BrowserRunContext } from "./browser-tool-card";
-import { Button, Card, colors, ErrorNotice, s } from "./ui";
+import { Button, Card, colors, ErrorNotice, IconSlot, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 const messageSchema = z.object({
@@ -44,11 +44,13 @@ export function MailToolCard({
   if (loading)
     return (
       <View style={[s.row, { gap: 10, padding: 14 }]}>
-        {active ? (
-          <ActivityIndicator size="small" color={colors.primary} />
-        ) : (
-          <Mail size={16} color={colors.muted} />
-        )}
+        <IconSlot>
+          {active ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Mail size={16} color={colors.muted} />
+          )}
+        </IconSlot>
         <Text style={s.muted}>
           {!active ? "Mail reading paused" : search ? "Checking your inbox…" : "Reading the email…"}
         </Text>

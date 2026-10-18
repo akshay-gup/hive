@@ -1,6 +1,6 @@
 import { Copy, LogOut, Share2, Trash2, UserMinus } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Share, Text, View } from "react-native";
+import { Platform, Share, Text, View } from "react-native";
 import {
   Button,
   Card,
@@ -8,6 +8,7 @@ import {
   colors,
   ErrorNotice,
   Field,
+  Pending,
   SectionHeading,
   Segmented,
   Sheet,
@@ -122,6 +123,7 @@ export function PeopleSheet() {
       title={workspace.name}
       subtitle={`You are ${mine === "admin" ? "an admin" : mine === "owner" ? "the owner" : "a member"}${members ? ` · ${members.length} ${members.length === 1 ? "person" : "people"}` : ""}`}
       onClose={close}
+      tall
     >
       <ErrorNotice error={error} />
 
@@ -250,7 +252,7 @@ export function PeopleSheet() {
 
       <SectionHeading title="People" />
       {!members ? (
-        <ActivityIndicator color={colors.primary} />
+        <Pending height={96} />
       ) : (
         <View style={{ gap: 14 }}>
           {members.map((person) => {

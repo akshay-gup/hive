@@ -12,7 +12,7 @@ import { type PickedFile, pickFiles, uploadChannelFile } from "./file-upload";
 import { JevInteractionContext } from "./jev-tool-card";
 import { ago } from "./task-board";
 import { parseUploadRequest, uploadMessage } from "./tool-results";
-import { Button, Card, Chip, colors, ErrorNotice, radius, Sheet, s } from "./ui";
+import { Button, Card, Chip, colors, ErrorNotice, IconSlot, radius, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -356,7 +356,13 @@ export function UploadRequestToolCard({ result, loading }: { result: unknown; lo
         </>
       ) : (
         <View style={[s.row, { gap: 10 }]}>
-          {loading && <ActivityIndicator size="small" color={colors.primary} />}
+          <IconSlot>
+            {loading ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Upload size={16} color={colors.muted} />
+            )}
+          </IconSlot>
           <Text style={s.muted}>
             {loading ? "Asking for files…" : "The request could not be shown."}
           </Text>

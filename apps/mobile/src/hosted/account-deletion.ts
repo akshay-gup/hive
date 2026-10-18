@@ -6,6 +6,8 @@ import type { WorkspaceSummary } from "./control-api";
  * delete it first, which is the one thing that would take it from everyone else.
  */
 export type DeletionPlan =
+  /** The list of the person's workspaces has not come yet, so nothing is known. */
+  | { kind: "loading" }
   /** In no workspace, or only as an admin or member: they are taken out of it, and the account goes. */
   | { kind: "plain" }
   /** Owns one, and has not yet found out who else is in it. */
@@ -17,9 +19,10 @@ export type DeletionPlan =
 
 /** `people` is how many are in the workspace they own, themselves included, once that is known. */
 export function planAccountDeletion(
-  workspaces: WorkspaceSummary[],
+  workspaces: WorkspaceSummary[] | null,
   people: number | undefined,
 ): DeletionPlan {
+  if (!workspaces) return { kind: "loading" };
   const workspace = workspaces.find((candidate) => candidate.role === "owner");
   if (!workspace) return { kind: "plain" };
   if (people === undefined) return { kind: "checking", workspace };

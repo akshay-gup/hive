@@ -1,9 +1,9 @@
 import { Archive, Hash, Plus, RefreshCw } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useMuseThread } from "./threads";
-import { Button, colors, Empty, ErrorNotice, Field, radius, s } from "./ui";
+import { Button, colors, Empty, ErrorNotice, Field, Pending, radius, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 /**
@@ -68,7 +68,7 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
       </View>
       <ErrorNotice error={error} />
       {loading && !channels ? (
-        <ActivityIndicator color={colors.primary} />
+        <Pending height={120} />
       ) : userChannels.length === 0 ? (
         <Empty icon={Hash} title="No channels yet" detail="Create one to start chatting." />
       ) : (

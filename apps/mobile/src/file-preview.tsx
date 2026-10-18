@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Linking, Platform, ScrollView, Text, View } from "react-native";
+import { Image, Linking, Platform, ScrollView, Text, View } from "react-native";
 import {
   type ChannelFile,
   channelFileLimits,
@@ -21,7 +21,17 @@ import {
 import { AssistantResponse } from "./assistant-response";
 import { HtmlFrame, MediaPlayer, PdfFrame } from "./FileEmbed";
 import { fileSize, parseTable, prettyJson } from "./file-format";
-import { Button, colors, ErrorNotice, fontSize, monoFont, monoProps, radius, s } from "./ui";
+import {
+  Button,
+  colors,
+  ErrorNotice,
+  fontSize,
+  monoFont,
+  monoProps,
+  Pending,
+  radius,
+  s,
+} from "./ui";
 
 export const kindIcon: Record<FileKind, LucideIcon> = {
   image: FileImage,
@@ -168,7 +178,7 @@ function TextBody({ file }: { file: ChannelFile }) {
   const limit = channelFileLimits.textViewBytes;
   const { text, error } = useFileText(file.url, limit);
   if (error) return <ErrorNotice error={error} />;
-  if (text === undefined) return <ActivityIndicator color={colors.primary} />;
+  if (text === undefined) return <Pending height={200} />;
   const cut = file.size > limit;
   return (
     <View style={{ gap: 10 }}>
