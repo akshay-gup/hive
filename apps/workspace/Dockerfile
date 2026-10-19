@@ -35,6 +35,14 @@ COPY apps/workspace apps/workspace
 COPY packages packages
 RUN pnpm build:server && pnpm install --frozen-lockfile --filter . --prod
 
+# The browser worker and Playwright's code. Chromium itself is not in the image: a machine gets it when
+# it is baked (apps/workspace/vm/bake.sh), so that an update does not download it again each time.
+FROM ${NODE_IMAGE} AS browser
+WORKDIR /browser-worker
+COPY apps/worker/package.json apps/worker/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY apps/worker/src ./src
+
 FROM ${BASE_IMAGE} AS workspace
 ARG DEBIAN_FRONTEND=noninteractive
 # What the agent finds on its machine: the tools a shell session reaches for.
@@ -49,6 +57,7 @@ WORKDIR /app
 COPY --from=build /src/package.json ./
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/dist ./dist
+COPY --from=browser /browser-worker ./browser-worker
 # Which build this is, for /api/health and for an updater that compares versions.
 ARG HIVE_VERSION=dev
 RUN printf "%s\n" "$HIVE_VERSION" > /app/VERSION

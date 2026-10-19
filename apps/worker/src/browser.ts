@@ -37,8 +37,13 @@ export async function createBrowserManager(options: {
   dataDir: string;
   maxSessions?: number;
   idleTimeoutMs?: number;
+  /**
+   * At the session limit, a session nobody has used for this long is closed (its profile is kept) to
+   * make room, so a person who has moved on does not hold the browser. Without it the new one waits.
+   */
+  replaceIdleMs?: number;
 }) {
-  const { dataDir, maxSessions = 3, idleTimeoutMs = 30 * 60_000 } = options;
+  const { dataDir, maxSessions = 3, idleTimeoutMs = 30 * 60_000, replaceIdleMs } = options;
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const sessions = new Map<string, Session>();
   const running = new Map<string, Running>();
@@ -149,15 +154,33 @@ export async function createBrowserManager(options: {
     await persist(result);
     return result;
   }
-  async function createSession(id: string, url: string) {
+  // Opening is one at a time, so two requests cannot both find room for the last session.
+  let opening: Promise<unknown> = Promise.resolve();
+  function createSession(id: string, url: string): Promise<Session> {
+    const next = opening.catch(() => {}).then(() => open(id, url));
+    opening = next;
+    return next;
+  }
+  async function open(id: string, url: string): Promise<Session> {
     await validatePublicUrl(url);
     if (running.has(id)) return navigate(id, url);
-    if (running.size >= maxSessions)
-      throw new WorkerError(
-        "SESSION_LIMIT",
-        `Close an active session before opening another (limit ${maxSessions}).`,
-        409,
-      );
+    while (running.size >= maxSessions) {
+      const [oldest, instance] = [...running].sort((a, b) => a[1].touched - b[1].touched)[0] ?? [];
+      if (
+        !oldest ||
+        !instance ||
+        replaceIdleMs === undefined ||
+        Date.now() - instance.touched < replaceIdleMs
+      )
+        throw new WorkerError(
+          "SESSION_LIMIT",
+          maxSessions === 1
+            ? "The browser is being used by another conversation. Try again in a minute."
+            : `Close an active session before opening another (limit ${maxSessions}).`,
+          409,
+        );
+      await closeSession(oldest);
+    }
     if (!sessions.has(id) && sessions.size >= 20)
       throw new WorkerError(
         "PROFILE_LIMIT",
@@ -190,6 +213,10 @@ export async function createBrowserManager(options: {
           "--disable-quic",
           "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
           "--disable-extensions",
+          // A small machine runs this next to the agent: no GPU work, no /dev/shm limit, a capped heap.
+          "--disable-gpu",
+          "--disable-dev-shm-usage",
+          "--js-flags=--max-old-space-size=512",
           "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
         ],
       });
@@ -378,6 +405,8 @@ export async function createBrowserManager(options: {
         throw new WorkerError("DOWNLOAD_TOO_LARGE", "The PDF exceeds 10 MiB.", 413);
       return { metadata, bytes: await readFile(path) };
     },
+    /** How many browsers are open now. Zero means the worker holds no memory worth keeping it for. */
+    openSessions: () => running.size,
     close: async () => {
       clearInterval(sweeper);
       await Promise.allSettled([...queues.values()]);

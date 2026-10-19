@@ -8,6 +8,9 @@ import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   agentEnv,
+  BROWSER_URL,
+  browserEnv,
+  loadBrowserToken,
   loadSecrets,
   OPENCODE_URL,
   readEnvFile,
@@ -64,11 +67,13 @@ async function setup(
   over: {
     agent?: Record<string, string>;
     server?: Record<string, string>;
+    browser?: Record<string, string>;
     timeout?: number;
     grace?: number;
   } = {},
 ) {
   const port = await freePort();
+  const browserPorts = { outer: await freePort(), inner: await freePort() };
   const lines: string[] = [];
   const common = {
     MARKERS: markers,
@@ -91,12 +96,19 @@ async function setup(
       command: [process.execPath, stub("stub-hive.mjs")],
       env: { ...common, ...over.server },
     },
+    browser: over.browser && {
+      name: "browser",
+      command: [process.execPath, stub("stub-browser.mjs")],
+      env: { ...common, STUB_BROWSER_PORT: String(browserPorts.inner), ...over.browser },
+      listenPort: browserPorts.outer,
+      internalPort: browserPorts.inner,
+    },
     healthTimeoutMs: over.timeout ?? 10_000,
     graceMs: over.grace ?? 5000,
     pollMs: 20,
     log: (line) => lines.push(line),
   };
-  return { supervisor: new Supervisor(spec), lines };
+  return { supervisor: new Supervisor(spec), lines, browserPorts };
 }
 
 test("a workspace makes its secrets once, keeps them private, and finds them again", () => {
@@ -291,4 +303,96 @@ test("asking to stop while the agent is still starting stops it cleanly", async 
   assert.equal(await done, 0);
   assert.equal(saw("hive", "started-with-agent"), false);
   assert.ok(existsSync(markers));
+});
+
+test("the browser gets a token of its own, kept between starts, and the server is pointed at it", () => {
+  const token = loadBrowserToken(dir);
+  assert.ok(token.length >= 32);
+  assert.equal(loadBrowserToken(dir), token);
+  assert.equal(statSync(join(dir, "browser-token")).mode & 0o077, 0, "only its owner can read it");
+  writeFileSync(join(dir, "browser-token"), "short");
+  assert.notEqual(loadBrowserToken(dir), "short");
+
+  const env = serverEnv({ WORKSPACE_ID: "w1" }, secrets, undefined, token);
+  assert.equal(env.BROWSER_WORKER_URL, BROWSER_URL);
+  assert.equal(env.WORKER_TOKEN, token);
+  // A machine set up with a browser elsewhere keeps it.
+  const elsewhere = serverEnv(
+    { BROWSER_WORKER_URL: "http://browser:8790" },
+    secrets,
+    undefined,
+    token,
+  );
+  assert.equal(elsewhere.BROWSER_WORKER_URL, "http://browser:8790");
+});
+
+test("the browser holds one session at a time, on the volume, with none of the machine's keys", () => {
+  const env = browserEnv(
+    { PATH: "/bin", OPENAI_API_KEY: "sk-secret", TOKEN_ENCRYPTION_KEY: "k", DATABASE_URL: "x" },
+    "t".repeat(64),
+    "/data",
+    "/home/hive",
+  );
+  assert.equal(env.WORKER_MAX_SESSIONS, "1");
+  assert.equal(env.WORKER_EXIT_IDLE_SECONDS, "60", "it leaves when it has nothing open");
+  assert.equal(env.WORKER_DATA_DIR, "/data/browser");
+  assert.equal(env.WORKER_HOST, "127.0.0.1");
+  assert.equal(env.WORKER_TOKEN, "t".repeat(64));
+  const text = JSON.stringify(env);
+  assert.equal(text.includes("sk-secret"), false);
+  assert.equal(text.includes("TOKEN_ENCRYPTION_KEY"), false);
+  assert.equal(text.includes("DATABASE_URL"), false);
+});
+
+const ask = (port: number, path: string) =>
+  fetch(`http://127.0.0.1:${port}${path}`).then(async (response) => ({
+    status: response.status,
+    body: await response.text(),
+  }));
+const startsOfBrowser = () =>
+  events().filter((e) => e.who === "browser" && e.what === "started").length;
+
+test("the browser is not running until something needs it, and a health check does not start it", async () => {
+  const { supervisor, browserPorts } = await setup({ browser: {} });
+  const done = supervisor.run();
+  await settle(() => saw("hive", "started-with-agent"));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(startsOfBrowser(), 0, "nothing asked for it");
+  const health = await ask(browserPorts.outer, "/health");
+  assert.equal(health.status, 200);
+  assert.equal(startsOfBrowser(), 0, "being asked whether it is there does not wake it");
+
+  const first = await ask(browserPorts.outer, "/sessions");
+  assert.equal(first.body, "pong", "the request reached the browser");
+  assert.equal(startsOfBrowser(), 1);
+  await ask(browserPorts.outer, "/sessions");
+  assert.equal(startsOfBrowser(), 1, "a second request uses the one that is running");
+
+  supervisor.stop("test");
+  assert.equal(await done, 0);
+  assert.ok(saw("browser", "terminated"), "it is stopped with the workspace");
+});
+
+test("a browser that has left by itself is started again the next time it is wanted", async () => {
+  const { supervisor, browserPorts, lines } = await setup({
+    browser: { STUB_EXIT_AFTER_MS: "300" },
+  });
+  const done = supervisor.run();
+  await settle(() => saw("hive", "started-with-agent"));
+  assert.equal((await ask(browserPorts.outer, "/sessions")).body, "pong");
+  await settle(() => lines.some((line) => /browser exited/.test(line)));
+  assert.equal(saw("hive", "terminated"), false, "the server did not stop for it");
+  assert.equal((await ask(browserPorts.outer, "/sessions")).body, "pong");
+  assert.equal(startsOfBrowser(), 2);
+  supervisor.stop("test");
+  assert.equal(await done, 0);
+});
+
+test("a workspace without a browser asked for never starts one", async () => {
+  const { supervisor } = await setup();
+  const done = supervisor.run();
+  await settle(() => saw("hive", "started-with-agent"));
+  supervisor.stop("test");
+  assert.equal(await done, 0);
+  assert.equal(startsOfBrowser(), 0);
 });

@@ -1,7 +1,11 @@
-import { chownSync, mkdirSync } from "node:fs";
+import { chownSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   agentEnv,
+  BROWSER_INTERNAL_PORT,
+  BROWSER_PORT,
+  browserEnv,
+  loadBrowserToken,
   loadSecrets,
   OPENCODE_HOST,
   OPENCODE_PORT,
@@ -31,6 +35,11 @@ if (process.getuid?.() === 0) {
 const home = env.WORKSPACE_HOME?.trim() || undefined;
 const secrets = loadSecrets(volumeDir);
 const password = secrets.opencodePassword;
+// The browser is the workspace's own unless the machine's settings point at another, or it was not put on this image.
+const browserDir = fileURLToPath(new URL("../../../../browser-worker/", import.meta.url));
+const ownBrowser =
+  !env.BROWSER_WORKER_URL?.trim() && env.HIVE_BROWSER !== "off" && existsSync(browserDir);
+const browserToken = ownBrowser ? loadBrowserToken(volumeDir) : undefined;
 
 const supervisor = new Supervisor({
   agent: {
@@ -47,8 +56,19 @@ const supervisor = new Supervisor({
       process.execPath,
       fileURLToPath(new URL("../../server/src/index.js", import.meta.url)),
     ],
-    env: serverEnv(env, secrets, home),
+    env: serverEnv(env, secrets, home, browserToken),
   },
+  browser: browserToken
+    ? {
+        name: "browser",
+        command: [process.execPath, "--experimental-strip-types", "src/index.ts"],
+        cwd: browserDir,
+        listenPort: BROWSER_PORT,
+        internalPort: BROWSER_INTERNAL_PORT,
+        // Only what it needs: none of the machine's settings, so no provider keys.
+        env: browserEnv(env, browserToken, volumeDir, home),
+      }
+    : undefined,
   healthTimeoutMs: 90_000,
   graceMs: 25_000,
   log: (line) => process.stdout.write(`${line}\n`),

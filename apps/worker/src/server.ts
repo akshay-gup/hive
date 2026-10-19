@@ -35,6 +35,7 @@ export async function createWorkerServer(options: {
   dataDir: string;
   maxSessions?: number;
   idleTimeoutMs?: number;
+  replaceIdleMs?: number;
 }) {
   if (options.token.length < 32)
     throw new Error("WORKER_TOKEN must contain at least 32 characters.");
@@ -119,6 +120,7 @@ export async function createWorkerServer(options: {
   server.maxRequestsPerSocket = 100;
   return {
     server,
+    openSessions: () => browser.openSessions(),
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

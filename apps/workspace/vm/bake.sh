@@ -80,6 +80,18 @@ install_crane() {
   crane version
 }
 
+# The browser the agent works with. Chromium and the libraries it needs are installed here, with the
+# Playwright that came in the image, so the two match. They are kept out of the container image to
+# keep updates small. An update that moves Playwright to a new version needs a new snapshot, or the
+# browser will not start (the workspace goes on without it and says so).
+install_browser() {
+  say "Chromium"
+  local cli=/app/browser-worker/node_modules/playwright/cli.js
+  [ -f "$cli" ] || { echo "The image has no browser worker ($cli)" >&2; exit 1; }
+  PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright "$PAYLOAD/node" "$cli" install --with-deps --only-shell chromium
+  chmod -R a+rX /opt/ms-playwright
+}
+
 # Docker is here only to take the workspace out of its image; seal removes it.
 fetch() {
   : "${HIVE_WORKSPACE_IMAGE:?HIVE_WORKSPACE_IMAGE names the container image to take the workspace from}"
@@ -123,6 +135,7 @@ install_workspace() {
   install -m 0755 "$PAYLOAD/opencode" /usr/local/bin/opencode
   rm -rf /app
   cp -a "$PAYLOAD/app" /app
+  install_browser
   # Where the workspace keeps everything of its own. The disk is the machine's, so it all stays.
   install -d -m 0755 /data
   # Settings come here at first boot, readable by root alone.
@@ -182,6 +195,16 @@ check() {
   /usr/local/bin/opencode --version
   cloudflared --version
   runuser -u hive -- sudo -n true
+  # A browser that cannot start is found out here, not by the first person who asks the agent to browse.
+  runuser -u hive -- env PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright /usr/local/bin/node -e '
+    import("/app/browser-worker/node_modules/playwright/index.mjs").then(async ({ chromium }) => {
+      const browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.setContent("<title>ok</title>");
+      if ((await page.title()) !== "ok") throw new Error("the page did not load");
+      await browser.close();
+    }).catch((error) => { console.error(error); process.exit(1); });
+  '
   local dir port=18787
   dir=$(mktemp -d /tmp/hive-check.XXXXXX)
   chmod 755 "$dir"

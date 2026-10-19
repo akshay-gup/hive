@@ -21,3 +21,17 @@ test("the image runs the workspace supervisor, behind an init that reaps what th
   assert.match(dockerfile, /^ENTRYPOINT \["tini", "-s", "--"\]$/m);
   assert.match(dockerfile, /^CMD \["node", "dist\/apps\/workspace\/src\/index\.js"\]$/m);
 });
+
+test("the image carries the browser worker, and the bake gives the machine the Chromium that matches it", () => {
+  assert.match(dockerfile, /^COPY --from=browser \/browser-worker \.\/browser-worker$/m);
+  const bake = readFileSync(new URL("../apps/workspace/vm/bake.sh", import.meta.url), "utf8");
+  // The browser comes from the Playwright in the image, so the two cannot be different versions.
+  assert.match(bake, /browser-worker\/node_modules\/playwright\/cli\.js/);
+  assert.match(bake, /install --with-deps/);
+  // It is started once before a snapshot is taken, so an image whose browser cannot start is not kept.
+  assert.match(bake, /chromium\.launch/);
+  const worker = JSON.parse(
+    readFileSync(new URL("../apps/worker/package.json", import.meta.url), "utf8"),
+  );
+  assert.match(worker.dependencies.playwright, /^\d+\.\d+\.\d+$/, "an exact version, not a range");
+});

@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 
@@ -57,6 +58,32 @@ export function loadSecrets(dir: string): WorkspaceSecrets {
     tokenEncryptionKey: stored.tokenEncryptionKey,
     opencodePassword: stored.opencodePassword,
   };
+}
+
+/** Where the browser worker listens inside the workspace, like the agent: nothing outside can reach it. */
+export const BROWSER_HOST = "127.0.0.1";
+export const BROWSER_PORT = 8790;
+export const BROWSER_URL = `http://${BROWSER_HOST}:${BROWSER_PORT}`;
+/** Where the worker itself listens when it has been started; BROWSER_PORT is the supervisor's, and always answers. */
+export const BROWSER_INTERNAL_PORT = 8791;
+
+/**
+ * What the server shows the browser worker, made the first time it is asked for and kept on the volume.
+ * It lives apart from the other secrets so a workspace that already has them is not touched. A file
+ * that is too short is replaced: it protects nothing that outlasts the worker.
+ */
+export function loadBrowserToken(dir: string): string {
+  const file = join(dir, "browser-token");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    const stored = readFileSync(file, "utf8").trim();
+    if (stored.length >= 32) return stored;
+  } catch {
+    /* none yet */
+  }
+  const fresh = randomBytes(32).toString("hex");
+  writeFileSync(file, fresh, { mode: 0o600 });
+  return fresh;
 }
 
 /**
@@ -146,13 +173,46 @@ export function serverEnv(
   env: Env,
   secrets: WorkspaceSecrets,
   home?: string,
+  browserToken?: string,
 ): Record<string, string> {
   return {
+    // The workspace's own browser, unless the machine was pointed at another.
+    ...(browserToken ? { BROWSER_WORKER_URL: BROWSER_URL, WORKER_TOKEN: browserToken } : {}),
     ...defined(env),
     ...(home ? { HOME: home } : {}),
     TOKEN_ENCRYPTION_KEY: secrets.tokenEncryptionKey,
     OPENCODE_SERVER_URL: OPENCODE_URL,
     OPENCODE_SERVER_PASSWORD: secrets.opencodePassword,
+  };
+}
+
+/**
+ * What the browser worker runs with: a token, a place on the volume for its profiles, the one session
+ * at a time that a small machine can hold, and the browser the image was given. Nothing else of the
+ * machine's settings, since a web page can reach the worker's process and not the agent's keys.
+ */
+export function browserEnv(
+  env: Env,
+  token: string,
+  volumeDir: string,
+  home?: string,
+): Record<string, string> {
+  return {
+    PATH: env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: home ?? "/tmp",
+    LANG: "C.UTF-8",
+    NODE_ENV: "production",
+    WORKER_TOKEN: token,
+    WORKER_HOST: BROWSER_HOST,
+    WORKER_PORT: String(BROWSER_INTERNAL_PORT),
+    // It leaves a minute after the last browser is closed, and is started again when wanted.
+    WORKER_EXIT_IDLE_SECONDS: "60",
+    WORKER_DATA_DIR: join(volumeDir, "browser"),
+    WORKER_MAX_SESSIONS: "1",
+    WORKER_IDLE_MINUTES: "10",
+    // Whoever holds the one session and has left it for a minute gives it up to the next request.
+    WORKER_REPLACE_IDLE_SECONDS: "60",
+    PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH ?? "/opt/ms-playwright",
   };
 }
 
@@ -167,6 +227,12 @@ export interface SupervisorSpec {
   /** Started first; the server is not started until it answers `healthUrl`. */
   agent: ChildSpec & { healthUrl: string; headers?: Record<string, string> };
   server: ChildSpec;
+  /**
+   * The browser the agent works with. It is not kept running: the supervisor listens on `listenPort`
+   * and starts it on `internalPort` when something other than a health check connects. It leaves by
+   * itself when it is done, so a workspace nobody is browsing with spends no memory on it.
+   */
+  browser?: ChildSpec & { listenPort: number; internalPort: number; startTimeoutMs?: number };
   /** How long the agent gets to answer before the workspace gives up and exits. */
   healthTimeoutMs: number;
   /** How long a process gets to stop when asked, before it is killed. */
@@ -181,6 +247,10 @@ interface Running {
   child: ChildProcess;
   done: boolean;
   exited: Promise<void>;
+}
+
+interface LazyBrowser {
+  stop: () => Promise<void>;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -210,10 +280,12 @@ export class Supervisor {
   async run(): Promise<number> {
     const agent = this.launch(this.spec.agent);
     let server: Running | undefined;
+    let browser: LazyBrowser | undefined;
     let code = 0;
     try {
       if (!(await this.waitForAgent(agent))) return this.requested ? 0 : 1;
       server = this.launch(this.spec.server);
+      if (this.spec.browser) browser = this.lazyBrowser(this.spec.browser);
       const first = await Promise.race([
         this.stopRequested.then(() => "stop" as const),
         agent.exited.then(() => agent.name),
@@ -226,8 +298,81 @@ export class Supervisor {
       return code;
     } finally {
       if (server) await this.terminate(server);
+      if (browser) await browser.stop();
       await this.terminate(agent);
     }
+  }
+
+  /**
+   * Answers on the browser's port at all times, and runs the browser only while it is wanted. A
+   * request for /health is answered here without starting it ("yes, one can be had"); anything else
+   * starts it, waits until it answers, and is passed through.
+   */
+  private lazyBrowser(spec: NonNullable<SupervisorSpec["browser"]>): LazyBrowser {
+    const log = this.spec.log;
+    let child: Running | undefined;
+    let starting: Promise<boolean> | undefined;
+    let closing = false;
+    const listening = () =>
+      new Promise<boolean>((resolve) => {
+        const probe = createConnection({ host: BROWSER_HOST, port: spec.internalPort });
+        probe.once("connect", () => {
+          probe.destroy();
+          resolve(true);
+        });
+        probe.once("error", () => resolve(false));
+      });
+    const ensure = (): Promise<boolean> => {
+      if (child && !child.done && !starting) return Promise.resolve(true);
+      starting ??= (async () => {
+        try {
+          if (!child || child.done) {
+            child = this.launch(spec);
+            log("[supervisor] starting the browser, which was asked for");
+          }
+          const until = Date.now() + (spec.startTimeoutMs ?? 30_000);
+          while (Date.now() < until && !closing && !child.done) {
+            if (await listening()) return true;
+            await sleep(this.spec.pollMs ?? 100);
+          }
+          return false;
+        } finally {
+          starting = undefined;
+        }
+      })();
+      return starting;
+    };
+    const server: Server = createServer((client: Socket) => {
+      client.on("error", () => client.destroy());
+      client.once("data", (first) => {
+        if (/^GET \/health[ ?]/.test(first.toString("latin1", 0, 32))) {
+          const body = '{"status":"ok"}';
+          client.end(
+            `HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`,
+          );
+          return;
+        }
+        void ensure().then((ready) => {
+          if (!ready || client.destroyed) return client.destroy();
+          const upstream = createConnection({ host: BROWSER_HOST, port: spec.internalPort });
+          upstream.on("error", () => client.destroy());
+          client.on("close", () => upstream.destroy());
+          upstream.on("close", () => client.destroy());
+          upstream.write(first);
+          client.pipe(upstream);
+          upstream.pipe(client);
+        });
+      });
+    });
+    server.on("error", (error) => log(`[supervisor] browser port: ${error.message}`));
+    server.listen(spec.listenPort, BROWSER_HOST);
+    return {
+      stop: async () => {
+        closing = true;
+        server.close();
+        if (child) await this.terminate(child);
+      },
+    };
   }
 
   private async waitForAgent(agent: Running): Promise<boolean> {
