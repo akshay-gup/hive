@@ -27,6 +27,16 @@
   that the machine could trust: requests through the tunnel arrive from 127.0.0.1, so a loopback-only
   route would be open to the world. It needs a route guarded by a secret the updater can read.
 
+- **Runs survive a restart (built, tested):** a task cut off by an update, a crash or a reboot is
+  picked up again by the worker (`apps/server/src/engine/worker.ts`) and goes back into the same
+  OpenCode session (`apps/server/src/opencode/tasks.ts`), told to check before repeating any step with
+  an outside effect. If that session is gone it starts a new one that says it was interrupted. A run
+  that does nothing for 20 minutes is stopped and started again (and let go of after 60 more seconds
+  if it will not stop). A task cut off by a crash or a stall three times in a row is marked failed and
+  the people on it are told; a stop for an update never counts against it. A chat response cut off by
+  the workspace restarting is retried by the app itself, twice at most, once the workspace answers
+  (`apps/mobile/src/chat.tsx`). This is why the updater needs no idle check.
+
 ## Design
 
 A workspace is a Droplet made from a snapshot. Nothing changes on a Droplet after it is made

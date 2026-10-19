@@ -170,6 +170,62 @@ async function createTaskSession(
   return { sessionId, directory, scope };
 }
 
+/** The OpenCode session a task's last run used, kept so a run that was cut off can go back to it. */
+interface TaskSessionRecord {
+  id: string;
+  sessionId: string;
+  directory: string;
+}
+
+/**
+ * A run that follows an interruption (a restart, a crash, a stall) goes back into the session it was
+ * in, so the agent still has everything it had done and seen. When that session is gone, or the task
+ * was not interrupted, it gets a new one, and the session is written down for the next time.
+ */
+async function openTaskSession(
+  runtime: OpencodeTaskRuntime,
+  service: AgentService,
+  owner: string,
+  task: AgentTask,
+  directory: string,
+): Promise<TaskSession & { resumed: boolean }> {
+  if (task.interruptedAt) {
+    const saved = await service.db.get<TaskSessionRecord>(owner, "task-sessions", task.id);
+    if (saved?.sessionId && saved.directory === directory) {
+      const existing = await runtime.pool
+        .forDirectory(directory)
+        .session.get({ sessionID: saved.sessionId, directory })
+        .catch(() => null);
+      if (existing?.data) {
+        const scope = `task:${task.id}`;
+        runtime.bus.track(scope, saved.sessionId);
+        return { sessionId: saved.sessionId, directory, scope, resumed: true };
+      }
+    }
+  }
+  const created = await createTaskSession(runtime, task, directory);
+  await service.db
+    .put<TaskSessionRecord>(owner, "task-sessions", {
+      id: task.id,
+      sessionId: created.sessionId,
+      directory,
+    })
+    .catch(() => undefined);
+  return { ...created, resumed: false };
+}
+
+/** What the agent is told when it goes back into the session it was in. */
+function buildResumePrompt(brief: string): string {
+  return [
+    "[Resumed after an interruption]",
+    "This workspace restarted, or you stopped responding, while you were working on this task. You are in the same session, so everything you had done and seen is above, and the files in your workspace are as you left them.",
+    "- Before you repeat a step with an outside effect (sending a message or email, booking, paying, posting, changing a record), check whether it already happened.",
+    "- Then carry on from where you got to, and finish with the completion marker as before.",
+    // What the team has put on the task since, which the session has not seen.
+    ...(brief ? ["", brief] : []),
+  ].join("\n");
+}
+
 function buildTaskPrompt(
   identity: { name: string; tone: string } | null,
   memories: Array<{ text: string; source: string }>,
@@ -213,6 +269,9 @@ function buildTaskPrompt(
           .slice(0, 20)
           .map((m) => `- ${m.text} (${m.source})`)
           .join("\n")}`
+      : ``,
+    task.interruptedAt
+      ? `## Interrupted\nAn earlier run of this task was cut off (the workspace restarted, or the agent stopped responding), and its session could not be picked up again. Files it wrote are in your workspace. Look at them and at the prior state below before you start, do not repeat a step with an outside effect (sending, booking, paying, posting) that already happened, and carry on from there.`
       : ``,
     task.state && Object.keys(task.state).length > 0
       ? `Prior state: ${JSON.stringify(task.state).slice(0, 2000)}`
@@ -261,7 +320,23 @@ export async function runOpencodeTask(
   // workspace. Built before the session exists, so a failure here leaves nothing behind.
   const brief = await service.prepareBrief(owner, task, directory);
   task = brief.task;
-  const { sessionId, scope } = await createTaskSession(runtime, task, directory);
+  const { sessionId, scope, resumed } = await openTaskSession(
+    runtime,
+    service,
+    owner,
+    task,
+    directory,
+  );
+  if (task.interruptedAt)
+    await ctx
+      .event(
+        "status",
+        resumed ? "Back in the same session" : "Starting a new session",
+        resumed
+          ? "The agent has what it had done so far, and was told to check before repeating anything."
+          : "The earlier session could not be found, so the agent starts again with what was saved.",
+      )
+      .catch(() => undefined);
   const client = runtime.pool.forDirectory(directory);
 
   let toolLease: Awaited<ReturnType<HiveToolBridge["connect"]>> | undefined;
@@ -499,7 +574,9 @@ export async function runOpencodeTask(
           },
           {
             type: "text",
-            text: buildTaskPrompt(identity, memories, task, originNote, brief.text),
+            text: resumed
+              ? buildResumePrompt(brief.text)
+              : buildTaskPrompt(identity, memories, task, originNote, brief.text),
           },
         ],
       }),

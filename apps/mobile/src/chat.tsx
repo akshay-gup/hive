@@ -47,6 +47,7 @@ import { AssistantResponse } from "./assistant-response";
 import { BrowserRunContext, BrowserToolCard } from "./browser-tool-card";
 import { ChannelMessage } from "./channel-message";
 import { ChannelThreadBanner } from "./channel-thread";
+import { looksLikeLostConnection } from "./connection-lost";
 import { ConversationQueue, type QueuedMessage } from "./conversation-queue";
 import { runConversationTurn } from "./conversation-run";
 import { DraftReply } from "./draft-reply";
@@ -401,6 +402,8 @@ export function ChatScreen({
   const followLatest = useRef(true);
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const runLock = useRef(false);
+  /** Times in a row a response cut off by the workspace restarting was tried again by itself. */
+  const autoRetries = useRef(0);
   const [saveError, setSaveError] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [historyAttempt, setHistoryAttempt] = useState(0);
@@ -476,6 +479,7 @@ export function ChatScreen({
           () => copilotkit.runAgent({ agent }),
           (onError) => copilotkit.subscribe({ onError }),
         );
+        autoRetries.current = 0;
         await Promise.all([refresh(), refreshAgent()]);
       } finally {
         try {
@@ -511,6 +515,38 @@ export function ChatScreen({
     if (!loaded || !isReady || runLock.current || agent.isRunning) return;
     void queue.flush(runQueued).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [agent, isReady, loaded, queue, runQueued]);
+  // A response cut off because the workspace restarted (an update, a reboot) is tried again by itself
+  // once the workspace answers, twice at most, so nobody has to notice it and press Retry. A response
+  // the person stopped, or one that failed for another reason, is left for them.
+  useEffect(() => {
+    if (!error || !looksLikeLostConnection(error)) return;
+    if (busy || agent.isRunning || !loaded || !isReady || queue.getSnapshot().paused) return;
+    if (autoRetries.current >= 2) return;
+    let live = true;
+    void (async () => {
+      for (let waited = 0; live && waited < 180_000; waited += 3_000) {
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        try {
+          if ((await fetch(`${api.baseUrl}/api/health`)).ok) {
+            // Up does not yet mean ready: give the agent a moment to start.
+            await new Promise((resolve) => setTimeout(resolve, 2_000));
+            if (!live) return;
+            autoRetries.current++;
+            await run();
+            if (!queue.getSnapshot().paused) flush();
+            return;
+          }
+        } catch {
+          // Still down; keep waiting.
+        }
+      }
+    })().catch((e) => {
+      if (live) setError(e instanceof Error ? e.message : String(e));
+    });
+    return () => {
+      live = false;
+    };
+  }, [error, busy, agent, loaded, isReady, queue, api.baseUrl, run, flush]);
   const enqueue = useCallback(
     (text: string, id?: string) => {
       queue.enqueue({

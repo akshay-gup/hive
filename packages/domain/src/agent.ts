@@ -152,6 +152,14 @@ export interface AgentTask {
   /** When the agent picked the task up for the run now going on. Only meaningful while it runs. */
   runStartedAt?: string;
   attempts: number;
+  /**
+   * Set when a run was cut off (the machine restarted, the process died, or the agent stalled) and
+   * the task is waiting to be picked up again. The next run continues from where the last one got to
+   * instead of starting over. Cleared when a run ends.
+   */
+  interruptedAt?: string | null;
+  /** How many runs in a row were cut off by a crash or a stall; too many and the task is stopped. */
+  interruptions?: number;
   actionId?: string | null;
   result?: string;
   error?: string | null;

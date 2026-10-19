@@ -125,7 +125,11 @@ test("an approved-tool waiting outcome takes precedence over agent completion te
         },
       } as never,
       {
-        db: { get: async () => null, list: async () => [] },
+        db: {
+          get: async () => null,
+          list: async () => [],
+          put: async (_o: string, _k: string, v: unknown) => v,
+        },
         prepareBrief: async (_owner: string, claimed: unknown) => ({
           task: claimed,
           files: [],
