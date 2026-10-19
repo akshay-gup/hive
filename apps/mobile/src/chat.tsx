@@ -86,7 +86,6 @@ import {
   GlassBar,
   haze,
   IconButton,
-  layout,
   panelStyle,
   radius,
   s,
@@ -1209,7 +1208,8 @@ export function ChatScreen({
               style={{
                 borderRadius: radius.xxl,
                 borderWidth: 1,
-                borderColor: focused ? colors.primary : "transparent",
+                borderColor: focused ? colors.primary : colors.lineStrong,
+                backgroundColor: colors.paper,
                 padding: 6,
                 ...(focused ? { boxShadow: shadow.focus } : null),
               }}
@@ -1339,8 +1339,7 @@ export function ChatScreen({
                     width: 38,
                     height: 38,
                     borderRadius: 19,
-                    backgroundColor:
-                      replying || draft.trim() ? colors.primary : colors.surfaceMuted,
+                    backgroundColor: colors.action,
                     alignItems: "center",
                     justifyContent: "center",
                     transform: [{ scale: pressed ? 0.94 : 1 }],
@@ -1349,11 +1348,7 @@ export function ChatScreen({
                   {replying ? (
                     <Square size={18} fill={colors.onPrimary} strokeWidth={0} />
                   ) : (
-                    <ArrowUp
-                      size={25}
-                      strokeWidth={1.8}
-                      color={draft.trim() ? colors.onPrimary : colors.subtle}
-                    />
+                    <ArrowUp size={22} strokeWidth={2.4} color={colors.onPrimary} />
                   )}
                 </Pressable>
               </View>
@@ -1411,12 +1406,7 @@ export function ChatScreen({
     }
     return (
       <View style={{ flex: 1, minHeight: 0 }}>
-        <View
-          style={[
-            s.between,
-            { paddingVertical: 12 },
-          ]}
-        >
+        <View style={[s.between, { paddingVertical: 12 }]}>
           <View style={{ gap: 2 }}>
             <Text style={s.heading}>{panel.binding ? "Thread" : "Reply"}</Text>
             <Text style={s.small}>Replying to a channel message</Text>

@@ -5,7 +5,7 @@
     "scheme": "hive",
     "version": "0.1.0",
     "orientation": "default",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
     "newArchEnabled": true,
     "ios": { "supportsTablet": true, "bundleIdentifier": "app.hive.mobile" },

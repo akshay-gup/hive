@@ -61,7 +61,6 @@ import {
   SectionHeading,
   Sheet,
   s,
-  shadow,
   timeLabel,
   type WebPressState,
 } from "./ui";

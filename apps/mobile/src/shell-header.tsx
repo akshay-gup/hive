@@ -6,7 +6,7 @@ import { useAgentWorkspace } from "./agent-workspace";
 import { ChannelChatBanner } from "./chat";
 import { ComputerEntry } from "./computer";
 import { useMuseThread } from "./threads";
-import { colors, fontSize, GlassBar, IconButton, layout, Mascot, radius, s } from "./ui";
+import { colors, fontSize, GlassBar, IconButton, layout, Mascot, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 const titles: Partial<Record<Section, { title: string; subtitle: string }>> = {

@@ -168,7 +168,7 @@ export const s = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: radius.md,
   },
-  primary: { backgroundColor: colors.primary },
+  primary: { backgroundColor: colors.action },
   secondary: {
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -241,7 +241,7 @@ export function Button({
   danger?: boolean;
   style?: ViewStyle;
 }) {
-  const color = danger ? colors.danger : primary ? colors.onPrimary : colors.text;
+  const color = danger ? colors.danger : primary ? colors.onAction : colors.text;
   const dense = useDense();
   const covered = !!busy && !Icon;
   return (
@@ -255,7 +255,7 @@ export function Button({
         s.button,
         primary ? s.primary : s.secondary,
         (pressed || hovered) && {
-          backgroundColor: primary ? colors.primaryPressed : colors.surfaceHover,
+          backgroundColor: primary ? colors.actionPressed : colors.surfaceHover,
         },
         dense && { minHeight: 40, paddingVertical: 8 },
         small && {

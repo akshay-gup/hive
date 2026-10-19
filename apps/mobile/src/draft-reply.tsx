@@ -82,11 +82,11 @@ export function DraftReply({
               borderRadius: radius.xl,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: value.trim() ? colors.primary : colors.surfaceMuted,
+              backgroundColor: value.trim() ? colors.action : colors.surfaceMuted,
               opacity: busy ? 0.5 : 1,
             }}
           >
-            <ArrowUp size={24} color={value.trim() ? colors.onPrimary : colors.subtle} />
+            <ArrowUp size={24} color={value.trim() ? colors.onAction : colors.subtle} />
           </Pressable>
         </View>
         <Text style={[s.small, { paddingTop: 8, paddingHorizontal: 8 }]}>

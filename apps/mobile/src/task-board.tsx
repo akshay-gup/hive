@@ -9,7 +9,7 @@ import {
   taskColumn,
 } from "../../../packages/domain/src/agent";
 import { elapsedLabel, needsYou, orderColumn, runStartedAt, watchRuns } from "./board-order";
-import { Button, colors, fontSize, radius, s, shadow, type WebPressState } from "./ui";
+import { Button, colors, fontSize, radius, s, type WebPressState } from "./ui";
 import { useStill } from "./use-still";
 
 const columns: { id: TaskColumn; title: string }[] = [

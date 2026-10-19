@@ -6,11 +6,11 @@
  * (test/theme.test.ts) fails if a raw colour appears anywhere else, and checks that the
  * text/background pairs below keep a readable contrast (WCAG AA).
  *
- * The look is Graphite: quiet and flat. The rail, the sidebar and the main area are solid charcoal
- * regions that meet edge to edge, divided by a vertical hairline; there is no blur, no gradient, no
- * glow and no shadow except under a menu or a drawer. Hairlines and quiet fills are tints of white,
- * so they sit equally well on a panel and on a card. The brand teal is calm, used for actions and
- * for the row you are on; amber, green and red keep to what they mean.
+ * The look is light and flat. The rail, the sidebar and the main area are solid regions that meet
+ * edge to edge, divided by a vertical hairline; there is no blur, no gradient, no glow and no shadow
+ * except under a menu or a drawer. Hairlines and quiet fills are tints of the ink, so they sit
+ * equally well on a panel and on a card. Sage green marks where you are (the row you are on, links,
+ * progress); honey is the main action and whatever needs a person; red keeps to failure.
  */
 
 /**
@@ -30,107 +30,117 @@ export const palette = {
 /** Semantic colours. Pick by role, never by hue. */
 export const colors = {
   // Surfaces
-  /** App and page background. */
-  canvas: "#111214",
-  /** The page behind a web page or a document shown in a frame, which assume a white page. */
+  /** App and page background: the strip of icons and what shows behind the panels. */
+  canvas: "#F4F6F5",
+  /** A web page or a document shown in a frame, which assume a white page. */
   paper: "#FFFFFF",
-  /** Cards, inputs and anything raised off a panel: a faint white over whatever it sits on. */
-  surface: "rgba(255,255,255,0.05)",
+  /** Cards, inputs and anything raised off a panel: a faint ink tint over whatever it sits on. */
+  surface: "rgba(21,26,23,0.04)",
   /** Quiet fills: secondary buttons, chips, code. */
-  surfaceMuted: "rgba(255,255,255,0.05)",
+  surfaceMuted: "rgba(21,26,23,0.05)",
   /** Hover and pressed state on quiet fills and rows. */
-  surfaceHover: "rgba(255,255,255,0.09)",
+  surfaceHover: "rgba(21,26,23,0.08)",
   /** A tab in a row of tabs: `surfaceMuted` as an opaque colour, so tabs can touch with no seam. */
-  tile: "#2B2D30",
+  tile: "#ECEFED",
 
   // Lines
   /** Hairlines and default borders. */
-  line: "rgba(255,255,255,0.08)",
+  line: "rgba(21,26,23,0.10)",
   /** Borders that must be seen: inputs, hovered cards. */
-  lineStrong: "rgba(255,255,255,0.18)",
+  lineStrong: "rgba(21,26,23,0.24)",
 
   // Text
   /** Body and heading ink. */
-  text: "#ECEEF0",
+  text: "#151A17",
   /** Secondary text. */
-  muted: "#A4A9AF",
-  /** Icons and decoration only. Too dim for text. */
-  subtle: "#767B82",
+  muted: "#58615C",
+  /** Icons and decoration only. Too light for text. */
+  subtle: "#8A918D",
   /** Text and icons on `primary` and other solid fills. */
   onPrimary: "#FFFFFF",
 
   // Brand
-  /** Main actions, active states, focus: fills, borders and icons. White text on it is AA. */
-  primary: "#298097",
+  /**
+   * Sage green: where you are and what is selected. Fills, borders and icons; white text on it is AA.
+   * The main action is honey (`action`), not this.
+   */
+  primary: "#2F7350",
   /** `primary` while pressed or hovered. */
-  primaryPressed: "#216F83",
-  /** Links and other teal text. */
-  primaryText: "#6DB8C9",
+  primaryPressed: "#265F42",
+  /** Links and other green text. */
+  primaryText: "#2A6B49",
   /** Tint behind selected rows, info cards, icon tiles. */
-  primarySoft: "rgba(41,128,151,0.20)",
+  primarySoft: "rgba(47,115,80,0.17)",
   /** `primarySoft` while hovered or pressed. */
-  primarySoftStrong: "rgba(41,128,151,0.32)",
+  primarySoftStrong: "rgba(47,115,80,0.20)",
   /** Keyboard focus ring. */
-  focusRing: "rgba(109,184,201,0.40)",
+  focusRing: "rgba(47,115,80,0.35)",
   /** Fill of a selected card or option. */
-  selected: "#1B2D33",
+  selected: "#E6F0EA",
   /** Border of a selected card or option. */
-  selectedLine: "#3B93A8",
+  selectedLine: "#5E9B7A",
+  /** Honey: the main action (Send, Mark done, a primary button) and what needs a person. Dark text on it. */
+  action: "#F2B632",
+  /** `action` while pressed or hovered. */
+  actionPressed: "#E2A21C",
+  /** Text and icons on `action`. */
+  onAction: "#241A00",
   /** Amber: the "new" accent. Dashed create tiles, never body text. */
   accent: palette.amber,
   /** Tint behind amber elements. */
-  accentSoft: "rgba(251,191,36,0.12)",
+  accentSoft: "rgba(242,182,50,0.18)",
   /** Text and icons on amber tints. */
-  accentText: "#EBC96F",
+  accentText: "#7A5200",
 
   // Status
-  danger: "#F4949B",
-  dangerBg: "rgba(244,100,112,0.12)",
-  dangerLine: "rgba(244,100,112,0.26)",
-  warning: "#E39A55",
-  warningText: "#EBBE8A",
-  warningBg: "rgba(217,122,43,0.16)",
-  warningLine: "rgba(217,122,43,0.30)",
-  success: "#3DB27E",
-  successText: "#82D3AA",
-  successBg: "rgba(61,178,126,0.14)",
+  danger: "#B3261E",
+  dangerBg: "rgba(179,38,30,0.08)",
+  dangerLine: "rgba(179,38,30,0.28)",
+  warning: "#C98A0B",
+  warningText: "#7A4A00",
+  warningBg: "rgba(242,182,50,0.16)",
+  warningLine: "rgba(201,138,11,0.55)",
+  success: "#2F8A5B",
+  successText: "#1E6A44",
+  successBg: "rgba(47,138,91,0.11)",
   /** Queued, paused, scheduled. */
-  neutral: "#838A92",
+  neutral: "#6B736F",
 
   // Overlays
   /** Behind sheets and drawers. */
-  scrim: "rgba(0,0,0,0.55)",
-  /** Light toast. */
-  inverse: "#ECEEF0",
-  onInverse: "#111214",
+  scrim: "rgba(21,26,23,0.45)",
+  /** Dark toast. */
+  inverse: "#1F2421",
+  onInverse: "#F4F6F5",
 } as const;
 
 export type Colors = typeof colors;
 
 /**
- * The backdrop behind the panels: flat near-black charcoal, with no hue, no light pool and no
+ * The backdrop behind the panels: flat off-white with a trace of green, with no light pool and no
  * gradient. `lightest` is the brightest tone it reaches, which text on a panel is checked against
  * (test/theme.test.ts).
  */
 export const haze = {
-  base: "#111214",
-  lightest: "#111214",
+  base: "#F4F6F5",
+  lightest: "#F4F6F5",
 } as const;
 
 /**
- * Panel fills, all solid. Each step is a shade lighter than the one beneath it, so regions read apart
- * without a shadow: the rail is the backdrop, then the panels, then bars, then what is raised off a
- * panel (the composer and the phone's tab bar), then a sheet over the dimmed page.
+ * Panel fills, all solid. The main area is white; the strip of icons and the channel list are a shade
+ * off it, so regions read apart without a shadow.
  */
 export const glass = {
-  /** A panel: the sidebar, a channel, a thread, the main area. */
-  panel: "#17191B",
+  /** A panel: a channel, a thread, the main area. */
+  panel: "#FFFFFF",
+  /** The channel list beside the strip of icons: a shade off the main area. */
+  sidebar: "#F7F8F7",
   /** A bar: the phone's header. */
-  bar: "#1B1D20",
+  bar: "#F7F8F7",
   /** Raised off a panel: the composer and the phone's tab bar. */
-  raised: "#202225",
+  raised: "#F4F6F5",
   /** A sheet over the dimmed page. */
-  sheet: "#1A1C1F",
+  sheet: "#FFFFFF",
 } as const;
 
 /** Text roles drawn straight onto glass. The test checks each against a fill over the lightest haze. */
@@ -159,6 +169,8 @@ export const textPairs: readonly (readonly [keyof Colors, keyof Colors])[] = [
   ["accentText", "canvas"],
   ["accentText", "accentSoft"],
   ["onInverse", "inverse"],
+  ["onAction", "action"],
+  ["onAction", "actionPressed"],
 ];
 
 /** Tints for people's initials, so a busy channel is easier to scan. */
@@ -166,15 +178,15 @@ export const avatarTints = [
   colors.primarySoft,
   colors.successBg,
   colors.warningBg,
-  "rgba(120,150,205,0.18)",
-  "rgba(150,200,205,0.14)",
+  "rgba(90,120,170,0.16)",
+  "rgba(100,150,155,0.16)",
 ] as const;
 
 /** Background discs behind the bee, one per avatar the person can choose. */
 export const mascotTints = {
-  sky: "rgba(150,175,205,0.22)",
-  sand: "rgba(215,190,150,0.22)",
-  lilac: "rgba(175,165,210,0.22)",
+  sky: "rgba(110,145,190,0.22)",
+  sand: "rgba(200,170,120,0.24)",
+  lilac: "rgba(150,135,195,0.22)",
 } as const;
 
 /** The four colours of Google's "G", which are Google's and stay the same in any theme. */
@@ -261,9 +273,9 @@ export const sp = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as
  */
 export const shadow = {
   /** Menus and floating panels. */
-  popover: "0 8px 24px rgba(0,0,0,0.35)",
+  popover: "0 8px 24px rgba(21,26,23,0.14), 0 0 0 1px rgba(21,26,23,0.06)",
   /** The row you are on in the sidebar: a faint ring. */
-  active: "inset 0 0 0 1px rgba(255,255,255,0.10)",
+  active: "inset 0 0 0 1px rgba(21,26,23,0.10)",
   /** Focus ring drawn around inputs. */
   focus: `0 0 0 2px ${colors.focusRing}`,
 } as const;

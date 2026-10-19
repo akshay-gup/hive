@@ -14,6 +14,7 @@ import {
   ErrorNotice,
   Field,
   fontSize,
+  glass,
   IconButton,
   layout,
   Mascot,
@@ -63,7 +64,11 @@ function SidebarRow({
         paddingVertical: m.padY,
         paddingHorizontal: m.padX,
         borderRadius: m.radius,
-        backgroundColor: active || hovered || pressed ? colors.surfaceHover : "transparent",
+        backgroundColor: active
+          ? colors.primarySoft
+          : hovered || pressed
+            ? colors.surfaceHover
+            : "transparent",
       })}
     >
       <Icon size={m.icon} color={active ? colors.primaryText : colors.muted} />
@@ -161,6 +166,20 @@ function RailItem({
         const { pressed, hovered } = state as WebPressState;
         return (
           <>
+            {active && (
+              <View
+                style={{
+                  position: "absolute",
+                  left: -2,
+                  top: 10,
+                  width: 3,
+                  height: 32,
+                  borderTopRightRadius: 2,
+                  borderBottomRightRadius: 2,
+                  backgroundColor: colors.primary,
+                }}
+              />
+            )}
             <View
               style={{
                 width: 46,
@@ -168,11 +187,8 @@ function RailItem({
                 borderRadius: radius.md,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: active
-                  ? colors.surfaceHover
-                  : pressed || hovered
-                    ? colors.surfaceMuted
-                    : "transparent",
+                backgroundColor:
+                  !active && (pressed || hovered) ? colors.surfaceMuted : "transparent",
               }}
             >
               <Icon size={20} strokeWidth={1.8} color={active ? colors.text : colors.muted} />
@@ -181,7 +197,7 @@ function RailItem({
               style={{
                 fontSize: fontSize.micro,
                 lineHeight: 14,
-                fontWeight: "500",
+                fontWeight: active ? "600" : "500",
                 color: active ? colors.text : colors.muted,
               }}
               numberOfLines={1}
@@ -540,14 +556,18 @@ export function Sidebar({
                     style={{
                       width: 34,
                       height: 34,
-                      borderRadius: radius.md,
-                      backgroundColor:
-                        pressed || hovered ? colors.surfaceHover : colors.primarySoft,
+                      borderRadius: 17,
+                      backgroundColor: pressed || hovered ? colors.primaryPressed : colors.primary,
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
-                    <Text style={[s.text, { fontWeight: "600", fontSize: fontSize.ui }]}>
+                    <Text
+                      style={[
+                        s.text,
+                        { fontWeight: "600", fontSize: fontSize.ui, color: colors.onPrimary },
+                      ]}
+                    >
                       {initial}
                     </Text>
                   </View>
@@ -560,7 +580,12 @@ export function Sidebar({
         </View>
         {/* Kept mounted while out of the conversations, so it is as it was when they come back. */}
         <View
-          style={[{ width: LIST_WIDTH }, panelStyle, section !== "chat" && { display: "none" }]}
+          style={[
+            { width: LIST_WIDTH },
+            panelStyle,
+            { backgroundColor: glass.sidebar },
+            section !== "chat" && { display: "none" },
+          ]}
         >
           <View
             style={[

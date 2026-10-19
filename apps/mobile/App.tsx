@@ -198,7 +198,7 @@ function SelfHostedApp() {
   }, [finishGoogleSignIn]);
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       {api ? (
         <CopilotKitProvider
           runtimeUrl={`${api.baseUrl}/api/copilotkit`}

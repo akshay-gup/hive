@@ -62,17 +62,17 @@ test("text drawn on a panel stays readable (4.5:1)", () => {
   }
 });
 
-test("the surfaces are flat: every fill is solid, and each is lighter than the one beneath", () => {
-  const order = ["panel", "bar", "raised"] as const;
-  for (const kind of [...order, "sheet"] as const) {
+test("the surfaces are flat: every fill is solid, and the panels stand apart from the backdrop", () => {
+  for (const kind of ["panel", "sidebar", "bar", "raised", "sheet"] as const) {
     assert.equal(parse(glass[kind]).alpha, 1, `glass.${kind} is not solid`);
   }
-  let below = luminance(parse(haze.base).rgb);
-  for (const kind of order) {
-    const now = luminance(parse(glass[kind]).rgb);
-    assert.ok(now > below, `glass.${kind} is not lighter than what is beneath it`);
-    below = now;
-  }
+  const backdrop = luminance(parse(haze.base).rgb);
+  assert.notEqual(
+    luminance(parse(glass.panel).rgb),
+    backdrop,
+    "the panel is the backdrop's colour",
+  );
+  assert.notEqual(luminance(parse(glass.sidebar).rgb), luminance(parse(glass.panel).rgb));
 });
 
 test("colours are written only in src/theme.ts", () => {
