@@ -36,7 +36,7 @@
     // One workspace each, made or joined.
     "CONTROL_MAX_WORKSPACES": "1",
     "CONTROL_CLIENT_IP_HEADER": "CF-Connecting-IP",
-    "GOOGLE_CLIENT_ID": "181019654698-bq4rul5547g5gjb70sc31t4i6vtd7o0o.apps.googleusercontent.com",
+    "GOOGLE_CLIENT_ID": "186881596007-ubstc9olcv2gevk71eit5q7fl77fl489.apps.googleusercontent.com",
     "PROVISIONER": "digitalocean",
     // Each workspace reached through a Cloudflare Tunnel of its own, with no edge to run. The
     // account id and the zone id are on the zone's overview page; the zone is the one the addresses are in.
