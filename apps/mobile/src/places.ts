@@ -1,5 +1,4 @@
 import {
-  CalendarDays,
   FileText,
   type LucideIcon,
   MessageCircle,
@@ -19,6 +18,5 @@ export const places: { id: Section; label: string; icon: LucideIcon; bar: boolea
   { id: "activity", label: "Activity", icon: PanelsTopLeft, bar: true },
   { id: "goals", label: "Goals", icon: SquareCheck, bar: true },
   { id: "apps", label: "Apps", icon: Shapes, bar: true },
-  { id: "calendar", label: "Calendar", icon: CalendarDays, bar: false },
   { id: "files", label: "Files", icon: FileText, bar: false },
 ];
