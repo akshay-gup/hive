@@ -320,6 +320,18 @@ test("sample monitor saves its baseline and deduplicates notifications for repea
     (await db.get<AgentNotification>("other-user", "notifications", teamNotification.id))?.read,
     true,
   );
+  // Dismissing removes a notification, and dismissing all empties the list.
+  assert.equal((await request(`/notifications/${teamNotification.id}/dismiss`, {})).status, 200);
+  assert.equal(
+    await db.get<AgentNotification>("other-user", "notifications", teamNotification.id),
+    null,
+  );
+  assert.equal((await request(`/notifications/${teamNotification.id}/dismiss`, {})).status, 404);
+  await server.agent.notify("other-user", "Another", "More", undefined, "another-notice");
+  assert.ok(
+    ((await read<{ removed: number }>("/notifications/dismiss-all", {})).removed ?? 0) >= 1,
+  );
+  assert.equal((await notifications()).length, 0);
 });
 
 test("live mode rejects sample sources and hides the fixture mutation endpoint", async () => {

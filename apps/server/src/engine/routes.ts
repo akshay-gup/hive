@@ -386,6 +386,22 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     if (!notification) throw new AppError("Notification not found", 404);
     return c.json(notification);
   });
+  // Notifications belong to the workspace, as reading one does: dismissing removes it for everyone.
+  app.post("/notifications/dismiss-all", async (c) => {
+    const owner = c.get("owner");
+    const all = await service.db.list<AgentNotification>(owner, "notifications");
+    for (const notification of all)
+      await service.db.remove(owner, "notifications", notification.id);
+    return c.json({ removed: all.length });
+  });
+  app.post("/notifications/:id/dismiss", async (c) => {
+    const owner = c.get("owner");
+    const id = c.req.param("id");
+    if (!(await service.db.get<AgentNotification>(owner, "notifications", id)))
+      throw new AppError("Notification not found", 404);
+    await service.db.remove(owner, "notifications", id);
+    return c.json({ ok: true });
+  });
   app.post("/sample-page", async (c) => {
     if (service.config.mode !== "sample") throw new AppError("Not found", 404);
     const body = z.object({ text: z.string().max(100000) }).parse(await c.req.json());
