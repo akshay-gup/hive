@@ -6,7 +6,6 @@ import {
   expandedPanelWidth,
   isExpandedPanel,
   PANEL_DEFAULT,
-  PANEL_GAP,
   PANEL_MIN,
   readPanelWidth,
   writePanelWidth,
@@ -16,7 +15,7 @@ test("the panel never gets narrower than its minimum or takes the room the chann
   const container = 1000;
   assert.equal(clampPanelWidth(100, container), PANEL_MIN);
   assert.equal(clampPanelWidth(500, container), 500);
-  assert.equal(clampPanelWidth(5000, container), container - CHANNEL_MIN - PANEL_GAP);
+  assert.equal(clampPanelWidth(5000, container), container - CHANNEL_MIN);
 });
 
 test("a window too narrow to spare any room still gets a panel of the minimum", () => {
@@ -30,11 +29,11 @@ test("a width that is not a number falls back to the usual one", () => {
 });
 
 test("the wide setting is about three fifths of the space, and what is wide is wider than usual", () => {
-  assert.equal(expandedPanelWidth(1000), 568); // the channel keeps its 420, and the gap is spared
+  assert.equal(expandedPanelWidth(1000), 580); // the channel keeps its 420
   assert.equal(expandedPanelWidth(1200), 720);
   assert.equal(expandedPanelWidth(1600), 960);
   // On a window that cannot spare it, wide is as wide as the channel allows.
-  assert.equal(expandedPanelWidth(800), 368);
+  assert.equal(expandedPanelWidth(800), 380);
   for (const container of [840, 1000, 1280, 1920]) {
     assert.ok(expandedPanelWidth(container) > PANEL_DEFAULT, `wider than usual at ${container}`);
   }

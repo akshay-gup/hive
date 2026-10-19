@@ -1007,9 +1007,7 @@ export function FilesScreen() {
                   padding: 0,
                   overflow: "hidden",
                   borderRadius: radius.xxl,
-                  ...(hovered
-                    ? { boxShadow: shadow.raised, borderColor: colors.lineStrong }
-                    : null),
+                  ...(hovered ? { borderColor: colors.lineStrong } : null),
                 }}
               >
                 <View

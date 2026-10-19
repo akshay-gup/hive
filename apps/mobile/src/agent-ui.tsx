@@ -170,7 +170,6 @@ export function TaskCard({
                 ? colors.lineStrong
                 : colors.line,
         backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
-        boxShadow: hovered ? shadow.raised : shadow.card,
       })}
     >
       <View style={[s.row, { gap: 8 }]}>

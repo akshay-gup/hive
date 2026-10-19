@@ -483,7 +483,7 @@ export function Sidebar({
     // from it on every page (a list beside it in the conversations, the screen itself elsewhere).
     return (
       <>
-        <View style={{ width: RAIL_WIDTH, alignItems: "center", marginRight: -layout.gap }}>
+        <View style={{ width: RAIL_WIDTH, alignItems: "center" }}>
           <View style={{ height: layout.headerHeight, justifyContent: "center" }}>
             {hosted ? (
               <Pressable
@@ -568,8 +568,6 @@ export function Sidebar({
                 paddingHorizontal: 16,
                 height: layout.headerHeight,
                 gap: 8,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.line,
               },
             ]}
           >
@@ -618,8 +616,6 @@ export function Sidebar({
             paddingHorizontal: 16,
             height: layout.headerHeight,
             gap: 8,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.line,
           },
         ]}
       >

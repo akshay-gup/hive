@@ -71,13 +71,9 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
         alignItems: "center",
         gap: 12,
         ...(desktop
-          ? { paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: colors.line }
+          ? { paddingHorizontal: 20 }
           : {
               paddingHorizontal: 8,
-              marginHorizontal: layout.gap,
-              marginTop: 10,
-              marginBottom: 4,
-              borderRadius: radius.xl,
             }),
       }}
     >

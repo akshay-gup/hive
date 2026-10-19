@@ -51,39 +51,27 @@ test("every text and background pair in the theme stays readable (WCAG AA, 4.5:1
   }
 });
 
-test("text drawn on glass stays readable over the lightest part of the haze (4.5:1)", () => {
+test("text drawn on a panel stays readable (4.5:1)", () => {
   const lightest = parse(haze.lightest).rgb;
   for (const fill of ["panel", "bar", "raised", "sheet"] as const) {
     const surface = over(glass[fill], lightest);
     for (const role of glassTextRoles) {
       const ratio = contrast(over(colors[role], surface), surface);
-      assert.ok(
-        ratio >= 4.5,
-        `${role} on glass.${fill} over the lightest haze is ${ratio.toFixed(2)}:1`,
-      );
+      assert.ok(ratio >= 4.5, `${role} on glass.${fill} is ${ratio.toFixed(2)}:1`);
     }
   }
 });
 
-test("no part of the haze is lighter than the tone text on glass is checked against", () => {
-  const base = parse(haze.base).rgb;
-  const ceiling = luminance(parse(haze.lightest).rgb);
-  const stops = haze.css.match(/rgba\([^)]*\)/g) ?? [];
-  assert.ok(stops.length > 0, "the haze has no colour stops");
-  for (const stop of stops) {
-    assert.ok(
-      luminance(over(stop, base)) <= ceiling,
-      `${stop} over the haze is lighter than haze.lightest (${haze.lightest})`,
-    );
+test("the surfaces are flat: every fill is solid, and each is lighter than the one beneath", () => {
+  const order = ["panel", "bar", "raised"] as const;
+  for (const kind of [...order, "sheet"] as const) {
+    assert.equal(parse(glass[kind]).alpha, 1, `glass.${kind} is not solid`);
   }
-});
-
-test("the fills native uses are more opaque than the web's", () => {
-  for (const kind of ["panel", "bar", "raised", "sheet"] as const) {
-    assert.ok(
-      parse(glass[`${kind}Solid`]).alpha > parse(glass[kind]).alpha,
-      `glass.${kind}Solid is not more opaque than glass.${kind}`,
-    );
+  let below = luminance(parse(haze.base).rgb);
+  for (const kind of order) {
+    const now = luminance(parse(glass[kind]).rgb);
+    assert.ok(now > below, `glass.${kind} is not lighter than what is beneath it`);
+    below = now;
   }
 });
 

@@ -28,7 +28,6 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { HazeImage } from "./HazeImage";
 import { LiquidTrack } from "./liquid-track";
 import {
   colors,
@@ -62,124 +61,53 @@ export {
   type,
 } from "./theme";
 
-const onWeb = Platform.OS === "web";
-/**
- * The native glass look is opt-in at build time (EXPO_PUBLIC_LIQUID_GLASS=1) and only on iOS: the
- * haze as React Native's own gradient style, and Apple's Liquid Glass on the floating bars. The web
- * has neither (it has `backdropFilter`), and Android is left as it is.
- */
-const nativeGlass = Platform.OS === "ios" && process.env.EXPO_PUBLIC_LIQUID_GLASS === "1";
-/**
- * Apple's Liquid Glass (`expo-glass-effect`), when the build opts in and the phone is on iOS 26 or
- * later. It is required here, not imported at the top: a native module missing from a binary
- * throws as soon as it loads, and a build that has not opted in must not even look for it.
- */
-const liquidGlass: typeof import("expo-glass-effect") | null = (() => {
-  if (!nativeGlass) return null;
-  try {
-    const glassEffect = require("expo-glass-effect") as typeof import("expo-glass-effect");
-    return glassEffect.isLiquidGlassAvailable() ? glassEffect : null;
-  } catch {
-    return null;
-  }
-})();
-
 export type GlassKind = "panel" | "bar" | "raised" | "sheet";
-const glassShadow: Record<GlassKind, string> = {
-  panel: shadow.panel,
-  bar: shadow.float,
-  raised: shadow.float,
-  sheet: shadow.popover,
-};
 /**
- * The fill and shadow of a glass surface. On the web the fill is translucent, and a sheet also
- * blurs the page behind it. A panel has only the haze behind it, which is dithered (`HazeImage`),
- * and a blur would average that back into steps, so it does not blur. Native has no blur here, so
- * it gets a more opaque fill and keeps the shadow. Bars and the composer sit on a panel or the
- * haze, so a blur would only cost them a layer.
+ * The fill of a surface: solid, with no blur and no gradient. Only a sheet floats over the page, so
+ * only a sheet has a shadow; the rest are told apart by their fill and a hairline.
  */
 export function glassSurface(kind: GlassKind): ViewStyle {
   return {
-    backgroundColor: onWeb ? glass[kind] : glass[`${kind}Solid`],
-    boxShadow: glassShadow[kind],
-    // CSS that React Native's types do not list; react-native-web passes it through (and adds the
-    // -webkit- prefix for Safari).
-    ...(onWeb && kind === "sheet"
-      ? ({ backdropFilter: glass.blur } as unknown as ViewStyle)
-      : null),
+    backgroundColor: glass[kind],
+    ...(kind === "sheet" ? { boxShadow: shadow.popover } : null),
   };
 }
-/** A floating panel: the sidebar, a channel, a thread, the main area. */
+/**
+ * A panel: the sidebar, a channel, a thread, the main area. Panels meet edge to edge. Each draws a
+ * hairline down its left edge, which is the divider between it and whatever sits beside it.
+ */
 export const panelStyle: ViewStyle = {
   ...glassSurface("panel"),
-  borderRadius: radius.panel,
+  borderLeftWidth: 1,
+  borderLeftColor: colors.line,
   overflow: "hidden",
 };
 /**
- * A floating bar or pill: the phone's header and tab bar, and the composer. On iOS 26 or later, in
- * a build that opts in, it is Apple's Liquid Glass; everywhere else it is the fill and shadow from
- * `glassSurface`. `glass={false}` draws neither, for a bar that only floats on some layouts. The
- * shape (`borderRadius`) and the border come from `style`, as for a View.
+ * A bar or pill: the phone's header and tab bar, and the composer. It has the bar fill. `glass={false}`
+ * draws no fill, for a bar that only has one on some layouts. The shape (`borderRadius`) and the
+ * border come from `style`, as for a View.
  */
 export function GlassBar({
   kind,
-  glass: floating = true,
+  glass: filled = true,
   style,
   children,
   ...rest
 }: ViewProps & { kind: "bar" | "raised"; glass?: boolean }) {
-  if (!floating)
-    return (
-      <View style={style} {...rest}>
-        {children}
-      </View>
-    );
-  if (liquidGlass) {
-    const { GlassView } = liquidGlass;
-    return (
-      <GlassView glassEffectStyle="regular" style={style} {...rest}>
-        {children}
-      </GlassView>
-    );
-  }
   return (
-    <View style={[glassSurface(kind), style]} {...rest}>
+    <View style={[filled && glassSurface(kind), style]} {...rest}>
       {children}
     </View>
   );
 }
-/**
- * The haze behind the panels. The web shows it as a picture with its steps dithered away
- * (`HazeImage`), over the same pools as CSS gradients for the moment before that is ready. On iOS,
- * in a build that opts in, it is the gradients through React Native's own style; otherwise native
- * shows the flat base colour of the screen it sits on. Put it first inside a screen-sized view.
- */
+/** The flat colour behind the panels. Put it first inside a screen-sized view. */
 export function Backdrop() {
-  if (!onWeb) {
-    if (!nativeGlass) return null;
-    return (
-      <View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFill,
-          { backgroundColor: haze.base, experimental_backgroundImage: haze.layers },
-        ]}
-      />
-    );
-  }
   return (
     <View
       pointerEvents="none"
       aria-hidden
-      style={[
-        StyleSheet.absoluteFill,
-        { backgroundColor: haze.base },
-        // The `background` shorthand: the gradients and the base colour in one.
-        { background: haze.css } as unknown as ViewStyle,
-      ]}
-    >
-      <HazeImage />
-    </View>
+      style={[StyleSheet.absoluteFill, { backgroundColor: haze.base }]}
+    />
   );
 }
 
@@ -216,7 +144,6 @@ export const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     padding: sp.lg,
-    boxShadow: shadow.card,
   },
   divider: { height: 1, backgroundColor: colors.line, marginVertical: sp.xl },
   input: {
@@ -246,7 +173,6 @@ export const s = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
-    boxShadow: shadow.card,
   },
   buttonText: { fontSize: fontSize.body, fontWeight: "600" },
   centred: { alignItems: "center", justifyContent: "center" },
@@ -511,7 +437,6 @@ export function CreateTile({
           borderRadius: radius.xl,
           backgroundColor: pressed || hovered ? colors.accentSoft : colors.surface,
         },
-        hovered && { boxShadow: shadow.card },
         style,
       ]}
     >

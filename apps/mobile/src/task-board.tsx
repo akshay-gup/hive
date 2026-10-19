@@ -189,7 +189,6 @@ export function TaskBoardCard({
         borderRadius: radius.lg,
         borderWidth: 1,
         borderColor: attention ? colors.warningLine : failed ? colors.dangerLine : colors.line,
-        boxShadow: shadow.card,
         overflow: "hidden",
       }}
     >

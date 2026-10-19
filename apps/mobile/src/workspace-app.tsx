@@ -200,7 +200,6 @@ function WorkspaceShell({
           style={{
             flex: 1,
             flexDirection: desktop ? "row" : "column",
-            ...(desktop ? { padding: layout.gap, gap: layout.gap } : null),
           }}
         >
           {desktop && <Sidebar />}

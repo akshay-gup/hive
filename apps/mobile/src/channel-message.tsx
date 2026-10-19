@@ -155,7 +155,7 @@ export function ChannelMessage({
         paddingVertical: grouped ? 1 : 6,
         borderRadius: radius.lg,
         backgroundColor: selected ? colors.surface : hovered ? colors.surfaceMuted : "transparent",
-        ...(selected ? { boxShadow: shadow.lens } : null),
+        ...(selected ? { boxShadow: shadow.active } : null),
       }}
     >
       <View style={{ flexDirection: "row", gap: 10 }}>

@@ -771,7 +771,7 @@ export function ChatScreen({
   const panels = !!channelId && !threadParent && width >= 900;
   return (
     <View
-      style={{ flex: 1, flexDirection: "row", minHeight: 0, gap: panels ? layout.gap : 0 }}
+      style={{ flex: 1, flexDirection: "row", minHeight: 0 }}
       onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
     >
       <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
@@ -1211,7 +1211,7 @@ export function ChatScreen({
                 borderWidth: 1,
                 borderColor: focused ? colors.primary : "transparent",
                 padding: 6,
-                ...(focused ? { boxShadow: `${shadow.focus}, ${shadow.float}` } : null),
+                ...(focused ? { boxShadow: shadow.focus } : null),
               }}
             >
               {attachments.length > 0 && (
@@ -1414,7 +1414,7 @@ export function ChatScreen({
         <View
           style={[
             s.between,
-            { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
+            { paddingVertical: 12 },
           ]}
         >
           <View style={{ gap: 2 }}>

@@ -6,12 +6,11 @@
  * (test/theme.test.ts) fails if a raw colour appears anywhere else, and checks that the
  * text/background pairs below keep a readable contrast (WCAG AA).
  *
- * The look is Graphite: quiet dark glass. Panels are faint white over a neutral charcoal backdrop,
- * with a hairline and a soft shadow, and nothing glows. The web blurs what is behind a sheet; native
- * has no blur here, so its fills are a little more opaque. Hairlines and quiet fills
- * are tints of white, so they sit equally well on the backdrop, on a panel and on a card. The brand
- * teal is calm, used for actions and for the row you are on; amber, green and red keep to what
- * they mean.
+ * The look is Graphite: quiet and flat. The rail, the sidebar and the main area are solid charcoal
+ * regions that meet edge to edge, divided by a vertical hairline; there is no blur, no gradient, no
+ * glow and no shadow except under a menu or a drawer. Hairlines and quiet fills are tints of white,
+ * so they sit equally well on a panel and on a card. The brand teal is calm, used for actions and
+ * for the row you are on; amber, green and red keep to what they mean.
  */
 
 /**
@@ -108,60 +107,30 @@ export const colors = {
 
 export type Colors = typeof colors;
 
-const hazeBase = "#111214";
 /**
- * The two light pools in the backdrop. Each sits at `at` and reaches `size`, both as fractions of the
- * screen's width and height. It is white at `alpha` in the middle and fades to nothing at `fade` of
- * its reach. The web draws them as a picture (src/haze-dither.ts), where they can be rounded without
- * steps; native and the CSS fallback draw them as radial gradients.
- */
-const hazePools = [
-  { at: [0, 0], size: [0.7, 0.9], alpha: 0.1, fade: 0.7 },
-  { at: [1, 1], size: [0.75, 0.85], alpha: 0.065, fade: 0.7 },
-] as const;
-const percent = (fraction: number) => `${Math.round(fraction * 1000) / 10}%`;
-const hazeLayers = hazePools
-  .map(
-    ({ at, size, alpha, fade }) =>
-      `radial-gradient(${percent(size[0])} ${percent(size[1])} at ${percent(at[0])} ${percent(at[1])}, rgba(255,255,255,${alpha}), rgba(255,255,255,0) ${percent(fade)})`,
-  )
-  .join(", ");
-/**
- * The backdrop behind the glass: near-black charcoal, a shade lighter at the top left and at the
- * bottom right, scaled to the screen. It has no hue and nothing glows. The web draws the `pools` as
- * a picture with the steps dithered away (src/haze-dither.ts), over `css` until that is ready. Native
- * draws `layers` as React Native's own gradient style when the build opts in to the native glass
- * look, and otherwise keeps the flat `base`. `lightest` is the brightest tone the backdrop reaches,
- * and text on glass is checked against it (test/theme.test.ts).
+ * The backdrop behind the panels: flat near-black charcoal, with no hue, no light pool and no
+ * gradient. `lightest` is the brightest tone it reaches, which text on a panel is checked against
+ * (test/theme.test.ts).
  */
 export const haze = {
-  base: hazeBase,
-  lightest: "#2A2C2E",
-  pools: hazePools,
-  layers: hazeLayers,
-  css: `${hazeLayers}, ${hazeBase}`,
+  base: "#111214",
+  lightest: "#111214",
 } as const;
 
 /**
- * Glass fills. The web lays them over what is behind; native has no blur here, so its `*Solid`
- * fills are a little more opaque. Only a sheet blurs (`blur`): a panel has nothing but the haze
- * behind it, and a blur would average the haze's dither back into steps.
+ * Panel fills, all solid. Each step is a shade lighter than the one beneath it, so regions read apart
+ * without a shadow: the rail is the backdrop, then the panels, then bars, then what is raised off a
+ * panel (the composer and the phone's tab bar), then a sheet over the dimmed page.
  */
 export const glass = {
-  /** A panel: the sidebar, a channel, a thread. */
-  panel: "rgba(255,255,255,0.055)",
+  /** A panel: the sidebar, a channel, a thread, the main area. */
+  panel: "#17191B",
   /** A bar: the phone's header. */
-  bar: "rgba(255,255,255,0.08)",
+  bar: "#1B1D20",
   /** Raised off a panel: the composer and the phone's tab bar. */
-  raised: "rgba(36,38,42,0.92)",
+  raised: "#202225",
   /** A sheet over the dimmed page. */
-  sheet: "rgba(26,28,31,0.95)",
-  panelSolid: "rgba(255,255,255,0.07)",
-  barSolid: "rgba(255,255,255,0.10)",
-  raisedSolid: "rgba(36,38,42,0.97)",
-  sheetSolid: "rgba(26,28,31,0.98)",
-  /** The blur behind a sheet (web). */
-  blur: "blur(30px) saturate(110%)",
+  sheet: "#1A1C1F",
 } as const;
 
 /** Text roles drawn straight onto glass. The test checks each against a fill over the lightest haze. */
@@ -280,29 +249,21 @@ export const type = {
 } as const;
 
 /** Corner radii. Circles use half their size and are not in this scale. */
-export const radius = { sm: 6, md: 10, lg: 12, xl: 20, xxl: 25, panel: 18, pill: 999 } as const;
+export const radius = { sm: 6, md: 10, lg: 12, xl: 20, xxl: 25, pill: 999 } as const;
 
 /** Spacing scale: multiples of 4. */
 export const sp = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const;
 
-/** Elevation, as CSS box-shadow strings (supported by React Native 0.76+ and the web). */
+/**
+ * Elevation, as CSS box-shadow strings (supported by React Native 0.76+ and the web). The app is flat:
+ * a card, a button, a panel and the composer have no shadow and are told apart by their fill and a
+ * hairline. Only what floats over the page keeps one.
+ */
 export const shadow = {
-  /** Cards at rest. */
-  card: "inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 8px rgba(0,0,0,0.28)",
-  /** Cards under the pointer. */
-  raised: "0 6px 18px rgba(0,0,0,0.42)",
   /** Menus and floating panels. */
-  popover: "0 10px 30px rgba(0,0,0,0.45)",
-  /** A glass panel: a rim that catches more light along its top and left edges, a hairline, and a soft drop. */
-  panel:
-    "inset 1px 1px 0 rgba(255,255,255,0.10), inset -1px -1px 0 rgba(255,255,255,0.03), 0 0 0 1px rgba(255,255,255,0.06), 0 22px 54px rgba(0,0,0,0.45)",
-  /** The selected row in a list on glass: a faint ring. */
-  lens: "inset 0 1px 0 rgba(255,255,255,0.07), 0 0 0 1px rgba(255,255,255,0.09)",
+  popover: "0 8px 24px rgba(0,0,0,0.35)",
   /** The row you are on in the sidebar: a faint ring. */
   active: "inset 0 0 0 1px rgba(255,255,255,0.10)",
-  /** Raised off a panel: the composer and the phone's tab bar. */
-  float:
-    "inset 1px 1px 0 rgba(255,255,255,0.12), inset -1px -1px 0 rgba(255,255,255,0.03), 0 0 0 1px rgba(255,255,255,0.08), 0 12px 30px rgba(0,0,0,0.38)",
   /** Focus ring drawn around inputs. */
   focus: `0 0 0 2px ${colors.focusRing}`,
 } as const;
@@ -319,8 +280,5 @@ export const fontFamily = {
   monoAndroid: "monospace",
 } as const;
 
-/**
- * Shared chrome sizes, so the sidebar header and the main header always line up. `gap` is the room
- * between panels and the margin round them.
- */
-export const layout = { headerHeight: 56, gap: 12 } as const;
+/** Shared chrome sizes, so the sidebar header and the main header always line up. */
+export const layout = { headerHeight: 56 } as const;
