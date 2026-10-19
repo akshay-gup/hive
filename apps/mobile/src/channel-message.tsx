@@ -78,6 +78,7 @@ export function ChannelMessage({
   replyDisabled,
   selected,
   grouped = false,
+  own = false,
   timestamp,
   onNotify,
 }: {
@@ -91,6 +92,8 @@ export function ChannelMessage({
   selected?: boolean;
   onNotify: (message: string) => void;
   grouped?: boolean;
+  /** Written by the person looking at the channel: it sits on the right, in a bubble, like a message you sent. */
+  own?: boolean;
   timestamp?: number;
 }) {
   const [rowHovered, setHovered] = useState(false);
@@ -158,34 +161,36 @@ export function ChannelMessage({
         ...(selected ? { boxShadow: shadow.active } : null),
       }}
     >
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <View style={{ width: 36, alignItems: "center" }}>
-          {grouped ? (
-            showGutterTime && (
-              <Text style={[s.small, { fontSize: fontSize.micro, lineHeight: 22 }]}>
-                {clock(timestamp, false)}
-              </Text>
-            )
-          ) : assistant ? (
-            <Mascot size={36} variant={data?.identity.avatar} />
-          ) : (
-            <View
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: radius.lg,
-                backgroundColor: authorTint(author),
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={[s.text, { fontWeight: "700" }]}>
-                {author.slice(0, 1).toUpperCase()}
-              </Text>
-            </View>
-          )}
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
+      <View style={{ flexDirection: own ? "row-reverse" : "row", gap: 10 }}>
+        {!own && (
+          <View style={{ width: 36, alignItems: "center" }}>
+            {grouped ? (
+              showGutterTime && (
+                <Text style={[s.small, { fontSize: fontSize.micro, lineHeight: 22 }]}>
+                  {clock(timestamp, false)}
+                </Text>
+              )
+            ) : assistant ? (
+              <Mascot size={36} variant={data?.identity.avatar} />
+            ) : (
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: radius.lg,
+                  backgroundColor: authorTint(author),
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={[s.text, { fontWeight: "700" }]}>
+                  {author.slice(0, 1).toUpperCase()}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+        <View style={{ flex: 1, minWidth: 0, alignItems: own ? "flex-end" : "stretch" }}>
           {!grouped && (
             <View style={[s.row, { gap: 8 }]}>
               <Text style={[s.text, { fontWeight: "700", lineHeight: 20 }]}>{author}</Text>
@@ -195,9 +200,22 @@ export function ChannelMessage({
           {assistant ? (
             <AssistantResponse content={text} />
           ) : (
-            <Text selectable style={[s.text, { lineHeight: 22 }]}>
-              {text}
-            </Text>
+            // What people say sits in a bubble, as in a chat; what the agent says is plain text on the page.
+            <View
+              style={{
+                alignSelf: own ? "flex-end" : "flex-start",
+                maxWidth: "85%",
+                paddingHorizontal: 14,
+                paddingVertical: 9,
+                borderRadius: radius.xl,
+                ...(own ? { borderBottomRightRadius: 6 } : { borderTopLeftRadius: 6 }),
+                backgroundColor: own ? colors.primarySoft : colors.surface,
+              }}
+            >
+              <Text selectable style={[s.text, { lineHeight: 22 }]}>
+                {text}
+              </Text>
+            </View>
           )}
           {onReply && hasThread && (
             <Pressable

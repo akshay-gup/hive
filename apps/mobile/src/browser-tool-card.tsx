@@ -1,9 +1,9 @@
-import { Check, Globe2, Hand, RotateCw } from "lucide-react-native";
+import { Check, ChevronRight, Globe2 } from "lucide-react-native";
 import { createContext, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, AppState, Image, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 import { z } from "zod";
 import type { BrowserSession } from "../../../packages/domain/src";
-import { Button, Card, colors, ErrorNotice, fontSize, IconSlot, radius, s } from "./ui";
+import { colors, IconSlot, radius, s, type WebPressState } from "./ui";
 import { useWorkspace } from "./workspace";
 
 export const BrowserRunContext = createContext({ running: false, active: false });
@@ -52,7 +52,6 @@ export function BrowserToolCard({
   const current = workspace.browsers.find((browser) => browser.id === sessionId);
   const [browser, setBrowser] = useState<BrowserSession>();
   const [error, setError] = useState("");
-  const [previewFailed, setPreviewFailed] = useState(false);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
@@ -60,7 +59,6 @@ export function BrowserToolCard({
     let active = true;
     async function connect() {
       setError("");
-      setPreviewFailed(false);
       try {
         const session = await api.request<BrowserSession>(
           `/api/browsers/${encodeURIComponent(sessionId || "")}`,
@@ -81,115 +79,74 @@ export function BrowserToolCard({
   }, [api, sessionId, current?.updatedAt, retry]);
 
   const visited = observation.success ? observation.data : undefined;
-  // A later turn can reuse the same browser. Never label that new page as an old source.
-  const preview =
-    browser?.status === "active" && browser.url === visited?.url && !previewFailed
-      ? browser.previewUrl
-      : undefined;
   const failure = toolError.success
     ? toolError.data.error
     : !loading && !visited
       ? "The browser did not return a page. Try your request again."
       : "";
+  const status = working
+    ? "Reading the page…"
+    : loading
+      ? "Browsing paused"
+      : failure
+        ? "Couldn’t read the page"
+        : `Read ${siteLabel(visited?.url)}`;
+  // Taking control is what the line is for; it is there once the page has been read.
+  const canOpen = !loading && !!visited && !!browser && !running;
   return (
-    <Card
-      style={{
-        padding: 13,
-        backgroundColor: colors.surfaceMuted,
-        gap: 12,
-        width: "100%",
-        maxWidth: 440,
-      }}
-    >
-      <View style={[s.row, { gap: 10 }]}>
-        <View style={[s.iconBox, { width: 36, height: 36, borderRadius: radius.md }]}>
-          <Globe2 size={21} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1, gap: 1 }}>
-          <Text style={[s.text, { fontWeight: "600" }]}>Browser</Text>
-          <Text numberOfLines={1} style={[s.small, { fontSize: fontSize.caption }]}>
-            {working
-              ? "Reading the page…"
-              : loading
-                ? "Browsing paused"
-                : failure
-                  ? "Couldn’t read the page"
-                  : siteLabel(visited?.url)}
+    <View style={{ alignSelf: "flex-start", maxWidth: 480, gap: 4 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={canOpen ? `${status}. Take control of the browser` : status}
+        disabled={!canOpen}
+        onPress={() => browser && open({ type: "browser", browser })}
+        style={({ pressed, hovered }: WebPressState) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          paddingVertical: 9,
+          paddingHorizontal: 14,
+          borderRadius: radius.xl,
+          borderWidth: 1,
+          borderColor: colors.line,
+          backgroundColor: pressed || (hovered && canOpen) ? colors.surfaceMuted : colors.surface,
+        })}
+      >
+        <Globe2 size={18} color={colors.primary} />
+        <View style={{ flexShrink: 1 }}>
+          <Text style={[s.text, { fontWeight: "600" }]} numberOfLines={1}>
+            {visited?.title || siteLabel(url)}
+          </Text>
+          <Text style={s.small} numberOfLines={1}>
+            {status}
           </Text>
         </View>
         <IconSlot>
           {working ? (
             <ActivityIndicator size="small" color={colors.primary} />
+          ) : canOpen ? (
+            <ChevronRight size={16} color={colors.muted} />
           ) : visited ? (
-            <Check size={17} color={colors.success} accessibilityLabel="Page read" />
+            <Check size={16} color={colors.success} accessibilityLabel="Page read" />
           ) : null}
         </IconSlot>
-      </View>
-      {preview ? (
-        <Image
-          accessibilityLabel={`Browser preview: ${visited?.title}`}
-          source={{ uri: api.url(preview) }}
-          style={{
-            width: "100%",
-            aspectRatio: 1.7,
-            borderRadius: radius.lg,
-            backgroundColor: colors.surface,
-          }}
-          resizeMode="contain"
-          onError={() => setPreviewFailed(true)}
-        />
-      ) : (
-        <View
-          style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: 21, gap: 12 }}
-        >
-          <Text numberOfLines={2} style={[s.text, { fontSize: fontSize.ui }]}>
-            {visited?.title || siteLabel(url)}
-          </Text>
-          {working ? (
-            <View style={{ gap: 8 }}>
-              {(["90%", "74%", "84%"] as const).map((width) => (
-                <View
-                  key={width}
-                  style={{
-                    height: 7,
-                    width,
-                    borderRadius: radius.sm,
-                    backgroundColor: colors.line,
-                  }}
-                />
-              ))}
-            </View>
-          ) : visited ? (
-            <Text style={s.small}>
-              {browser && browser.url !== visited.url
-                ? "Page visited. The browser has moved on."
-                : browser?.status === "closed"
-                  ? "Session saved. Take control to reopen it."
-                  : browser?.status === "error"
-                    ? "Session needs attention. Take control to reconnect."
-                    : previewFailed
-                      ? "Preview unavailable. You can still take control."
-                      : "Connecting to the saved session…"}
-            </Text>
-          ) : null}
+      </Pressable>
+      {!!(failure || error) && (
+        <View style={[s.row, { gap: 10, paddingHorizontal: 4 }]}>
+          <Text style={[s.small, { color: colors.danger, flexShrink: 1 }]}>{failure || error}</Text>
+          {!!error && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reconnect preview"
+              onPress={() => setRetry((attempt) => attempt + 1)}
+            >
+              <Text style={[s.small, { fontWeight: "700", color: colors.primaryText }]}>
+                Try again
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
-      <ErrorNotice error={failure || error} />
-      {!loading && visited && (
-        <Button
-          icon={Hand}
-          disabled={!browser || running}
-          onPress={() => browser && open({ type: "browser", browser })}
-          style={{ backgroundColor: colors.surface }}
-        >
-          Take control
-        </Button>
-      )}
-      {!!error && (
-        <Button small icon={RotateCw} onPress={() => setRetry((attempt) => attempt + 1)}>
-          Reconnect preview
-        </Button>
-      )}
-    </Card>
+    </View>
   );
 }

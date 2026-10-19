@@ -1,9 +1,9 @@
-import { Mail, Search } from "lucide-react-native";
+import { ChevronRight, Mail, Search } from "lucide-react-native";
 import { useContext } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { z } from "zod";
 import { BrowserRunContext } from "./browser-tool-card";
-import { Button, Card, colors, ErrorNotice, IconSlot, s } from "./ui";
+import { colors, ErrorNotice, IconSlot, radius, s, type WebPressState } from "./ui";
 import { useWorkspace } from "./workspace";
 
 const messageSchema = z.object({
@@ -80,38 +80,38 @@ export function MailToolCard({
   if (!parsed.success) return <ErrorNotice error="The email could not be displayed." />;
   const message = parsed.data.messages.at(-1);
   if (!message) return <Text style={s.muted}>No messages in this thread.</Text>;
+  const count = parsed.data.messages.length;
   return (
-    <Card
-      style={{
-        padding: 18,
-        gap: 14,
-        backgroundColor: colors.surfaceMuted,
-        maxWidth: 440,
-        width: "100%",
-      }}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open email from ${message.sender}: ${message.subject}`}
+      onPress={() => open({ type: "mail", mail: message })}
+      style={({ pressed, hovered }: WebPressState) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        alignSelf: "flex-start",
+        gap: 10,
+        maxWidth: 480,
+        paddingVertical: 9,
+        paddingHorizontal: 14,
+        borderRadius: radius.xl,
+        borderWidth: 1,
+        borderColor: colors.line,
+        backgroundColor: pressed || hovered ? colors.surfaceMuted : colors.surface,
+      })}
     >
-      <View style={[s.row, { gap: 10 }]}>
-        <View style={[s.iconBox, { backgroundColor: colors.primarySoft }]}>
-          <Mail size={20} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[s.text, { fontWeight: "600" }]}>{message.sender}</Text>
-          <Text style={s.small}>
-            Email ·{" "}
-            {parsed.data.messages.length === 1
-              ? "1 message"
-              : `${parsed.data.messages.length} messages`}
-          </Text>
-        </View>
+      <Mail size={18} color={colors.primary} />
+      <View style={{ flexShrink: 1 }}>
+        <Text style={[s.text, { fontWeight: "600" }]} numberOfLines={1}>
+          {message.subject}
+        </Text>
+        <Text style={s.small} numberOfLines={1}>
+          {message.sender}
+          {count > 1 ? ` · ${count} messages` : ""}
+          {parsed.data.truncated ? " · excerpt" : ""}
+        </Text>
       </View>
-      <Text style={s.heading}>{message.subject}</Text>
-      <Text style={s.muted} numberOfLines={3}>
-        {message.body}
-      </Text>
-      {parsed.data.truncated && <Text style={s.small}>Showing an excerpt of this thread.</Text>}
-      <Button small icon={Mail} onPress={() => open({ type: "mail", mail: message })}>
-        Open email
-      </Button>
-    </Card>
+      <ChevronRight size={16} color={colors.muted} />
+    </Pressable>
   );
 }

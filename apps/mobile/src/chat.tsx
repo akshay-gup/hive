@@ -968,6 +968,7 @@ export function ChatScreen({
                           author={user ? message.name || w.profile.name || "You" : agentName}
                           assistant={!user}
                           grouped={grouped}
+                          own={user && (!message.name || message.name === w.profile.name)}
                           timestamp={timestamp}
                           selected={panelOpen && replyPanel?.parent.id === message.id}
                           onReply={channelId ? () => void openReply(message) : undefined}

@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Artifact, BrowserSession } from "../../../packages/domain/src";
 import type { AgentArtifact, AgentTask } from "../../../packages/domain/src/agent";
-import { ArtifactCard, TaskCard } from "./agent-ui";
+import { ArtifactCard, TaskLine } from "./agent-ui";
 import { BrowserThreadCard } from "./computer";
-import { Button, brand, Card, colors, ErrorNotice, fontSize, radius, s } from "./ui";
+import { brand, Card, colors, fontSize, radius, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 export function FileThreadCard({ file }: { file: Artifact }) {
@@ -92,7 +92,7 @@ export function TaskThreadCard({ task }: { task: AgentTask }) {
   }, [api, task.id, task.updatedAt, attempt]);
   return (
     <View style={{ gap: 12 }}>
-      <TaskCard task={task} compact />
+      <TaskLine task={task} />
       {detail?.browsers.map((browser) => (
         <BrowserThreadCard key={browser.id} browser={browser} />
       ))}
@@ -105,11 +105,19 @@ export function TaskThreadCard({ task }: { task: AgentTask }) {
       {detail?.artifacts.map((artifact) => (
         <ArtifactCard key={artifact.id} artifact={artifact} />
       ))}
-      <ErrorNotice error={error} />
       {!!error && (
-        <Button small onPress={() => setAttempt((value) => value + 1)}>
-          Reload task results
-        </Button>
+        <View style={[s.row, { gap: 10, paddingHorizontal: 4 }]}>
+          <Text style={[s.small, { color: colors.danger, flexShrink: 1 }]}>{error}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reload task results"
+            onPress={() => setAttempt((value) => value + 1)}
+          >
+            <Text style={[s.small, { fontWeight: "700", color: colors.primaryText }]}>
+              Try again
+            </Text>
+          </Pressable>
+        </View>
       )}
     </View>
   );

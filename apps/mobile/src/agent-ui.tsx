@@ -121,6 +121,53 @@ export function AgentStatus() {
     </View>
   );
 }
+/**
+ * A task in the middle of a conversation: one quiet line that says what it is and where it stands,
+ * and opens it. The board and the task's page carry the detail; the chat is for talking.
+ */
+export function TaskLine({ task }: { task: AgentTask }) {
+  const { open } = useWorkspace();
+  const done = task.plan.filter((step) => step.status === "succeeded").length;
+  const waiting = ["waiting_input", "waiting_approval", "in_review"].includes(task.status);
+  const meta = statusMeta[task.status];
+  const steps = task.plan.length ? ` · ${done}/${task.plan.length} steps` : "";
+  const label = taskStatusLabel(task);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open task: ${task.title}`}
+      onPress={() => open({ type: "task", taskId: task.id })}
+      style={({ pressed, hovered }: WebPressState) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        alignSelf: "flex-start",
+        gap: 10,
+        maxWidth: 480,
+        paddingVertical: 9,
+        paddingHorizontal: 14,
+        borderRadius: radius.xl,
+        borderWidth: 1,
+        borderColor:
+          task.status === "failed" ? colors.dangerLine : waiting ? colors.warningLine : colors.line,
+        backgroundColor:
+          pressed || hovered ? colors.surfaceMuted : waiting ? colors.accentSoft : colors.surface,
+      })}
+    >
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: meta.dot }} />
+      <View style={{ flexShrink: 1 }}>
+        <Text style={[s.text, { fontWeight: "600" }]} numberOfLines={1}>
+          {task.title}
+        </Text>
+        <Text style={s.small} numberOfLines={1}>
+          {label.charAt(0) + label.slice(1).toLowerCase()}
+          {steps}
+        </Text>
+      </View>
+      <ChevronRight size={16} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 export function TaskCard({
   task,
   compact = false,
