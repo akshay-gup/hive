@@ -5,10 +5,8 @@ import {
   ChevronDown,
   ChevronRight,
   CircleCheck,
-  CircleDollarSign,
   FileText,
   Globe2,
-  Heart,
   Lightbulb,
   ListChecks,
   Mail,
@@ -17,7 +15,6 @@ import {
   Plus,
   RefreshCw,
   Target,
-  Users,
   X,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -54,7 +51,6 @@ import {
   Card,
   CheckRow,
   Chip,
-  CreateTile,
   colors,
   Empty,
   ErrorNotice,
@@ -72,7 +68,6 @@ import {
   Segmented,
   Sheet,
   s,
-  shadow,
   type WebPressState,
 } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -169,7 +164,11 @@ export function TaskCard({
               : hovered
                 ? colors.lineStrong
                 : colors.line,
-        backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
+        backgroundColor: pressed
+          ? colors.surfaceMuted
+          : waiting
+            ? colors.accentSoft
+            : colors.surface,
       })}
     >
       <View style={[s.row, { gap: 8 }]}>
@@ -1329,9 +1328,14 @@ export function GoalsScreen() {
       </View>
       <View style={{ height: 1, backgroundColor: colors.line }} />
       <View style={{ gap: 12 }}>
-        <View style={[s.row, { gap: 10, marginBottom: 4 }]}>
-          <HaloDot color={colors.primary} halo={colors.primarySoftStrong} />
-          <Text style={s.heading}>Goals</Text>
+        <View style={[s.between, { marginBottom: 4 }]}>
+          <View style={[s.row, { gap: 10 }]}>
+            <HaloDot color={colors.primary} halo={colors.primarySoftStrong} />
+            <Text style={s.heading}>Goals</Text>
+          </View>
+          <Button small icon={Plus} onPress={() => setAdding("Goal")}>
+            New goal
+          </Button>
         </View>
         {data?.goals.map((item) => {
           const total = item.milestones.length;
@@ -1409,22 +1413,6 @@ export function GoalsScreen() {
           </Text>
         )}
       </View>
-      <View style={{ height: 1, backgroundColor: colors.line }} />
-      <Text style={s.heading}>Create a goal</Text>
-      {[
-        { name: "Health", icon: Heart },
-        { name: "Relationships", icon: Users },
-        { name: "Finances", icon: CircleDollarSign },
-        { name: "Something else", icon: Target },
-      ].map((item) => (
-        <CreateTile
-          key={item.name}
-          icon={item.icon}
-          label={item.name}
-          accessibilityLabel={`Create ${item.name.toLowerCase()} goal`}
-          onPress={() => setAdding(item.name)}
-        />
-      ))}
       {adding && (
         <Sheet
           title={adding === "Tracking" ? "Track something" : "Create a goal"}
@@ -1433,7 +1421,7 @@ export function GoalsScreen() {
           {adding === "Tracking" ? (
             <MonitorForm onDone={() => setAdding(undefined)} />
           ) : (
-            <GoalForm category={adding} onDone={() => setAdding(undefined)} />
+            <GoalForm onDone={() => setAdding(undefined)} />
           )}
         </Sheet>
       )}
@@ -1450,7 +1438,7 @@ export function GoalsScreen() {
     </View>
   );
 }
-function GoalForm({ onDone, category }: { onDone: () => void; category?: string }) {
+function GoalForm({ onDone }: { onDone: () => void }) {
   const { mutate } = useAgentWorkspace();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -1463,7 +1451,6 @@ function GoalForm({ onDone, category }: { onDone: () => void; category?: string 
     try {
       await mutate("/goals", {
         title: title.trim(),
-        category,
         description,
         milestones: milestones
           .split("\n")
@@ -1794,6 +1781,13 @@ export function NotificationsSheet() {
       setError(errorText(e));
     }
   }
+  async function dismiss(path: string) {
+    try {
+      await mutate(path, {});
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
   return (
     <Sheet
       title="Notifications"
@@ -1802,6 +1796,15 @@ export function NotificationsSheet() {
     >
       <View style={{ gap: 16 }}>
         <ErrorNotice error={error} />
+        {!!data?.notifications.length && (
+          <Button
+            small
+            style={{ alignSelf: "flex-end" }}
+            onPress={() => void dismiss("/notifications/dismiss-all")}
+          >
+            Clear all
+          </Button>
+        )}
         {data?.notifications.map((item) => (
           <Card
             key={item.id}
@@ -1813,9 +1816,14 @@ export function NotificationsSheet() {
             </View>
             <Text style={s.muted}>{item.body}</Text>
             <Text style={s.small}>{stamp(item.createdAt)}</Text>
-            <Button small onPress={() => void read(item.id, item.taskId)}>
-              {item.taskId ? "View task" : item.read ? "Read" : "Mark read"}
-            </Button>
+            <View style={[s.row, { gap: 8 }]}>
+              <Button small onPress={() => void read(item.id, item.taskId)}>
+                {item.taskId ? "View task" : item.read ? "Read" : "Mark read"}
+              </Button>
+              <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>
+                Dismiss
+              </Button>
+            </View>
           </Card>
         ))}
         {!data?.notifications.length && (
