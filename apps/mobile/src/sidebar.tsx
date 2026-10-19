@@ -26,12 +26,13 @@ import {
 import { useWorkspace } from "./workspace";
 
 /**
- * How a row is laid out. On a wide window a row is 30 px, as in a chat app's list; where it is
- * touched it is 40 px. The icon starts 16 px in on both, in line with the header above.
+ * How a row is laid out. On a wide window a row is 36 px, which leaves the list room to breathe;
+ * where it is touched it is 40 px. The icon starts 20 px in on a wide window (the list's 12 plus the
+ * row's 8), in line with the header above.
  */
 const rowMetrics = (dense: boolean) =>
   dense
-    ? { padX: 8, padY: 5, gap: 10, icon: 16, radius: 8 }
+    ? { padX: 8, padY: 8, gap: 12, icon: 17, radius: 8 }
     : { padX: 8, padY: 10, gap: 12, icon: 17, radius: 10 };
 
 function SidebarRow({
@@ -130,9 +131,9 @@ function ChannelPlaceholders({ count, dense }: { count: number; dense: boolean }
 }
 
 /** The width of the strip of icons, and of one icon in it. */
-const RAIL_WIDTH = 64;
+const RAIL_WIDTH = 76;
 /** The width of the list beside the strip, which is there while in the conversations. */
-const LIST_WIDTH = 232;
+const LIST_WIDTH = 256;
 
 /** One place in the strip: its icon, and its name under it, so no one has to guess what an icon is. */
 function RailItem({
@@ -154,7 +155,7 @@ function RailItem({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ selected: !!active }}
       onPress={onPress}
-      style={{ width: RAIL_WIDTH - 4, alignItems: "center", gap: 3, paddingVertical: 4 }}
+      style={{ width: RAIL_WIDTH - 4, alignItems: "center", gap: 5, paddingVertical: 6 }}
     >
       {(state) => {
         const { pressed, hovered } = state as WebPressState;
@@ -162,8 +163,8 @@ function RailItem({
           <>
             <View
               style={{
-                width: 40,
-                height: 32,
+                width: 46,
+                height: 36,
                 borderRadius: radius.md,
                 alignItems: "center",
                 justifyContent: "center",
@@ -174,7 +175,7 @@ function RailItem({
                     : "transparent",
               }}
             >
-              <Icon size={19} strokeWidth={1.8} color={active ? colors.text : colors.muted} />
+              <Icon size={20} strokeWidth={1.8} color={active ? colors.text : colors.muted} />
             </View>
             <Text
               style={{
@@ -390,7 +391,7 @@ export function Sidebar({
         active={section === "chat" && isMainActive}
         onPress={() => conversation(mainSelection)}
       />
-      <View style={[s.row, { marginTop: 14, paddingLeft: 8 }]}>
+      <View style={[s.row, { marginTop: 24, marginBottom: 4, paddingLeft: 8 }]}>
         <Text style={[s.label, { flex: 1 }]}>Channels</Text>
         <Pressable
           accessibilityRole="button"
@@ -501,7 +502,7 @@ export function Sidebar({
           <ScrollView
             style={{ flex: 1, width: "100%" }}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ alignItems: "center", paddingTop: 4, gap: 2 }}
+            contentContainerStyle={{ alignItems: "center", paddingTop: 8, gap: 10 }}
           >
             {places.map((item) => (
               <RailItem
@@ -513,7 +514,7 @@ export function Sidebar({
               />
             ))}
           </ScrollView>
-          <View style={{ alignItems: "center", gap: 2, paddingBottom: 6 }}>
+          <View style={{ alignItems: "center", gap: 10, paddingBottom: 12 }}>
             <RailItem
               icon={SquarePen}
               label="Delegate"
@@ -565,7 +566,7 @@ export function Sidebar({
             style={[
               s.row,
               {
-                paddingHorizontal: 16,
+                paddingHorizontal: 20,
                 height: layout.headerHeight,
                 gap: 8,
               },
@@ -575,7 +576,7 @@ export function Sidebar({
           </View>
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8, gap: 1 }}
+            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 12, gap: 2 }}
           >
             {conversations}
           </ScrollView>
