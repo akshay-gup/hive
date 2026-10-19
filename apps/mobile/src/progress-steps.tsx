@@ -28,9 +28,9 @@ function StepIcon({ state }: { state: ProgressStep["state"] }) {
  * happening now or how the work went, and the steps behind it when it is opened. This is for work
  * done in the conversation itself; a task that was saved has its own page and card.
  */
-export function RunProgress({ steps }: { steps: ProgressStep[] }) {
+export function RunProgress({ steps, elapsedMs }: { steps: ProgressStep[]; elapsedMs?: number }) {
   const [open, setOpen] = useState(false);
-  const summary = summarizeSteps(steps);
+  const summary = summarizeSteps(steps, elapsedMs);
   const running = steps.some((step) => step.state === "running");
   const Chevron = open ? ChevronDown : ChevronRight;
   return (

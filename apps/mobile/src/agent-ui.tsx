@@ -147,10 +147,15 @@ export function TaskLine({ task }: { task: AgentTask }) {
         paddingHorizontal: 14,
         borderRadius: radius.xl,
         borderWidth: 1,
-        borderColor:
-          task.status === "failed" ? colors.dangerLine : waiting ? colors.warningLine : colors.line,
-        backgroundColor:
-          pressed || hovered ? colors.surfaceMuted : waiting ? colors.accentSoft : colors.surface,
+        borderColor: colors.line,
+        // What needs a person, and what failed, is marked by the card's left edge, not by a tint.
+        ...(task.status === "failed" || waiting
+          ? {
+              borderLeftWidth: 4,
+              borderLeftColor: task.status === "failed" ? colors.danger : colors.warning,
+            }
+          : null),
+        backgroundColor: pressed || hovered ? colors.surfaceMuted : colors.paper,
       })}
     >
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: meta.dot }} />
@@ -204,19 +209,15 @@ export function TaskCard({
         padding: compact ? 12 : 14,
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor:
-          task.status === "failed"
-            ? colors.dangerLine
-            : waiting
-              ? colors.warningLine
-              : hovered
-                ? colors.lineStrong
-                : colors.line,
-        backgroundColor: pressed
-          ? colors.surfaceMuted
-          : waiting
-            ? colors.accentSoft
-            : colors.surface,
+        borderColor: hovered ? colors.lineStrong : colors.line,
+        // What needs a person, and what failed, is marked by the card's left edge, not by a tint.
+        ...(task.status === "failed" || waiting
+          ? {
+              borderLeftWidth: 4,
+              borderLeftColor: task.status === "failed" ? colors.danger : colors.warning,
+            }
+          : null),
+        backgroundColor: pressed ? colors.surfaceMuted : colors.paper,
       })}
     >
       <View style={[s.row, { gap: 8 }]}>

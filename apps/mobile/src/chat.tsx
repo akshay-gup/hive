@@ -68,6 +68,7 @@ import {
   writePanelWidth,
 } from "./panel-width";
 import { RunProgress } from "./progress-steps";
+import { loadRunDurations, saveRunDurations } from "./run-durations";
 import { progressItems, showsRunningStep } from "./run-progress";
 import { TaskThreadCard } from "./thread-artifacts";
 import { countThreadReplies } from "./thread-replies";
@@ -404,6 +405,9 @@ export function ChatScreen({
   const runLock = useRef(false);
   /** Times in a row a response cut off by the workspace restarting was tried again by itself. */
   const autoRetries = useRef(0);
+  /** How long the agent worked on each reply, by the reply's id, for "Worked for 3 minutes". */
+  const [durations, setDurations] = useState<Record<string, number>>({});
+  useEffect(() => setDurations(loadRunDurations(threadId)), [threadId]);
   const [saveError, setSaveError] = useState("");
   const [historyError, setHistoryError] = useState("");
   const [historyAttempt, setHistoryAttempt] = useState(0);
@@ -469,6 +473,7 @@ export function ChatScreen({
       runLock.current = true;
       setBusy(true);
       setError("");
+      const startedAt = Date.now();
       // A channel mention is already persisted as the thread's root. Run
       // that message in place instead of appending it as a second user turn.
       if (message && !agent.messages.some((existing) => existing.id === message.id))
@@ -480,6 +485,20 @@ export function ChatScreen({
           (onError) => copilotkit.subscribe({ onError }),
         );
         autoRetries.current = 0;
+        // The reply this turn ended on is the one that says how long the work took.
+        const lastUser = agent.messages.map((m) => m.role).lastIndexOf("user");
+        const reply = agent.messages
+          .slice(lastUser + 1)
+          .filter((m) => m.role === "assistant")
+          .at(-1);
+        if (reply) {
+          const elapsed = Date.now() - startedAt;
+          setDurations((known) => {
+            const next = { ...known, [reply.id]: elapsed };
+            saveRunDurations(threadId, next);
+            return next;
+          });
+        }
         await Promise.all([refresh(), refreshAgent()]);
       } finally {
         try {
@@ -495,7 +514,18 @@ export function ChatScreen({
         }
       }
     },
-    [agent, agentId, copilotkit, isReady, loaded, refresh, refreshAgent, saveHistory, queue],
+    [
+      agent,
+      agentId,
+      copilotkit,
+      isReady,
+      loaded,
+      refresh,
+      refreshAgent,
+      saveHistory,
+      queue,
+      threadId,
+    ],
   );
   const runQueued = useCallback(
     async (message: QueuedMessage) => {
@@ -1044,7 +1074,11 @@ export function ChatScreen({
                               })}
                             </View>
                           ) : (
-                            <RunProgress key={item.id} steps={item.steps} />
+                            <RunProgress
+                              key={item.id}
+                              steps={item.steps}
+                              elapsedMs={durations[message.id]}
+                            />
                           ),
                         )}
                       </BrowserRunContext>

@@ -185,26 +185,13 @@ export function TaskBoardCard({
     <View
       style={{
         flexShrink: 0,
-        backgroundColor: colors.surface,
+        backgroundColor: colors.paper,
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor: attention ? colors.warningLine : failed ? colors.dangerLine : colors.line,
+        borderColor: colors.line,
         overflow: "hidden",
       }}
     >
-      {attention && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: colors.warningBg,
-          }}
-        />
-      )}
       {!!stripe && (
         <View
           pointerEvents="none"
@@ -225,12 +212,7 @@ export function TaskBoardCard({
         style={({ pressed, hovered }: WebPressState) => ({
           padding: 14,
           gap: 10,
-          backgroundColor:
-            pressed || hovered
-              ? attention
-                ? colors.warningBg
-                : colors.surfaceMuted
-              : "transparent",
+          backgroundColor: pressed || hovered ? colors.surfaceMuted : "transparent",
         })}
       >
         <View style={[s.row, { gap: 8 }]}>
@@ -261,7 +243,7 @@ export function TaskBoardCard({
         >
           {task.title}
         </Text>
-        {!!activity && (
+        {!!activity && activity.trim() !== task.title.trim() && (
           <Text style={s.muted} numberOfLines={3}>
             {activity}
           </Text>
@@ -412,11 +394,10 @@ export function TaskBoard({
         contentContainerStyle={{
           flexDirection: "row",
           alignItems: "stretch",
-          gap: 12,
           flexGrow: 1,
         }}
       >
-        {columns.map((column) => {
+        {columns.map((column, index) => {
           const items = byColumn(column.id);
           const waiting = items.filter((task) => task.kind !== "manual" && needsYou(task.status));
           return (
@@ -428,9 +409,8 @@ export function TaskBoard({
                 flexShrink: 0,
                 flex: wide ? 1 : undefined,
                 gap: 10,
-                backgroundColor: colors.surfaceMuted,
-                borderRadius: radius.xl,
                 padding: 12,
+                ...(index > 0 ? { borderLeftWidth: 1, borderLeftColor: colors.line } : null),
               }}
             >
               <View style={[s.row, { gap: 8, alignItems: "center", paddingHorizontal: 4 }]}>

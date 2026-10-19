@@ -304,12 +304,29 @@ export function showsRunningStep(items: readonly ProgressItem<unknown, unknown>[
 
 const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
-/** One line for a list of steps: what is happening now, or how the work went. */
-export function summarizeSteps(steps: readonly ProgressStep[]): string {
+/** "12 seconds", "3 minutes", "1 hour 5 minutes": how long the agent worked, in words. */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return count(seconds, "second");
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return count(minutes, "minute");
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${count(hours, "hour")}${rest ? ` ${count(rest, "minute")}` : ""}`;
+}
+
+/**
+ * One line for a list of steps: what is happening now, or how the work went. Said as a time when
+ * it is known and worth saying ("Worked for 3 minutes"), as a number of steps otherwise.
+ */
+export function summarizeSteps(steps: readonly ProgressStep[], elapsedMs?: number): string {
   const current = steps.filter((step) => step.state === "running").at(-1);
   if (current) return `Working · ${current.label}`;
   const failed = steps.filter((step) => step.state === "failed").length;
   if (steps.some((step) => step.state === "stopped"))
     return `Stopped · ${count(steps.length, "step")}`;
-  return `Worked through ${count(steps.length, "step")}${failed ? ` · ${failed} didn't work` : ""}`;
+  const missed = failed ? ` · ${failed} didn't work` : "";
+  if (elapsedMs !== undefined && elapsedMs >= 5000)
+    return `Worked for ${formatElapsed(elapsedMs)}${missed}`;
+  return `Worked through ${count(steps.length, "step")}${missed}`;
 }

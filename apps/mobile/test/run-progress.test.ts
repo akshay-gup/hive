@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   CARD_TOOLS,
+  formatElapsed,
   type ProgressStep,
   progressItems,
   progressStep,
@@ -181,4 +182,32 @@ test("a step that is under way is the one thing that says the agent is working",
   // Nothing to show at all, or only hidden tools.
   assert.equal(showsRunningStep([]), false);
   assert.equal(showsRunningStep(progressItems([call("c", "todowrite")], [], true)), false);
+});
+
+test("how long the agent worked is said in words", () => {
+  assert.equal(formatElapsed(12_000), "12 seconds");
+  assert.equal(formatElapsed(1_000), "1 second");
+  assert.equal(formatElapsed(60_000), "1 minute");
+  assert.equal(formatElapsed(3 * 60_000 + 20_000), "3 minutes");
+  assert.equal(formatElapsed(65 * 60_000), "1 hour 5 minutes");
+  assert.equal(formatElapsed(2 * 3600_000), "2 hours");
+});
+
+test("a finished run says how long it took when that is known and worth saying", () => {
+  const step = (state: "done" | "failed" | "running", label = "A step") => ({
+    id: `${state}-${label}`,
+    label,
+    state,
+  });
+  assert.equal(summarizeSteps([step("done")], 3 * 60_000), "Worked for 3 minutes");
+  assert.equal(summarizeSteps([step("done")], 2_000), "Worked through 1 step");
+  assert.equal(summarizeSteps([step("done")]), "Worked through 1 step");
+  assert.equal(
+    summarizeSteps([step("done"), step("failed")], 90_000),
+    "Worked for 2 minutes · 1 didn't work",
+  );
+  assert.equal(
+    summarizeSteps([step("done"), step("running", "Fetching example.org")], 90_000),
+    "Working · Fetching example.org",
+  );
 });
