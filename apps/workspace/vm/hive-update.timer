@@ -1,0 +1,12 @@
+# Asks now and then which build this machine should run. The delay is random so that machines made
+# from one snapshot do not all ask, and restart, at the same moment.
+[Unit]
+Description=Hive workspace update check
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=15min
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -242,7 +242,7 @@ const SHUTDOWN_SECONDS = 90;
  */
 export function cloudConfig(
   settings: Record<string, string>,
-  options: { tunnelToken?: string } = {},
+  options: { tunnelToken?: string; updateUrl?: string } = {},
 ): string {
   const file = (path: string, text: string) => [
     `  - path: ${path}`,
@@ -256,6 +256,10 @@ export function cloudConfig(
     "write_files:",
     ...file("/etc/hive/workspace.json", JSON.stringify(settings)),
     ...(options.tunnelToken ? file("/etc/hive/tunnel-token", options.tunnelToken) : []),
+    // Where the machine asks which build to run. Without it the updater has nothing to do.
+    ...(options.updateUrl
+      ? file("/etc/hive/updater.json", JSON.stringify({ wantedUrl: options.updateUrl }))
+      : []),
     "runcmd:",
     "  - [systemctl, start, --no-block, hive-workspace.service]",
     ...(options.tunnelToken ? ["  - [systemctl, start, --no-block, hive-tunnel.service]"] : []),
@@ -455,7 +459,7 @@ export class DigitalOceanProvisioner implements Provisioner {
           // Only the tunnel's connector, on the machine itself, connects to the server.
           host: this.tunnels ? "127.0.0.1" : undefined,
         }),
-        { tunnelToken },
+        { tunnelToken, updateUrl: spec.updateUrl },
       ),
     });
     return (made as { droplet: DoDroplet }).droplet;

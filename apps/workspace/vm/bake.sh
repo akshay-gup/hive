@@ -35,6 +35,10 @@ HIVE_UID=10001
 CLOUDFLARED_VERSION=${HIVE_CLOUDFLARED_VERSION:-2026.10.0}
 CLOUDFLARED_SHA256=${HIVE_CLOUDFLARED_SHA256:-9721287c28f78cb623e77c7b95a63feea87e909054d75666a0ec9eff20e5d548}
 
+# The tool the updater reads a newer build with: one static program, no Docker. Pinned like cloudflared.
+CRANE_VERSION=${HIVE_CRANE_VERSION:-0.22.1}
+CRANE_SHA256=${HIVE_CRANE_SHA256:-0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0}
+
 say() { printf '\n==> %s\n' "$*"; }
 
 # What the agent finds on its machine is what the container image gives it: the tools a shell
@@ -45,6 +49,7 @@ prepare() {
   apt -y upgrade
   apt install -y --no-install-recommends ca-certificates curl git jq python3 ripgrep unzip nftables sudo
   install_cloudflared
+  install_crane
 }
 
 # Installed on every machine, and started only on one given a tunnel token (see hive-tunnel.service).
@@ -61,6 +66,18 @@ install_cloudflared() {
   apt install -y --no-install-recommends "$deb"
   rm -f "$deb"
   cloudflared --version
+}
+
+# Kept on the machine, unlike Docker: it is what lets a machine be updated without being made again.
+install_crane() {
+  say "crane $CRANE_VERSION"
+  local tgz=$WORK/crane.tgz
+  curl -fsSL --retry 3 -o "$tgz" \
+    "https://github.com/google/go-containerregistry/releases/download/v$CRANE_VERSION/go-containerregistry_Linux_x86_64.tar.gz"
+  echo "$CRANE_SHA256  $tgz" | sha256sum --check --strict -
+  tar -xzf "$tgz" -C /usr/local/bin crane
+  rm -f "$tgz"
+  crane version
 }
 
 # Docker is here only to take the workspace out of its image; seal removes it.
@@ -117,6 +134,14 @@ install_workspace() {
   # The same for the tunnel: it comes back with the machine, and does not start without its token.
   install -m 0644 "$HERE/hive-tunnel.service" /etc/systemd/system/hive-tunnel.service
   systemctl enable hive-tunnel.service
+  # The updater: the timer asks now and then, the path unit starts it when asked to update now. Neither
+  # does anything on a machine whose /etc/hive/updater.json has not been written.
+  install -d -m 0755 /var/lib/hive
+  install -m 0755 "$HERE/hive-update" /usr/local/sbin/hive-update
+  for unit in hive-update.service hive-update.timer hive-update.path; do
+    install -m 0644 "$HERE/$unit" "/etc/systemd/system/$unit"
+  done
+  systemctl enable hive-update.timer hive-update.path
 
   say "The firewall"
   nft -c -f "$HERE/nftables.conf"

@@ -14,7 +14,7 @@
     "dev:web": "pnpm --dir apps/mobile web",
     "test": "tsx --test tests/*.test.ts apps/mobile/test/*.test.ts",
     "test:browser": "node --experimental-strip-types --test apps/worker/tests/lifecycle.test.ts",
-    "test:control-d1": "CONTROL_TEST_STORE=d1 tsx --test tests/d1-store.test.ts tests/control-scale-out.test.ts tests/control-api.test.ts tests/control-google.test.ts tests/control-limits.test.ts tests/control-digitalocean.test.ts",
+    "test:control-d1": "CONTROL_TEST_STORE=d1 tsx --test tests/d1-store.test.ts tests/control-scale-out.test.ts tests/control-api.test.ts tests/control-google.test.ts tests/control-limits.test.ts tests/control-digitalocean.test.ts tests/control-release.test.ts",
     "typecheck": "tsc --noEmit && pnpm --dir apps/mobile typecheck",
     "lint": "biome check .",
     "format": "biome check --write .",

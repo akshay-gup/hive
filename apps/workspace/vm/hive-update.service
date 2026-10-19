@@ -1,0 +1,16 @@
+# Puts the build the control plane wants on this machine. Started by the timer, and by the path unit
+# when the workspace server drops a request file. It runs as root: it replaces the program, and the
+# workspace's user, whose agent may use sudo, is not the one to decide what code runs.
+[Unit]
+Description=Hive workspace update
+After=network-online.target
+Wants=network-online.target
+# Without settings telling it where to ask, it has nothing to do.
+ConditionPathExists=/etc/hive/updater.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hive-update
+# It stops and starts the workspace and waits for it to answer, which takes a while.
+TimeoutStartSec=45min
+Nice=10

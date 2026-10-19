@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# Puts a newer build of the workspace on this machine, in place, and goes back if it does not come up.
+#
+# What changes is the program: /app, and node and opencode beside it. What does not is anything the
+# workspace or the agent keeps: /data, /home/hive, /etc/hive. The build comes from the same container
+# image the snapshot was baked from, read with `crane` (no Docker on the machine), by digest when it
+# is given one, so what is fetched is exactly what was asked for.
+#
+#   hive-update                 asks the control plane which build this workspace should run, and
+#                               does nothing if it is running it. This is what the timer runs.
+#   hive-update --to TAG        puts that tag on now (for an operator on the machine).
+#   hive-update --to TAG --digest sha256:...   the same, checked against the image's digest.
+#   hive-update --force         does not wait for the workspace to be idle.
+#
+# Settings, if the machine is to ask on its own, are in /etc/hive/updater.json:
+#   {"repo": "ghcr.io/OWNER/hive-workspace", "wantedUrl": "https://...", "tokenFile": "/etc/hive/update-token"}
+# `wantedUrl` answers {"tag": "...", "digest": "sha256:...", "force": false}. Without the file the timer
+# does nothing, so a machine is only updated once it has been told where to ask.
+#
+# Everything with a path or a command is a variable, so the tests run it on a folder and not a machine.
+set -euo pipefail
+umask 022
+
+APP=${HIVE_APP:-/app}
+BIN=${HIVE_BIN:-/usr/local/bin}
+ETC=${HIVE_ETC:-/etc/hive}
+STATE=${HIVE_STATE:-/var/lib/hive}
+SYSTEMCTL=${HIVE_SYSTEMCTL:-systemctl}
+CRANE=${HIVE_CRANE:-crane}
+HEALTH=${HIVE_HEALTH:-http://127.0.0.1:8787/api/health}
+SERVICE=${HIVE_SERVICE:-hive-workspace.service}
+IDLE_CHECK=${HIVE_IDLE_CHECK:-$ETC/idle-check}
+HEALTH_WAIT=${HIVE_HEALTH_WAIT:-60}
+IDLE_WAIT=${HIVE_IDLE_WAIT:-1800}
+MIN_FREE_MB=${HIVE_MIN_FREE_MB:-3072}
+
+say() { printf '%s hive-update: %s\n' "$(date -u +%FT%TZ)" "$*"; }
+fail() { say "$*" >&2; exit 1; }
+
+want_tag= want_digest= force=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --to) want_tag=${2:?--to needs a tag}; shift 2 ;;
+    --digest) want_digest=${2:?--digest needs a digest}; shift 2 ;;
+    --force) force=1; shift ;;
+    *) fail "Unknown argument $1" ;;
+  esac
+done
+
+mkdir -p "$STATE"
+exec 9>"$STATE/update.lock"
+flock -n 9 || { say "another update is running"; exit 0; }
+
+record() { # state, version, message
+  printf '{"state":"%s","version":"%s","message":"%s","at":"%s"}\n' \
+    "$1" "$2" "${3//\"/\'}" "$(date -u +%FT%TZ)" >"$STATE/last-update.json"
+}
+
+current() { [ -f "$APP/VERSION" ] && tr -d '[:space:]' <"$APP/VERSION" || echo unknown; }
+
+settings() { [ -f "$ETC/updater.json" ] && jq -r "$1 // empty" "$ETC/updater.json" 2>/dev/null || true; }
+
+repo=${HIVE_IMAGE_REPO:-$(settings .repo)}
+if [ -z "$repo" ] && [ -f "$ETC/image.json" ]; then
+  # The image the snapshot was baked from, as "ghcr.io/owner/name@sha256:..." or with a tag.
+  repo=$(jq -r '.image // empty' "$ETC/image.json" | sed -E 's/[@:][^/@:]*$//; s/@.*$//')
+fi
+
+# An "update now" from the workspace server is a file it drops here (it holds "force" to skip the wait).
+if [ -f "$STATE/update-request" ]; then
+  grep -q force "$STATE/update-request" && force=1
+  rm -f "$STATE/update-request"
+fi
+
+if [ -z "$want_tag" ]; then
+  url=$(settings .wantedUrl)
+  [ -n "$url" ] || exit 0 # not told where to ask
+  tokenFile=$(settings .tokenFile)
+  auth=()
+  [ -n "$tokenFile" ] && [ -r "$tokenFile" ] && auth=(-H "Authorization: Bearer $(tr -d '[:space:]' <"$tokenFile")")
+  answer=$(curl -fsS --max-time 20 "${auth[@]}" "$url") || { say "could not ask $url"; exit 0; }
+  want_tag=$(jq -r '.tag // empty' <<<"$answer")
+  want_digest=$(jq -r '.digest // empty' <<<"$answer")
+  [ "$(jq -r '.force // false' <<<"$answer")" = true ] && force=1
+fi
+
+[ -n "$want_tag" ] || exit 0
+[[ "$want_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || fail "Not a usable tag: $want_tag"
+[ -z "$want_digest" ] || [[ "$want_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "Not a usable digest: $want_digest"
+[ -n "$repo" ] || fail "No image repository: set it in $ETC/updater.json"
+
+have=$(current)
+if [ "$have" = "$want_tag" ]; then
+  say "already on $have"
+  exit 0
+fi
+say "$have -> $want_tag"
+
+# Wait until the workspace is idle, so a restart does not cut off the agent. The check is a command an
+# operator provides (exit 0 means idle); there is none by default, and --force skips it.
+if [ -z "$force" ] && [ -x "$IDLE_CHECK" ]; then
+  waited=0
+  until "$IDLE_CHECK"; do
+    [ "$waited" -lt "$IDLE_WAIT" ] || { record waiting "$have" "busy; will try again"; say "still busy, will try again"; exit 0; }
+    sleep 30
+    waited=$((waited + 30))
+  done
+fi
+
+free_mb=$(df -Pm "$(dirname "$APP")" | awk 'NR==2 {print $4}')
+[ "${free_mb:-0}" -ge "$MIN_FREE_MB" ] || { record failed "$have" "only ${free_mb}MB free"; fail "only ${free_mb}MB free, need $MIN_FREE_MB"; }
+
+ref="$repo:$want_tag"
+if [ -n "$want_digest" ]; then
+  ref="$repo@$want_digest"
+  # A tag can be moved; the digest says exactly which build, and the tag is checked against it.
+  [ "$("$CRANE" digest "$repo:$want_tag")" = "$want_digest" ] ||
+    { record failed "$have" "$want_tag is not $want_digest"; fail "$repo:$want_tag is not $want_digest"; }
+fi
+
+NEXT="$APP.next" PREV="$APP.prev"
+STAGE=$(mktemp -d "$STATE/stage.XXXXXX")
+trap 'rm -rf "$STAGE"' EXIT
+record fetching "$have" "$want_tag"
+say "fetching $ref"
+"$CRANE" export "$ref" - | tar -x -C "$STAGE" app usr/local/bin/node usr/local/bin/opencode ||
+  { record failed "$have" "could not fetch $ref"; fail "could not fetch $ref"; }
+[ -f "$STAGE/app/package.json" ] && [ -x "$STAGE/usr/local/bin/node" ] && [ -x "$STAGE/usr/local/bin/opencode" ] ||
+  { record failed "$have" "$ref is not a workspace build"; fail "$ref is not a workspace build"; }
+# Builds made before VERSION existed carry none; say which one this is.
+printf '%s\n' "$want_tag" >"$STAGE/app/VERSION"
+
+# Swap. The old program and binaries are kept until the next update succeeds.
+record switching "$have" "$want_tag"
+rm -rf "$NEXT" "$PREV"
+mv "$STAGE/app" "$NEXT"
+"$SYSTEMCTL" stop "$SERVICE"
+mv "$APP" "$PREV"
+mv "$NEXT" "$APP"
+for b in node opencode; do
+  [ -e "$BIN/$b" ] && cp -a "$BIN/$b" "$STATE/$b.prev"
+  install -m 0755 "$STAGE/usr/local/bin/$b" "$BIN/$b"
+done
+"$SYSTEMCTL" start "$SERVICE"
+
+# It is the new build only once it says so.
+up=
+for ((i = 0; i < HEALTH_WAIT; i += 2)); do
+  if [ "$(curl -fsS --max-time 3 "$HEALTH" 2>/dev/null | jq -r '.version // empty')" = "$want_tag" ]; then up=1; break; fi
+  sleep 2
+done
+
+if [ -z "$up" ]; then
+  say "$want_tag did not come up, going back to $have"
+  "$SYSTEMCTL" stop "$SERVICE" || true
+  rm -rf "$APP"
+  mv "$PREV" "$APP"
+  for b in node opencode; do [ -e "$STATE/$b.prev" ] && install -m 0755 "$STATE/$b.prev" "$BIN/$b"; done
+  "$SYSTEMCTL" start "$SERVICE" || true
+  record failed "$have" "$want_tag did not come up; went back to $have"
+  exit 1
+fi
+
+rm -f "$STATE/node.prev" "$STATE/opencode.prev"
+record updated "$want_tag" "from $have"
+say "now on $want_tag"

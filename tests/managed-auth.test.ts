@@ -151,6 +151,8 @@ test("a managed workspace has no other way in", async () => {
 test("health says which workspace this is", async () => {
   const health = await (await app.request("/api/health")).json();
   assert.equal(health.ok, true);
+  assert.equal(typeof health.version, "string");
+  assert.ok(health.features.includes("notifications-dismiss"));
   assert.equal(health.managed, true);
   assert.equal(health.workspace, workspaceId);
 });

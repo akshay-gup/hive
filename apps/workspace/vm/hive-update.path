@@ -1,0 +1,11 @@
+# "Update now": the workspace server, which is asked by the control plane, drops this file and does
+# nothing else. Starting the update is this unit's job, as root.
+[Unit]
+Description=Hive workspace update request
+
+[Path]
+PathExists=/var/lib/hive/update-request
+Unit=hive-update.service
+
+[Install]
+WantedBy=multi-user.target

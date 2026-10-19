@@ -49,6 +49,9 @@ WORKDIR /app
 COPY --from=build /src/package.json ./
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/dist ./dist
+# Which build this is, for /api/health and for an updater that compares versions.
+ARG HIVE_VERSION=dev
+RUN printf "%s\n" "$HIVE_VERSION" > /app/VERSION
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8787 \

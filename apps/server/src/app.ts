@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { MessageSchema } from "@ag-ui/core";
 import { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
 import { Hono } from "hono";
@@ -40,6 +41,28 @@ import {
 import { SHARED_OWNER } from "./shared.ts";
 import { serveWebFile, webRootDir } from "./web-static.ts";
 import { WorkspaceService } from "./workspace.ts";
+
+/**
+ * What this build can do beyond what every build could, by name. The app reads the list and hides a
+ * control whose name is missing, so a workspace running an older build is never offered what it
+ * cannot do. Add a name here in the commit that adds the feature, and never remove one.
+ */
+export const SERVER_FEATURES = ["notifications-dismiss"];
+
+/**
+ * The build's version: the image tag (HIVE_VERSION, or the VERSION file the image is built with),
+ * and "dev" for a build from a checkout.
+ */
+function readVersion(): string {
+  const fromEnv = process.env.HIVE_VERSION?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return readFileSync("VERSION", "utf8").trim() || "dev";
+  } catch {
+    return "dev";
+  }
+}
+export const SERVER_VERSION = readVersion();
 
 export async function createApp(
   db: Store,
@@ -130,6 +153,8 @@ export async function createApp(
     c.json({
       ok: true,
       mode: config.mode,
+      version: SERVER_VERSION,
+      features: SERVER_FEATURES,
       browserConfigured: Boolean(config.workerUrl && config.workerToken),
       // A managed workspace says which one it is, so the control plane and the app can tell they
       // reached the right one.

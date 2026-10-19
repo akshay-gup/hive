@@ -34,6 +34,7 @@ import type {
 import { useAgentWorkspace } from "./agent-workspace";
 import { PermissionsSettings } from "./opencode-permissions";
 import { ActivityScreen, ConnectionsScreen } from "./screens";
+import { useServerFeature } from "./server-features";
 import { TaskAttention } from "./task-attention";
 import { ago, formatDue, isOverdue, statusMeta, TaskBoard, taskStatusLabel } from "./task-board";
 import { TaskCreate } from "./task-create";
@@ -1772,6 +1773,7 @@ function MonitorCard({ monitor, onOpenTask }: { monitor: Monitor; onOpenTask?: (
 export function NotificationsSheet() {
   const { data, mutate } = useAgentWorkspace();
   const { close, open } = useWorkspace();
+  const canDismiss = useServerFeature("notifications-dismiss");
   const [error, setError] = useState("");
   async function read(id: string, taskId?: string) {
     try {
@@ -1796,7 +1798,7 @@ export function NotificationsSheet() {
     >
       <View style={{ gap: 16 }}>
         <ErrorNotice error={error} />
-        {!!data?.notifications.length && (
+        {canDismiss && !!data?.notifications.length && (
           <Button
             small
             style={{ alignSelf: "flex-end" }}
@@ -1820,9 +1822,11 @@ export function NotificationsSheet() {
               <Button small onPress={() => void read(item.id, item.taskId)}>
                 {item.taskId ? "View task" : item.read ? "Read" : "Mark read"}
               </Button>
-              <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>
-                Dismiss
-              </Button>
+              {canDismiss && (
+                <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>
+                  Dismiss
+                </Button>
+              )}
             </View>
           </Card>
         ))}
@@ -1969,14 +1973,8 @@ export function AppsScreen() {
                 </Button>
               ))}
             </View>
-            <CheckRow
-              label="Show background updates in chat"
-              checked={showChatUpdates}
-              onPress={() => setShowChatUpdates(!showChatUpdates)}
-            />
             <Text style={s.small}>
-              Activity and notifications always keep the full record, including requests for
-              approval.
+              Activity and notifications keep the full record, including requests for approval.
             </Text>
             <Button
               busy={busy}

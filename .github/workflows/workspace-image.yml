@@ -51,6 +51,7 @@ jobs:
           echo "image=$image" >> "$GITHUB_ENV"
           # The labels link the package to this repository, so its access follows the repository's.
           docker build --pull -f apps/workspace/Dockerfile \
+            --build-arg "HIVE_VERSION=${tag}" \
             --label "org.opencontainers.image.source=https://github.com/${REPO}" \
             --label "org.opencontainers.image.revision=${SHA}" \
             -t "$image" .
@@ -79,3 +80,28 @@ jobs:
             echo "  pnpm exec tsx apps/control/tools/do-image.ts --image $image --region nyc3"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # A push to main is a release: every workspace without a build of its own is told to run this one,
+      # and updates itself within about twenty minutes (docs/workspace-updates.md). A push to another
+      # branch only makes the image. Without the secret the step says so and does nothing, so a fork or a
+      # repository not yet set up still builds. To stop machines moving, pause it on the control plane.
+      - name: Tell the control plane
+        if: github.ref == 'refs/heads/main'
+        env:
+          RELEASE_TOKEN: ${{ secrets.HIVE_RELEASE_TOKEN }}
+          CONTROL_URL: ${{ vars.HIVE_CONTROL_URL || 'https://api.vi-ak.com' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "HIVE_RELEASE_TOKEN is not set, so no workspace is told about this build."
+            echo "No release token is set, so no workspace was told about this build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tag="${image##*:}"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image")"
+          digest="sha256:${digest##*sha256:}"
+          body="$(jq -nc --arg tag "$tag" --arg digest "$digest" '{tag: $tag, digest: $digest}')"
+          curl -fsS -X PUT "$CONTROL_URL/internal/release" \
+            -H "Authorization: Bearer $RELEASE_TOKEN" -H "Content-Type: application/json" \
+            --data "$body"
+          echo
+          echo "Told $CONTROL_URL that every workspace should run \`$tag\`." >> "$GITHUB_STEP_SUMMARY"

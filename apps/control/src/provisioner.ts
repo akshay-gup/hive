@@ -13,6 +13,8 @@ export interface WorkspaceSpec {
   allowedOrigins: string[];
   /** Which model the agent runs on and how it reaches it (see `ModelGateway.environmentFor`), when the control plane keeps the key. */
   modelEnv?: Record<string, string>;
+  /** Where the machine asks which build it should run (`/v1/release/<id>` on the control plane), for a provider whose machines update themselves. */
+  updateUrl?: string;
 }
 
 export interface ProvisionedWorkspace {

@@ -11,6 +11,7 @@ import { type GatewaySettings, ModelGateway } from "./gateway.ts";
 import { RateLimiter, type SignInLimiter } from "./limits.ts";
 import { consoleMailer, type Mailer } from "./mailer.ts";
 import type { Provisioner } from "./provisioner.ts";
+import { Releases } from "./releases.ts";
 import type { SigningKeys } from "./signing.ts";
 import type { ControlStore } from "./store.ts";
 import { WorkspaceService, type WorkspaceServiceOptions } from "./workspaces.ts";
@@ -53,6 +54,7 @@ const sameSecret = (given: string | undefined, expected: string) =>
 
 export function createControlApp(db: ControlStore, config: ControlConfig, deps: ControlDeps) {
   const accounts = new Accounts(db);
+  const releases = new Releases(db);
   const gateway = deps.gateway
     ? new ModelGateway(
         db,
@@ -134,6 +136,39 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     if (!found.upstream) return c.json({ error: "The workspace is not running" }, 503);
     return c.json({ upstream: found.upstream });
   });
+
+  // Which build of the workspace a machine should run. A machine asks for its own workspace by id and
+  // is told a public image's tag and digest (nothing secret), or nothing, which means stay as it is.
+  const askers = new RateLimiter(120);
+  app.get("/v1/release/:id", async (c) => {
+    if (!(await askers.allow(visitorOf(c)))) return c.json({ error: "Too many requests" }, 429);
+    return c.json(await releases.wantedFor(idParam.parse(c.req.param("id"))));
+  });
+
+  // Publishing a build, for CI and an operator. They show the release token; without one there is no
+  // such route.
+  const release = new Hono();
+  release.use("*", async (c, next) => {
+    if (!config.releaseToken) return c.json({ error: "Not found" }, 404);
+    if (!sameSecret(c.req.header("authorization"), `Bearer ${config.releaseToken}`))
+      return c.json({ error: "Unauthorized" }, 401);
+    await next();
+  });
+  release.get("/", async (c) => c.json(await releases.overview()));
+  // What a push to main publishes: the build every workspace without one of its own should run.
+  release.put("/", async (c) => c.json(await releases.publish(await c.req.json())));
+  release.put("/paused", async (c) => {
+    const { paused } = z.object({ paused: z.boolean() }).parse(await c.req.json());
+    return c.json(await releases.pause(paused));
+  });
+  release.put("/workspaces/:id", async (c) =>
+    c.json(await releases.pin(idParam.parse(c.req.param("id")), await c.req.json())),
+  );
+  release.delete("/workspaces/:id", async (c) => {
+    await releases.unpin(idParam.parse(c.req.param("id")));
+    return c.json({ ok: true });
+  });
+  app.route("/internal/release", release);
 
   // Signing in. These are public: they are how a person gets a session.
   const signIns = deps.signInLimiter ?? new RateLimiter(20);

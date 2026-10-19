@@ -42,14 +42,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { z } from "zod";
 import type { Channel, ChannelThread } from "../../../packages/domain/src/agent";
-import { ArtifactCard } from "./agent-ui";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AssistantResponse } from "./assistant-response";
-import { BackgroundUpdates } from "./background-updates";
 import { BrowserRunContext, BrowserToolCard } from "./browser-tool-card";
 import { ChannelMessage } from "./channel-message";
 import { ChannelThreadBanner } from "./channel-thread";
-import { BrowserThreadCard } from "./computer";
 import { ConversationQueue, type QueuedMessage } from "./conversation-queue";
 import { runConversationTurn } from "./conversation-run";
 import { DraftReply } from "./draft-reply";
@@ -71,7 +68,7 @@ import {
 } from "./panel-width";
 import { RunProgress } from "./progress-steps";
 import { progressItems, showsRunningStep } from "./run-progress";
-import { FileThreadCard, TaskThreadCard } from "./thread-artifacts";
+import { TaskThreadCard } from "./thread-artifacts";
 import { countThreadReplies } from "./thread-replies";
 import { resolveThreadId, type Selection, useMuseThread } from "./threads";
 import {
@@ -390,7 +387,6 @@ export function ChatScreen({
   const [draft, setDraft] = useState(initialDraft);
   const [focused, setFocused] = useState(false);
   const [inputHeight, setInputHeight] = useState(INPUT_MIN);
-  const [showResults, setShowResults] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -689,7 +685,6 @@ export function ChatScreen({
     // A new submission can continue after Stop; held follow-ups still need explicit resume.
     if (!busy && !agent.isRunning && !saveError && !queue.getSnapshot().pending.length)
       queue.resume();
-    setShowResults(false);
     const files = w.files.filter((f) => attachments.includes(f.id));
     const fullText =
       text +
@@ -1020,53 +1015,6 @@ export function ChatScreen({
                   </View>
                 );
               })
-            )}
-            {!richThreads && !channelId && !threadParent && (
-              <>
-                {(w.files.some((file) => file.parentId) ||
-                  w.browsers.some((browser) => browser.status === "active") ||
-                  !!agentWorkspace?.artifacts.length) && (
-                  <Button
-                    small
-                    style={{ alignSelf: "flex-start", marginTop: 6 }}
-                    onPress={() => setShowResults(!showResults)}
-                  >
-                    {showResults ? "Hide recent results" : "Recent results"}
-                  </Button>
-                )}
-                {showResults && (
-                  <>
-                    {w.files
-                      .filter((file) => file.parentId)
-                      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-                      .slice(0, 1)
-                      .map((file) => (
-                        <FileThreadCard key={file.id} file={file} />
-                      ))}
-                    {w.browsers
-                      .filter((browser) => browser.status === "active")
-                      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-                      .slice(0, 1)
-                      .map((browser) => (
-                        <BrowserThreadCard key={browser.id} browser={browser} />
-                      ))}
-                    {[...(agentWorkspace?.artifacts || [])]
-                      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-                      .filter(
-                        (artifact, index, items) =>
-                          items.findIndex((item) => item.kind === artifact.kind) === index,
-                      )
-                      .slice(0, 2)
-                      .reverse()
-                      .map((artifact) => (
-                        <ArtifactCard key={artifact.id} artifact={artifact} />
-                      ))}
-                  </>
-                )}
-              </>
-            )}
-            {!channelId && !threadParent && (!richThreads || selection.id === mainId) && (
-              <BackgroundUpdates />
             )}
             {(busy || agent.isRunning) && !stepShown && (
               <View

@@ -380,6 +380,7 @@ export class WorkspaceService {
               new URL(this.options.publicUrl).origin,
               ...this.options.allowedOrigins,
             ],
+            updateUrl: `${this.options.publicUrl}/v1/release/${id}`,
             ...(this.options.modelEnvironment
               ? { modelEnv: this.options.modelEnvironment(id) }
               : {}),
