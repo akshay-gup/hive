@@ -405,6 +405,6 @@ export const monitorInputSchema = z
 export const goalInputSchema = z.object({
   title: z.string().trim().min(1).max(160),
   description: z.string().max(4000).default(""),
-  category: z.string().max(80).default("Personal"),
+  category: z.string().max(80).default(""),
   milestones: z.array(z.string().min(1).max(200)).max(20).default([]),
 });
