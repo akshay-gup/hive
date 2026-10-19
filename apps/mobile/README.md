@@ -53,7 +53,7 @@ The values follow the web app's stylesheet:
 
 ## Behavior
 
-- Chat, Activity, Ideas, Goals and Apps are the primary navigation. Tasks, timelines and notifications refresh from the durable server state. Apps contains Mail, Calendar, Browser, Files and Connections.
+- Chat, Activity, Goals and Apps are the primary navigation (Calendar and Files sit beside them on a wide window). Tasks, timelines and notifications refresh from the durable server state. Apps contains Mail, Calendar, Browser, Files and Connections.
 - Drafts are saved in Hive and can be reopened from Mail. Mail attachments import into Files before reading.
 - Calendar edits preserve named time zones. Date entry rejects nonexistent times at daylight-saving transitions.
 - Sending mail and creating, changing, or deleting events require a stored proposal and an explicit review decision. Editing a proposal declines the previous version, then opens a new draft.
@@ -62,4 +62,4 @@ The values follow the web app's stylesheet:
 - Browser previews and consoles use only signed worker URLs returned by the API. PDF downloads import through the worker API.
 - Google connects through the system browser. Refresh the workspace after completing OAuth.
 
-Phone and wide layouts share Chat, Activity, Ideas, Goals and Apps. The task and notification sheets restore server state when reopened. Document and browser viewers have platform-specific files; presentation and state remain shared.
+Phone and wide layouts share Chat, Activity, Goals and Apps. The task and notification sheets restore server state when reopened. Document and browser viewers have platform-specific files; presentation and state remain shared.

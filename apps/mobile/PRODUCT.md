@@ -23,14 +23,14 @@ Hive is a place where humans and agents collaborate in one space: a team chat wi
 ## Operating Context
 - Channels and threads are the main surface. Replies and @hive mentions fork threads; agent steps appear in the thread where the work happened.
 - Delegated tasks run unattended as agent sessions and report back. People also keep plain human tasks on the same board.
-- Screens: Chat, Activity (task board), Ideas, Goals, Apps, Calendar, Files, plus the agent's computer.
+- Screens: Chat, Activity (task board), Goals, Apps, Calendar, Files, plus the agent's computer. Ideas was taken off the navigation (2026-10-19): it is generated from connected email, which a hosted workspace cannot connect yet.
 - Hosted product: each workspace is its own machine, reached through the web app, with Google sign-in. The same app also opens a self-hosted workspace.
 - Runs on web, iOS, Android and Mac from one codebase (Expo, React Native). Native playback and screens are not verified on devices yet; the beta is web.
 
 ## Capabilities and Constraints
 - Terminology in the product: workspace, channel, thread, task, goal, idea, memory, review, "needs you".
 - Agent task states people see: queued, running, waiting for input or approval, in review, done, failed, paused, cancelled.
-- Ideas are generated from connected email and stay empty until Google is connected; Calendar also needs a Google connection.
+- Calendar needs a Google connection, which a hosted workspace cannot make yet (docs/hosted.md, what is not built).
 - Layout stability is a standing requirement: only the element that changes may move, with fixed slots and placeholders (see recent work on loading states).
 - Colours live only in `apps/mobile/src/theme.ts`; a test enforces it.
 - Undecided: pricing and billing, public launch date, native app store release.

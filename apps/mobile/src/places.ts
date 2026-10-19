@@ -1,7 +1,6 @@
 import {
   CalendarDays,
   FileText,
-  Lightbulb,
   type LucideIcon,
   MessageCircle,
   PanelsTopLeft,
@@ -18,7 +17,6 @@ import type { Section } from "../../../packages/domain/src";
 export const places: { id: Section; label: string; icon: LucideIcon; bar: boolean }[] = [
   { id: "chat", label: "Chat", icon: MessageCircle, bar: true },
   { id: "activity", label: "Activity", icon: PanelsTopLeft, bar: true },
-  { id: "ideas", label: "Ideas", icon: Lightbulb, bar: true },
   { id: "goals", label: "Goals", icon: SquareCheck, bar: true },
   { id: "apps", label: "Apps", icon: Shapes, bar: true },
   { id: "calendar", label: "Calendar", icon: CalendarDays, bar: false },
