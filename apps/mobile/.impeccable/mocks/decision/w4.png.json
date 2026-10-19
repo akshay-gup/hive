@@ -1,0 +1,9 @@
+{
+  "prompt": "Recolour the attached screenshot of the Hive desktop web app. Keep its layout, content, type, spacing, icons and bee mascot exactly as they are, and remove the red 'Request failed (404)' banner and the empty box where it was; change only the colour system. All text stays crisp and readable. Edge to edge, no browser window or device. Palette: dark graphite with a faint green cast, ground #101412, panels #171C19. The sidebar and rail carry the green: active channel in a soft green fill #2C4A38 with pale green text #BFE3C8. The chat area carries the honey: send button, links, the needs-review card edge and its progress bar in #F2B632. Green frames the space, honey marks the action.\n",
+  "createdAt": "2026-10-19T03:22:29.104Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/ref/ref-hosted-wide.png"
+  ]
+}

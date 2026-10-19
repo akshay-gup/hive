@@ -1,0 +1,10 @@
+{
+  "prompt": "A desktop web app screen, edge to edge, crisp readable text, no browser window, device or desk around it. Product: Hive, a team workspace where people chat in channels and one shared AI agent does tasks on its own computer. The visitor's job: see what the agent is doing, answer it, and review finished work before it goes out. Workspace: Fern & Fig (a plant shop). Left navigation: channels launch, design, ops, hiring, plus Chat, Tasks, Files, Goals, Computer. Top bar: Hive bee mark, workspace name, a badge '2 need you', search, avatar. Main area: the #launch channel, a short team chat (Priya: 'Photos are in, hero is the maidenhair fern.'; Marcus: '@hive what do we still need before the send?' and the agent's short reply listing what is left) beside a task column: 'Write the launch email' (agent, ready for your review, 18m, due Fri, buttons Mark done and Send back), 'Set up the pre-order page' (agent, running, 42m), 'Order 8-inch boxes' (failed, supplier out of stock), 'Brief support on pre-order questions' (Dana, to do). Message composer at the bottom.\nLook: the attached references are style inspiration for a boxed-software manual with colour divider boards under clear acetate leaves, adapted into a real working product; their layout and content are not to be copied. Each channel owns one full-strength section hue that tints its page; text is clean and readable on the leaf. Standard web controls, tabs and buttons.\n",
+  "createdAt": "2026-10-19T02:58:55.735Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/dir/rw-manual-acetate-tab-board.webp",
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/dir/rw-manual-acetate-tab-board-hero.webp"
+  ]
+}

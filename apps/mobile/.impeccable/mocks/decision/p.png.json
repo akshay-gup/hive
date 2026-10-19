@@ -1,0 +1,9 @@
+{
+  "prompt": "A desktop web app screen, edge to edge, crisp readable text, no browser window or device. Same shell as the reference: icon rail, channel list, chat. The task column on the right is a compact table: rows with a state mark in a fixed cell (filled dot running, hollow dot to do, red bar failed, teal check done). The task needing the person is the one lifted glass plate, amber edge, with its buttons; the rest stay quiet. Product: Hive, a team workspace where people chat in channels and one shared AI agent does tasks on its own computer. Visitor's job: see what the agent is doing, answer it, and review finished work before it goes out. Workspace Fern & Fig (a plant shop). Channels launch, design, ops, hiring; Chat, Activity, Ideas, Goals, Apps, Calendar, Files, Computer. '2 need you'. #launch chat: Priya 'Photos are in, hero is the maidenhair fern.'; Marcus '@hive what do we still need before the send?'; Hive's short reply listing what is left. Tasks: 'Write the launch email' (agent, ready for your review, 18m, due Fri, buttons Mark done and Send back); 'Set up the pre-order page' (agent, running, 42m); 'Order 8-inch boxes' (failed, supplier out of stock); 'Brief support on pre-order questions' (Dana, to do). COLOUR: keep the reference screenshot's exact colours, graphite panels, neutral greys, the soft teal accent and the amber for needs-review. Do not tint anything blue or navy. Type and component character also stay as the reference; its own content, error banner and cards are not to be copied.\n",
+  "createdAt": "2026-10-19T03:11:33.379Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/ref/ref-hosted-wide.png"
+  ]
+}

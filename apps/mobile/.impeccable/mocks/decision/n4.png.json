@@ -1,0 +1,10 @@
+{
+  "prompt": "Two reference images are attached: the first is Hive's real desktop app, whose layout, content, icons, bee mascot and type must stay; the second is Linear's home page, which is the reference for the flat visual language only (hairline dividers, flat fills, tiny quiet metadata, plain text sidebar, no shadows, no glass, no blur, no gradients, no floating rounded cards). Restyle Hive's screen in that flat language: the rail, sidebar and chat sit edge to edge as flat regions divided by 1px hairlines, small corner radius, buttons and chips as flat fills, status shown as small flat chips. Remove the red 'Request failed (404)' banner and the empty box where it was. Text crisp and readable. Edge to edge, no browser window or device. The second image's content and branding are not to be copied. Palette: neutral graphite with no green ground, regions #111111, #151515, #1A1A1A, hairlines #262626. Honey #F2B632 is the single accent: send button, links, active channel marker and the needs-review chip and card edge. A tiny sage dot only for online status.\n",
+  "createdAt": "2026-10-19T03:56:06.726Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/ref/ref-hosted-wide.png",
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/sample/linear.png"
+  ]
+}

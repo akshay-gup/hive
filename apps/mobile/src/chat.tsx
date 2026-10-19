@@ -1101,6 +1101,7 @@ export function ChatScreen({
                 ]}
               >
                 <TypingDots />
+                <Text style={[s.small, { color: colors.muted }]}>Thinking</Text>
               </View>
             )}
             <ErrorNotice error={error} />

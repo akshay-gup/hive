@@ -1,0 +1,9 @@
+{
+  "prompt": "Edit the attached screenshot of the Hive desktop web app. Keep everything the same: layout, content, text, icons, bee mascot, and the exact colours (graphite, neutral greys, soft teal, amber needs-review card). Remove only the red 'Request failed (404)' banner and the empty box where it was. The single change is flatness: remove the glass sheen, blur, inner glow and soft shadows and make surfaces solid colours, as described below. Text stays crisp. Edge to edge, no browser window or device. Flatter: panels stay separate but with a smaller corner radius and a 1px hairline border, solid fills, no shadows or glow anywhere; the needs-review card has a flat amber outline and no glow; buttons, chips and the composer are flat fills with hairline borders.\n",
+  "createdAt": "2026-10-19T04:12:43.972Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/ref/ref-hosted-wide.png"
+  ]
+}

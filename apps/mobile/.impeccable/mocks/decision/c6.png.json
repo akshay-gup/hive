@@ -1,0 +1,9 @@
+{
+  "prompt": "Edit the attached Hive desktop screenshot. Keep absolutely everything the same: layout, text, icons, bee mascot, colours, rounded corners on buttons, chips, composer and the needs-review card, and the vertical 1px hairline dividers between the icon rail, the channel sidebar and the chat. The single change: remove every horizontal divider line. That means no line under the chat header bar (the 'Hive / Ready to review' row), no line under the workspace name 'Foster' at the top of the sidebar, and no other horizontal rules; separation there comes from spacing only. The three columns still meet edge to edge with vertical hairlines only. Edge to edge, no browser window or device.\n",
+  "createdAt": "2026-10-19T04:20:38.159Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    ".impeccable/mocks/decision/b2.png"
+  ]
+}

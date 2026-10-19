@@ -1,0 +1,10 @@
+{
+  "prompt": "A desktop web app screen, edge to edge, crisp readable text, no browser window, device or desk around it. Product: Hive, a team workspace where people chat in channels and one shared AI agent does tasks on its own computer. The visitor's job: see what the agent is doing, answer it, and review finished work before it goes out. Workspace: Fern & Fig (a plant shop). Channel list: launch, design, ops, hiring, plus Chat, Tasks, Files, Goals, Computer. Top bar: Hive bee mark with workspace name, a badge '2 need you', search, avatar.\nThe #launch channel is open: team chat on the left (Priya: 'Photos are in, hero is the maidenhair fern.'; Marcus: '@hive what do we still need before the send?' with the agent's reply). On the right a wallet of coupons, one per task, each with a tabbed head: 'Write the launch email' (agent, ready for review, 18m, due Fri) with buttons Validate and Send back; 'Set up the pre-order page' (running, 42m); 'Order 8-inch boxes' stamped VOID in red (supplier out of stock); 'Brief support' (Dana, to do). The wallet shows how many coupons remain. Wallet-led.\nLook: the attached references are style inspiration for a jet-age ticket wallet, adapted into a real working product; their layout and content are not to be copied. Navy and red on crisp white coupon stock, carbon-purple filled figures, airline grotesque caps, hairline ruled boxes, stamps for states. Standard web controls.\n",
+  "createdAt": "2026-10-19T02:56:56.768Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/dir/vernacular-ephemera-jet-age-ticket-wallet.webp",
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/dir/vernacular-ephemera-jet-age-ticket-wallet-hero.webp"
+  ]
+}

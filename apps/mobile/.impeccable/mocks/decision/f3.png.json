@@ -1,0 +1,9 @@
+{
+  "prompt": "Restyle the attached screenshot of the Hive desktop web app as a flat modern app. Keep the same layout, content, type, icons and bee mascot, and remove the red 'Request failed (404)' banner and the empty box where it was. Flat means: solid colours only, no glass, no blur, no gradients, no glows, no drop shadows; the icon rail, sidebar and chat sit edge to edge as flat regions separated by 1px hairline dividers, not floating rounded cards; small corner radius; buttons and chips are flat fills. Text stays crisp and readable. Edge to edge, no browser window or device. Palette: solid deep green-graphite regions, rail #0E1612, sidebar #121C17, chat #16211B, a flat slightly lighter green #1F3328 for the active channel row, teal accent #3FB6A8 for links and the notification badge, amber #E8892B for the needs-review card. Green is the ground, not an accent.\n",
+  "createdAt": "2026-10-19T03:49:25.260Z",
+  "tool": "impeccable generate-image",
+  "model": "gpt-image-2.5-flare",
+  "refs": [
+    "/tmp/claude-1000/-home-ubuntu/e08839fe-62f6-4b1b-b7b4-a1873343eaeb/scratchpad/ref/ref-hosted-wide.png"
+  ]
+}
