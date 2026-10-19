@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 import { z } from "zod";
 import type { BrowserSession } from "../../../packages/domain/src";
+import { useLineMaxWidth } from "./line-width";
 import { colors, IconSlot, radius, s, type WebPressState } from "./ui";
 import { useWorkspace } from "./workspace";
 
@@ -43,6 +44,7 @@ export function BrowserToolCard({
   loading: boolean;
 }) {
   const { api, workspace, open } = useWorkspace();
+  const maxWidth = useLineMaxWidth();
   const { running, active } = useContext(BrowserRunContext);
   const working = loading && active;
   const value = resultValue(result);
@@ -94,7 +96,7 @@ export function BrowserToolCard({
   // Taking control is what the line is for; it is there once the page has been read.
   const canOpen = !loading && !!visited && !!browser && !running;
   return (
-    <View style={{ alignSelf: "flex-start", maxWidth: 480, gap: 4 }}>
+    <View style={{ alignSelf: "flex-start", maxWidth, gap: 4 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={canOpen ? `${status}. Take control of the browser` : status}

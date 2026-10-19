@@ -3,6 +3,7 @@ import { useContext } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { z } from "zod";
 import { BrowserRunContext } from "./browser-tool-card";
+import { useLineMaxWidth } from "./line-width";
 import { colors, ErrorNotice, IconSlot, radius, s, type WebPressState } from "./ui";
 import { useWorkspace } from "./workspace";
 
@@ -30,6 +31,7 @@ export function MailToolCard({
   search?: boolean;
 }) {
   const { open } = useWorkspace();
+  const maxWidth = useLineMaxWidth();
   const { active } = useContext(BrowserRunContext);
   let value = result;
   if (typeof value === "string") {
@@ -91,7 +93,7 @@ export function MailToolCard({
         alignItems: "center",
         alignSelf: "flex-start",
         gap: 10,
-        maxWidth: 480,
+        maxWidth,
         paddingVertical: 9,
         paddingHorizontal: 14,
         borderRadius: radius.xl,

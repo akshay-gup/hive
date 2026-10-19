@@ -32,6 +32,7 @@ import type {
   RunEvent,
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
+import { useLineMaxWidth } from "./line-width";
 import { PermissionsSettings } from "./opencode-permissions";
 import { ActivityScreen, ConnectionsScreen } from "./screens";
 import { useServerFeature } from "./server-features";
@@ -127,6 +128,7 @@ export function AgentStatus() {
  */
 export function TaskLine({ task }: { task: AgentTask }) {
   const { open } = useWorkspace();
+  const maxWidth = useLineMaxWidth();
   const done = task.plan.filter((step) => step.status === "succeeded").length;
   const waiting = ["waiting_input", "waiting_approval", "in_review"].includes(task.status);
   const meta = statusMeta[task.status];
@@ -142,7 +144,7 @@ export function TaskLine({ task }: { task: AgentTask }) {
         alignItems: "center",
         alignSelf: "flex-start",
         gap: 10,
-        maxWidth: 480,
+        maxWidth,
         paddingVertical: 9,
         paddingHorizontal: 14,
         borderRadius: radius.xl,
