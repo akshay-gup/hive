@@ -86,6 +86,7 @@ const kindLabels: Record<FileKind, string> = {
   code: "Code",
   text: "Text",
   archive: "Archive",
+  office: "Document",
   other: "File",
 };
 
@@ -93,7 +94,9 @@ const kindLabels: Record<FileKind, string> = {
 export function fileType(file: Pick<ChannelFile, "name" | "kind">): string {
   const kind = file.kind ?? "other";
   const dot = file.name.lastIndexOf(".");
-  return kind === "code" && dot > 0 ? file.name.slice(dot + 1).toUpperCase() : kindLabels[kind];
+  return (kind === "code" || kind === "office") && dot > 0
+    ? file.name.slice(dot + 1).toUpperCase()
+    : kindLabels[kind];
 }
 
 /** The folder a path is in; empty for the top of the workspace. */

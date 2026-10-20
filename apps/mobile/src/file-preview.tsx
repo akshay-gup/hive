@@ -20,7 +20,8 @@ import {
 } from "../../../packages/domain/src/workspace-files";
 import { AssistantResponse } from "./assistant-response";
 import { HtmlFrame, MediaPlayer, PdfFrame } from "./FileEmbed";
-import { fileSize, parseTable, prettyJson } from "./file-format";
+import { fileSize, parseTable, prettyJson, type Table } from "./file-format";
+import { OfficeBody } from "./OfficeBody";
 import {
   Button,
   colors,
@@ -45,6 +46,7 @@ export const kindIcon: Record<FileKind, LucideIcon> = {
   code: FileCode,
   text: FileText,
   archive: FileArchive,
+  office: FileText,
   other: GenericFile,
 };
 
@@ -109,6 +111,10 @@ export function TextBlock({ text, maxHeight }: { text: string; maxHeight?: numbe
 /** The first rows of a spreadsheet as a grid, with the first row as its heading. */
 function TablePreview({ text, delimiter }: { text: string; delimiter: string }) {
   const table = useMemo(() => parseTable(text, delimiter), [text, delimiter]);
+  return <TableGrid table={table} />;
+}
+
+export function TableGrid({ table }: { table: Table }) {
   if (!table.rows.length) return <Text style={s.muted}>This file is empty.</Text>;
   const [head, ...rows] = table.rows;
   const cell = (value: string, key: number, bold = false) => (
@@ -239,6 +245,8 @@ export function FileBody({ file }: { file: ChannelFile }) {
     case "code":
     case "text":
       return <TextBody file={file} />;
+    case "office":
+      return <OfficeBody file={file} />;
     default:
       return (
         <View style={{ gap: 12, alignItems: "flex-start" }}>

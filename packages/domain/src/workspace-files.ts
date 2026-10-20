@@ -18,6 +18,7 @@ export const fileKinds = [
   "code",
   "text",
   "archive",
+  "office",
   "other",
 ] as const;
 export type FileKind = (typeof fileKinds)[number];
@@ -34,8 +35,10 @@ const archive = (mimeType: string): FileType => ({ mimeType, kind: "archive" });
 const other = (mimeType: string): FileType => ({ mimeType, kind: "other" });
 /** Source and configuration files are shown as text, whatever their language. */
 const code = (mimeType = "text/plain"): FileType => ({ mimeType, kind: "code" });
-const office = (subtype: string) =>
-  other(`application/vnd.openxmlformats-officedocument.${subtype}`);
+/** Word, Excel, PowerPoint and Apple's iWork files: a client that can read them shows what is in them. */
+const office = (mimeType: string): FileType => ({ mimeType, kind: "office" });
+const openXml = (subtype: string) =>
+  office(`application/vnd.openxmlformats-officedocument.${subtype}`);
 
 /** What each known extension is. Source files are sent as plain text so a browser never runs them. */
 const types: Readonly<Record<string, FileType>> = {
@@ -115,11 +118,16 @@ const types: Readonly<Record<string, FileType>> = {
   ".tar": archive("application/x-tar"),
   ".7z": archive("application/x-7z-compressed"),
   ".rar": archive("application/vnd.rar"),
-  ".docx": office("wordprocessingml.document"),
-  ".xlsx": office("spreadsheetml.sheet"),
-  ".pptx": office("presentationml.presentation"),
+  ".docx": openXml("wordprocessingml.document"),
+  ".xlsx": openXml("spreadsheetml.sheet"),
+  ".pptx": openXml("presentationml.presentation"),
+  ".xlsm": office("application/vnd.ms-excel.sheet.macroEnabled.12"),
+  ".xls": office("application/vnd.ms-excel"),
+  ".ods": office("application/vnd.oasis.opendocument.spreadsheet"),
+  ".pages": office("application/vnd.apple.pages"),
+  ".numbers": office("application/vnd.apple.numbers"),
+  ".key": office("application/vnd.apple.keynote"),
   ".doc": other("application/msword"),
-  ".xls": other("application/vnd.ms-excel"),
   ".ppt": other("application/vnd.ms-powerpoint"),
   ".woff": other("font/woff"),
   ".woff2": other("font/woff2"),
