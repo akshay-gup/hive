@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Notices an updater that does nothing. hive-update-fallback only reacts to an updater that fails; one
+# that is broken and exits quietly looks like success. So this does not look at how the updater
+# exited, only at the result: it asks what build this workspace should run, and if the machine is
+# still on another one after two checks, it runs the last updater that worked (hive-update.good).
+#
+# It is made to fail safe: any doubt is a reason to do nothing, and it never changes the machine
+# itself. It does nothing when
+#   - it cannot get a clear answer, or the machine has no settings to ask with;
+#   - an update is running, or the workspace is busy and the update is waiting its turn;
+#   - the wanted build already failed here (retrying a build that rolled back only restarts the
+#     workspace again), or this has already tried 3 times, with longer waits between tries;
+#   - the updater in use is the good one, since there is nothing else to try.
+# Not replaced by an update, like hive-update-fallback.
+set -euo pipefail
+SELF=${HIVE_SELF:-/usr/local/sbin/hive-update}
+GOOD=$SELF.good
+APP=${HIVE_APP:-/app}
+ETC=${HIVE_ETC:-/etc/hive}
+STATE=${HIVE_STATE:-/var/lib/hive}
+MEMORY=$STATE/watchdog.json
+say() { printf '%s hive-update-watchdog: %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+settings() { [ -f "$ETC/updater.json" ] && jq -r "$1 // empty" "$ETC/updater.json" 2>/dev/null || true; }
+url=$(settings .wantedUrl)
+[ -n "$url" ] || exit 0
+
+mkdir -p "$STATE"
+exec 9>"$STATE/update.lock"
+flock -n 9 || exit 0 # an update is running
+
+tokenFile=$(settings .tokenFile)
+auth=()
+[ -n "$tokenFile" ] && [ -r "$tokenFile" ] && auth=(-H "Authorization: Bearer $(tr -d '[:space:]' <"$tokenFile")")
+answer=$(curl -fsS --max-time 20 "${auth[@]}" "$url" 2>/dev/null) || exit 0
+want=$(jq -r '.tag // empty' <<<"$answer" 2>/dev/null) || exit 0
+[ -n "$want" ] || exit 0
+have=$([ -f "$APP/VERSION" ] && tr -d '[:space:]' <"$APP/VERSION" || echo unknown)
+
+if [ "$have" = "$want" ]; then
+  rm -f "$MEMORY"
+  exit 0
+fi
+
+# What the updater itself says about the last time it tried.
+if [ -f "$STATE/last-update.json" ]; then
+  last_state=$(jq -r '.state // empty' "$STATE/last-update.json" 2>/dev/null || true)
+  last_message=$(jq -r '.message // empty' "$STATE/last-update.json" 2>/dev/null || true)
+  [ "$last_state" != waiting ] || exit 0
+  if [ "$last_state" = failed ] && [[ "$last_message" == *"$want"* ]]; then
+    say "$want already failed here; leaving it"
+    exit 0
+  fi
+fi
+
+[ -x "$GOOD" ] && ! cmp -s "$SELF" "$GOOD" || exit 0 # nothing else to try
+
+# Two checks in a row, for the same wanted build, before anything is done.
+seen=0 tries=0 tried_at=0
+if [ -f "$MEMORY" ] && [ "$(jq -r '.tag // empty' "$MEMORY" 2>/dev/null)" = "$want" ]; then
+  seen=$(jq -r '.seen // 0' "$MEMORY")
+  tries=$(jq -r '.tries // 0' "$MEMORY")
+  tried_at=$(jq -r '.triedAt // 0' "$MEMORY")
+fi
+seen=$((seen + 1))
+now=$(date +%s)
+remember() { printf '{"tag":"%s","seen":%s,"tries":%s,"triedAt":%s}\n' "$want" "$seen" "$tries" "$tried_at" >"$MEMORY"; }
+if [ "$seen" -lt 2 ]; then
+  remember
+  exit 0
+fi
+if [ "$tries" -ge 3 ]; then
+  remember
+  say "tried 3 times for $want; leaving it for a person"
+  exit 0
+fi
+if [ $((now - tried_at)) -lt $((tries * 1800)) ]; then
+  remember
+  exit 0
+fi
+
+tries=$((tries + 1))
+tried_at=$now
+remember
+say "still on $have, wanted $want; trying the last updater that worked ($tries of 3)"
+exec 9>&- # the updater takes the lock itself
+if HIVE_NO_SELF_UPDATE=1 "$GOOD"; then
+  now_have=$([ -f "$APP/VERSION" ] && tr -d '[:space:]' <"$APP/VERSION" || echo unknown)
+  if [ "$now_have" = "$want" ]; then
+    install -m 0755 "$GOOD" "$SELF.new"
+    mv "$SELF.new" "$SELF"
+    rm -f "$MEMORY"
+    say "that worked; it is the updater again"
+  fi
+fi

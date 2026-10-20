@@ -1,0 +1,11 @@
+# Checks that the machine is on the build it should be, and if it is not, tries the last updater that
+# worked. See hive-update-watchdog.
+[Unit]
+Description=Hive workspace update watchdog
+ConditionPathExists=/etc/hive/updater.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hive-update-watchdog
+TimeoutStartSec=45min
+Nice=10

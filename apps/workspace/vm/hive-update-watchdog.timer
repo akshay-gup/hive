@@ -1,0 +1,10 @@
+[Unit]
+Description=Hive workspace update watchdog
+
+[Timer]
+OnBootSec=20min
+OnUnitInactiveSec=30min
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

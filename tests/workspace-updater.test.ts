@@ -21,6 +21,7 @@ import { after, before, test } from "node:test";
  * refuses when the build is marked broken).
  */
 const SCRIPT = new URL("../apps/workspace/vm/hive-update", import.meta.url).pathname;
+const WATCHDOG = new URL("../apps/workspace/vm/hive-update-watchdog", import.meta.url).pathname;
 const FALLBACK = new URL("../apps/workspace/vm/hive-update-fallback", import.meta.url).pathname;
 const DIGEST = `sha256:${"a".repeat(64)}`;
 
@@ -348,4 +349,119 @@ test("the fallback does not take a newer updater from the image, or go back to t
   assert.equal(result.code, 0, result.out);
   assert.doesNotMatch(readFileSync(m2.self, "utf8"), /the newer updater/);
   assert.equal(read(join(m2.app, "VERSION")), "v2");
+});
+
+/** A machine whose updater does nothing and says nothing, with a good one to fall back to. */
+function silentMachine(name: string, asks = "wanted") {
+  const m = machine(name);
+  const good = readFileSync(SCRIPT, "utf8");
+  file(`${m.self}.good`, good, 0o755);
+  file(m.self, "#!/usr/bin/env bash\nexit 0\n", 0o755);
+  file(
+    join(m.etc, "updater.json"),
+    JSON.stringify({
+      wantedUrl: `http://127.0.0.1:${(health.address() as AddressInfo).port}/${asks}`,
+    }),
+  );
+  wanted = { tag: "v2", digest: DIGEST, force: false };
+  return { m, good };
+}
+const watch = (m: ReturnType<typeof machine>) => run(m, [], { HIVE_RUN: WATCHDOG });
+
+test("an updater that does nothing is noticed on the second check, and the good one does the update", async () => {
+  const { m, good } = silentMachine("watchdog");
+  assert.equal((await watch(m)).code, 0);
+  assert.equal(read(join(m.app, "VERSION")), "v1", "one check is not enough");
+  const second = await watch(m);
+  assert.equal(second.code, 0, second.out);
+  assert.equal(read(join(m.app, "VERSION")), "v2");
+  assert.equal(readFileSync(m.self, "utf8"), good, "the good one is the updater again");
+});
+
+test("the watchdog leaves a build alone that already failed on this machine", async () => {
+  const { m } = silentMachine("watchdogfailed");
+  file(
+    join(m.state, "last-update.json"),
+    JSON.stringify({
+      state: "failed",
+      version: "v1",
+      message: "v2 did not come up; went back to v1",
+    }),
+  );
+  await watch(m);
+  await watch(m);
+  assert.equal(read(join(m.app, "VERSION")), "v1");
+});
+
+test("the watchdog waits while the workspace is busy and the update is waiting its turn", async () => {
+  const { m } = silentMachine("watchdogbusy");
+  file(
+    join(m.state, "last-update.json"),
+    JSON.stringify({ state: "waiting", version: "v1", message: "busy" }),
+  );
+  await watch(m);
+  await watch(m);
+  assert.equal(read(join(m.app, "VERSION")), "v1");
+});
+
+test("the watchdog does nothing when it cannot get a clear answer, or the machine is on the right build", async () => {
+  const unreachable = silentMachine("watchdogoffline");
+  file(
+    join(unreachable.m.etc, "updater.json"),
+    JSON.stringify({ wantedUrl: "http://127.0.0.1:9/wanted" }),
+  );
+  await watch(unreachable.m);
+  await watch(unreachable.m);
+  assert.equal(read(join(unreachable.m.app, "VERSION")), "v1");
+
+  const right = silentMachine("watchdogright");
+  wanted = { tag: "v1", digest: DIGEST, force: false };
+  await watch(right.m);
+  await watch(right.m);
+  assert.equal(existsSync(right.m.log), false, "nothing was touched");
+  assert.equal(existsSync(join(right.m.state, "watchdog.json")), false);
+});
+
+test("the watchdog has nothing to try when the updater in use is the good one", async () => {
+  const { m, good } = silentMachine("watchdoggood");
+  file(m.self, good, 0o755);
+  await watch(m);
+  const second = await watch(m);
+  assert.equal(second.code, 0);
+  assert.equal(read(join(m.app, "VERSION")), "v1");
+});
+
+test("the watchdog gives up after three tries and spaces them out", async () => {
+  const { m } = silentMachine("watchdogtries");
+  // The good updater is made to fail, so each try leaves the machine on v1.
+  file(`${m.self}.good`, "#!/usr/bin/env bash\nexit 1\n", 0o755);
+  const memory = join(m.state, "watchdog.json");
+  await watch(m);
+  await watch(m);
+  const first = JSON.parse(readFileSync(memory, "utf8"));
+  assert.equal(first.tries, 1);
+  await watch(m);
+  assert.equal(JSON.parse(readFileSync(memory, "utf8")).tries, 1, "not again so soon");
+  // Pretend the wait has passed, up to the third try.
+  for (const tries of [1, 2]) {
+    writeFileSync(
+      memory,
+      JSON.stringify({ tag: "v2", seen: 5, tries, triedAt: Math.floor(Date.now() / 1000) - 99999 }),
+    );
+    await watch(m);
+    assert.equal(JSON.parse(readFileSync(memory, "utf8")).tries, tries + 1);
+  }
+  const before = readFileSync(memory, "utf8");
+  writeFileSync(
+    memory,
+    JSON.stringify({
+      tag: "v2",
+      seen: 5,
+      tries: 3,
+      triedAt: Math.floor(Date.now() / 1000) - 99999,
+    }),
+  );
+  const out = await watch(m);
+  assert.match(out.out, /tried 3 times/);
+  assert.notEqual(before, "");
 });

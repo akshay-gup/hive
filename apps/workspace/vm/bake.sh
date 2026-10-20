@@ -151,10 +151,12 @@ install_workspace() {
   install -m 0755 "$HERE/hive-update" /usr/local/sbin/hive-update.good
   install -m 0755 "$HERE/hive-update-fallback" /usr/local/sbin/hive-update-fallback
   install -m 0644 "$HERE/hive-update-fallback.service" /etc/systemd/system/hive-update-fallback.service
-  for unit in hive-update.service hive-update.timer hive-update.path; do
+  # The check for an updater that does nothing, on its own timer.
+  install -m 0755 "$HERE/hive-update-watchdog" /usr/local/sbin/hive-update-watchdog
+  for unit in hive-update.service hive-update.timer hive-update.path hive-update-watchdog.service hive-update-watchdog.timer; do
     install -m 0644 "$HERE/$unit" "/etc/systemd/system/$unit"
   done
-  systemctl enable hive-update.timer hive-update.path
+  systemctl enable hive-update.timer hive-update.path hive-update-watchdog.timer
 
   say "The firewall"
   nft -c -f "$HERE/nftables.conf"
