@@ -99,6 +99,12 @@ test("the Droplet is sent the scripts, and the DigitalOcean token is not among t
     "/opt/hive-bake/bake.env",
     "/opt/hive-bake/bake.sh",
     "/opt/hive-bake/hive-tunnel.service",
+    "/opt/hive-bake/hive-update",
+    "/opt/hive-bake/hive-update-fallback",
+    "/opt/hive-bake/hive-update-fallback.service",
+    "/opt/hive-bake/hive-update.path",
+    "/opt/hive-bake/hive-update.service",
+    "/opt/hive-bake/hive-update.timer",
     "/opt/hive-bake/hive-workspace.service",
     "/opt/hive-bake/nftables.conf",
   ]);
@@ -111,6 +117,7 @@ test("the Droplet is sent the scripts, and the DigitalOcean token is not among t
   );
   assert.equal(files.get("/opt/hive-bake/hive-tunnel.service")?.text, vm("hive-tunnel.service"));
   assert.equal(files.get("/opt/hive-bake/nftables.conf")?.text, vm("nftables.conf"));
+  assert.equal(files.get("/opt/hive-bake/hive-update-fallback")?.text, vm("hive-update-fallback"));
   assert.equal(files.get("/opt/hive-bake/bake.sh")?.mode, "0755");
   // The registry login is in a file only root can read, and the DigitalOcean token is nowhere.
   assert.equal(files.get("/opt/hive-bake/bake.env")?.mode, "0600");
