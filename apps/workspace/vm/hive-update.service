@@ -3,6 +3,8 @@
 # workspace's user, whose agent may use sudo, is not the one to decide what code runs.
 [Unit]
 Description=Hive workspace update
+# If this fails, the last updater that worked gets a go.
+OnFailure=hive-update-fallback.service
 After=network-online.target
 Wants=network-online.target
 # Without settings telling it where to ask, it has nothing to do.

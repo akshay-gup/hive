@@ -1,0 +1,9 @@
+# Started when hive-update.service fails: tries the last updater that worked. See hive-update-fallback.
+[Unit]
+Description=Hive workspace update, with the previous updater
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hive-update-fallback
+TimeoutStartSec=45min
+Nice=10

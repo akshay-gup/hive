@@ -21,6 +21,7 @@ import { after, before, test } from "node:test";
  * refuses when the build is marked broken).
  */
 const SCRIPT = new URL("../apps/workspace/vm/hive-update", import.meta.url).pathname;
+const FALLBACK = new URL("../apps/workspace/vm/hive-update-fallback", import.meta.url).pathname;
 const DIGEST = `sha256:${"a".repeat(64)}`;
 
 let root: string;
@@ -44,7 +45,10 @@ function machine(name: string, options: { broken?: boolean; digest?: string } = 
     state: join(dir, "state"),
     data: join(dir, "data"),
     log: join(dir, "systemctl.log"),
+    /** The updater on this machine, a copy of the real one. */
+    self: join(dir, "hive-update"),
   };
+  file(m.self, readFileSync(SCRIPT, "utf8"), 0o755);
   file(join(m.app, "VERSION"), "v1\n");
   file(join(m.app, "package.json"), "{}");
   file(join(m.bin, "node"), "node v1", 0o755);
@@ -78,9 +82,10 @@ function run(
   extra: Record<string, string> = {},
 ): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn("bash", [SCRIPT, ...args], {
+    const child = spawn("bash", [extra.HIVE_RUN ?? m.self, ...args], {
       env: {
         PATH: process.env.PATH ?? "",
+        HIVE_SELF: m.self,
         HIVE_APP: m.app,
         HIVE_BIN: m.bin,
         HIVE_ETC: m.etc,
@@ -246,4 +251,101 @@ test("a request file from the server with 'force' skips the wait and is used up"
   assert.equal(code, 0, out);
   assert.equal(read(join(m.app, "VERSION")), "v2");
   assert.equal(existsSync(join(m.state, "update-request")), false);
+});
+
+/** Puts `content` in the build the fake crane hands out, where the real image has its machine scripts. */
+const inBuild = (m: ReturnType<typeof machine>, name: string, content: string) =>
+  file(join(m.dir, "build", "app", "machine", name), content, 0o755);
+
+test("the updater takes the newer one that came with the build, and finishes the update as that one", async () => {
+  const m = machine("selfupdate");
+  inBuild(m, "hive-update", `${readFileSync(SCRIPT, "utf8")}\n# the newer updater\n`);
+  const { code, out } = await run(m, ["--to", "v2"]);
+  assert.equal(code, 0, out);
+  assert.match(out, /taking the updater that came with v2/);
+  assert.match(readFileSync(m.self, "utf8"), /# the newer updater/);
+  assert.equal(read(join(m.app, "VERSION")), "v2");
+  // It fetched once: the new updater was handed what the old one had fetched.
+  assert.equal((out.match(/fetching /g) ?? []).length, 1);
+  assert.equal(readFileSync(`${m.self}.good`, "utf8"), readFileSync(m.self, "utf8"));
+});
+
+test("a newer updater that fails its own test is not taken, and the update goes on with the old one", async () => {
+  const m = machine("badupdater");
+  const before = readFileSync(m.self, "utf8");
+  inBuild(m, "hive-update", "#!/usr/bin/env bash\nexit 1\n");
+  const { code, out } = await run(m, ["--to", "v2"]);
+  assert.equal(code, 0, out);
+  assert.match(out, /does not pass its own test/);
+  assert.equal(readFileSync(m.self, "utf8"), before);
+  assert.equal(read(join(m.app, "VERSION")), "v2");
+
+  const m2 = machine("brokenupdater");
+  inBuild(m2, "hive-update", "#!/usr/bin/env bash\nif then\n");
+  const second = await run(m2, ["--to", "v2"]);
+  assert.equal(second.code, 0, second.out);
+  assert.equal(read(join(m2.app, "VERSION")), "v2");
+});
+
+test("what the build needs from the machine is made before the workspace is stopped", async () => {
+  const m = machine("ensure");
+  inBuild(
+    m,
+    "hive-ensure",
+    `#!/usr/bin/env bash\n[ -e "${m.log}" ] && echo late >"${m.dir}/ensure" || echo early >"${m.dir}/ensure"\n`,
+  );
+  const { code, out } = await run(m, ["--to", "v2"]);
+  assert.equal(code, 0, out);
+  assert.equal(read(join(m.dir, "ensure")), "early");
+});
+
+test("if the machine cannot be made ready, nothing is changed", async () => {
+  const m = machine("ensurefails");
+  inBuild(m, "hive-ensure", "#!/usr/bin/env bash\nexit 1\n");
+  const { code } = await run(m, ["--to", "v2"]);
+  assert.equal(code, 1);
+  assert.equal(read(join(m.app, "VERSION")), "v1");
+  assert.equal(existsSync(m.log), false, "the workspace was never stopped");
+  assert.equal(state(m).state, "failed");
+});
+
+test("when the updater fails, the last one that worked is tried and becomes the updater again", async () => {
+  const m = machine("fallback");
+  const good = readFileSync(SCRIPT, "utf8");
+  file(`${m.self}.good`, good, 0o755);
+  file(m.self, "#!/usr/bin/env bash\nexit 1\n", 0o755);
+  file(
+    join(m.etc, "updater.json"),
+    JSON.stringify({
+      wantedUrl: `http://127.0.0.1:${(health.address() as AddressInfo).port}/wanted`,
+    }),
+  );
+  wanted = { tag: "v2", digest: DIGEST, force: false };
+  const { code, out } = await run(m, [], { HIVE_RUN: FALLBACK });
+  assert.equal(code, 0, out);
+  assert.equal(read(join(m.app, "VERSION")), "v2");
+  assert.equal(readFileSync(m.self, "utf8"), good, "the one that worked is in use again");
+});
+
+test("the fallback does not take a newer updater from the image, or go back to the one already in use", async () => {
+  const m = machine("fallbacknoloop");
+  const good = readFileSync(SCRIPT, "utf8");
+  file(`${m.self}.good`, good, 0o755);
+  file(m.self, good, 0o755);
+  const idle = await run(m, [], { HIVE_RUN: FALLBACK });
+  assert.equal(idle.code, 0);
+  assert.match(idle.out, /nothing else to try/);
+
+  // The updater in use differs, and so does the image's: the good one still does not switch to it.
+  const m2 = machine("fallbacknoswitch");
+  file(`${m2.self}.good`, good, 0o755);
+  file(m2.self, "#!/usr/bin/env bash\nexit 1\n", 0o755);
+  inBuild(m2, "hive-update", `${good}\n# the newer updater\n`);
+  const result = await run(m2, ["--to", "v2"], {
+    HIVE_RUN: `${m2.self}.good`,
+    HIVE_NO_SELF_UPDATE: "1",
+  });
+  assert.equal(result.code, 0, result.out);
+  assert.doesNotMatch(readFileSync(m2.self, "utf8"), /the newer updater/);
+  assert.equal(read(join(m2.app, "VERSION")), "v2");
 });

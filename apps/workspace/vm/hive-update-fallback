@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# What runs when hive-update fails. If the updater in use is not the one that last finished an update
+# (hive-update.good), it may be the updater that is wrong, so this runs the good one in its place, told
+# not to take a newer copy of itself from the image. If that finishes the update, the good one becomes
+# the updater again until the next build brings another to try.
+#
+# This script is small on purpose and is not replaced by an update: it is the one part that has to keep
+# working when everything else has been broken by a bad release.
+set -euo pipefail
+SELF=${HIVE_SELF:-/usr/local/sbin/hive-update}
+GOOD=$SELF.good
+say() { printf '%s hive-update-fallback: %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+[ -x "$GOOD" ] || exit 0
+if cmp -s "$SELF" "$GOOD"; then
+  say "the updater in use is the last one that worked; nothing else to try"
+  exit 0
+fi
+say "trying the last updater that worked"
+if HIVE_NO_SELF_UPDATE=1 "$GOOD" "$@"; then
+  install -m 0755 "$GOOD" "$SELF.new"
+  mv "$SELF.new" "$SELF"
+  say "that one is the updater again"
+fi

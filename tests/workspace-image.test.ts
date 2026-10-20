@@ -22,14 +22,21 @@ test("the image runs the workspace supervisor, behind an init that reaps what th
   assert.match(dockerfile, /^CMD \["node", "dist\/apps\/workspace\/src\/index\.js"\]$/m);
 });
 
-test("the image carries the browser worker, and the bake gives the machine the Chromium that matches it", () => {
+test("the image carries the browser worker and the scripts that keep a machine up to date", () => {
   assert.match(dockerfile, /^COPY --from=browser \/browser-worker \.\/browser-worker$/m);
-  const bake = readFileSync(new URL("../apps/workspace/vm/bake.sh", import.meta.url), "utf8");
+  assert.match(dockerfile, /hive-update \/src\/apps\/workspace\/vm\/hive-ensure \.\/machine\/$/m);
+  const vm = (name: string) =>
+    readFileSync(new URL(`../apps/workspace/vm/${name}`, import.meta.url), "utf8");
+  // A new machine and an updated one get Chromium from the same script, so they cannot differ.
+  assert.match(vm("bake.sh"), /\/app\/machine\/hive-ensure/);
   // The browser comes from the Playwright in the image, so the two cannot be different versions.
-  assert.match(bake, /browser-worker\/node_modules\/playwright\/cli\.js/);
-  assert.match(bake, /install --with-deps/);
+  assert.match(vm("hive-ensure"), /browser-worker\/node_modules\/playwright\/cli\.js/);
+  assert.match(vm("hive-ensure"), /install --with-deps/);
   // It is started once before a snapshot is taken, so an image whose browser cannot start is not kept.
-  assert.match(bake, /chromium\.launch/);
+  assert.match(vm("bake.sh"), /chromium\.launch/);
+  // The updater has a fallback to go back to, and the bake puts both on the machine.
+  assert.match(vm("hive-update.service"), /^OnFailure=hive-update-fallback\.service$/m);
+  assert.match(vm("bake.sh"), /hive-update\.good/);
   const worker = JSON.parse(
     readFileSync(new URL("../apps/worker/package.json", import.meta.url), "utf8"),
   );

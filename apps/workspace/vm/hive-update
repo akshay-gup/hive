@@ -17,11 +17,19 @@
 # `wantedUrl` answers {"tag": "...", "digest": "sha256:...", "force": false}. Without the file the timer
 # does nothing, so a machine is only updated once it has been told where to ask.
 #
+# The updater is part of the build. After fetching, it looks for a newer copy of itself in the image
+# (app/machine/hive-update), tries that copy with --self-test, and only if it passes installs it and
+# carries on with the update as that copy. The copy that last finished an update is kept as
+# hive-update.good, and hive-update-fallback runs it if the current one fails (see that script).
+# The image also brings app/machine/hive-ensure, which makes the machine what the build needs
+# (packages, Chromium) before anything is stopped; it is safe to run again and only adds.
+#
 # Everything with a path or a command is a variable, so the tests run it on a folder and not a machine.
 set -euo pipefail
 umask 022
 
 APP=${HIVE_APP:-/app}
+SELF=${HIVE_SELF:-/usr/local/sbin/hive-update}
 BIN=${HIVE_BIN:-/usr/local/bin}
 ETC=${HIVE_ETC:-/etc/hive}
 STATE=${HIVE_STATE:-/var/lib/hive}
@@ -40,6 +48,7 @@ fail() { say "$*" >&2; exit 1; }
 want_tag= want_digest= force=
 while [ $# -gt 0 ]; do
   case "$1" in
+    --self-test) echo ok; exit 0 ;;
     --to) want_tag=${2:?--to needs a tag}; shift 2 ;;
     --digest) want_digest=${2:?--digest needs a digest}; shift 2 ;;
     --force) force=1; shift ;;
@@ -48,8 +57,11 @@ while [ $# -gt 0 ]; do
 done
 
 mkdir -p "$STATE"
-exec 9>"$STATE/update.lock"
-flock -n 9 || { say "another update is running"; exit 0; }
+# A copy of itself that this one started has been handed the lock already.
+if [ -z "${HIVE_PRESTAGED:-}" ]; then
+  exec 9>"$STATE/update.lock"
+  flock -n 9 || { say "another update is running"; exit 0; }
+fi
 
 record() { # state, version, message
   printf '{"state":"%s","version":"%s","message":"%s","at":"%s"}\n' \
@@ -119,16 +131,46 @@ if [ -n "$want_digest" ]; then
 fi
 
 NEXT="$APP.next" PREV="$APP.prev"
-STAGE=$(mktemp -d "$STATE/stage.XXXXXX")
+if [ -n "${HIVE_PRESTAGED:-}" ]; then
+  STAGE=$HIVE_PRESTAGED # fetched by the updater that handed over to this one
+else
+  STAGE=$(mktemp -d "$STATE/stage.XXXXXX")
+fi
 trap 'rm -rf "$STAGE"' EXIT
-record fetching "$have" "$want_tag"
-say "fetching $ref"
-"$CRANE" export "$ref" - | tar -x -C "$STAGE" app usr/local/bin/node usr/local/bin/opencode ||
-  { record failed "$have" "could not fetch $ref"; fail "could not fetch $ref"; }
-[ -f "$STAGE/app/package.json" ] && [ -x "$STAGE/usr/local/bin/node" ] && [ -x "$STAGE/usr/local/bin/opencode" ] ||
-  { record failed "$have" "$ref is not a workspace build"; fail "$ref is not a workspace build"; }
-# Builds made before VERSION existed carry none; say which one this is.
-printf '%s\n' "$want_tag" >"$STAGE/app/VERSION"
+if [ -z "${HIVE_PRESTAGED:-}" ]; then
+  record fetching "$have" "$want_tag"
+  say "fetching $ref"
+  "$CRANE" export "$ref" - | tar -x -C "$STAGE" app usr/local/bin/node usr/local/bin/opencode ||
+    { record failed "$have" "could not fetch $ref"; fail "could not fetch $ref"; }
+  [ -f "$STAGE/app/package.json" ] && [ -x "$STAGE/usr/local/bin/node" ] && [ -x "$STAGE/usr/local/bin/opencode" ] ||
+    { record failed "$have" "$ref is not a workspace build"; fail "$ref is not a workspace build"; }
+  # Builds made before VERSION existed carry none; say which one this is.
+  printf '%s\n' "$want_tag" >"$STAGE/app/VERSION"
+
+  # Take the build's own updater, if it has one that differs and works, and carry on as that.
+  new="$STAGE/app/machine/hive-update"
+  if [ -z "${HIVE_NO_SELF_UPDATE:-}" ] && [ -f "$new" ] && ! cmp -s "$new" "$SELF"; then
+    if bash -n "$new" && [ "$(bash "$new" --self-test 2>/dev/null)" = ok ]; then
+      say "taking the updater that came with $want_tag"
+      install -m 0755 "$new" "$SELF.new"
+      mv "$SELF.new" "$SELF"
+      args=(--to "$want_tag" --force)
+      [ -z "$want_digest" ] || args+=(--digest "$want_digest")
+      trap - EXIT # the copy that takes over cleans up
+      HIVE_PRESTAGED=$STAGE exec bash "$SELF" "${args[@]}"
+    fi
+    say "the updater that came with $want_tag does not pass its own test; keeping this one"
+  fi
+fi
+
+# Make the machine what the build needs, while the workspace is still running on the old build. If this
+# fails nothing has been changed yet.
+ensure="$STAGE/app/machine/hive-ensure"
+if [ -f "$ensure" ]; then
+  say "making the machine ready for $want_tag"
+  HIVE_APP="$STAGE/app" HIVE_NODE="$STAGE/usr/local/bin/node" HIVE_STATE="$STATE" bash "$ensure" ||
+    { record failed "$have" "could not make the machine ready for $want_tag"; fail "could not make the machine ready for $want_tag"; }
+fi
 
 # Swap. The old program and binaries are kept until the next update succeeds.
 record switching "$have" "$want_tag"
@@ -162,5 +204,8 @@ if [ -z "$up" ]; then
 fi
 
 rm -f "$STATE/node.prev" "$STATE/opencode.prev"
+# The copy that ran this update has now finished one, so it is the one to go back to if a later one fails.
+this=$(readlink -f "$0")
+[ "$this" = "$(readlink -f "$SELF.good" 2>/dev/null || true)" ] || cp -p "$this" "$SELF.good"
 record updated "$want_tag" "from $have"
 say "now on $want_tag"

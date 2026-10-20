@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Makes this machine what a build of the workspace needs beyond its own files: the things that live on
+# the machine and not in the container image. The updater runs it from the new build, before the old
+# one is stopped, and the bake runs it once for a new snapshot, so a machine that has been updated and
+# one that is new end up the same.
+#
+# Rules for what goes in here: it can be run again at any time and does nothing when the machine is
+# already right; it only adds, so the build that was there before still works if this one is rolled
+# back; and it says what it is doing, since a person may be reading the log.
+#
+# Paths are variables so a test can run it on a folder.
+set -euo pipefail
+
+APP=${HIVE_APP:-/app}
+NODE=${HIVE_NODE:-/usr/local/bin/node}
+STATE=${HIVE_STATE:-/var/lib/hive}
+BROWSERS=${HIVE_BROWSERS:-/opt/ms-playwright}
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
+
+say() { printf '%s hive-ensure: %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+# The browser the agent works with: Chromium for the Playwright this build carries. Each Playwright
+# version keeps its own copy under $BROWSERS, so the build before this one keeps the one it had.
+ensure_browser() {
+  local cli=$APP/browser-worker/node_modules/playwright/cli.js
+  [ -f "$cli" ] || return 0
+  local version stamp
+  version=$(jq -r .version "$APP/browser-worker/node_modules/playwright/package.json")
+  stamp=$STATE/ensure-browser-$version
+  if [ -f "$stamp" ]; then return 0; fi
+  say "Chromium for Playwright $version"
+  PLAYWRIGHT_BROWSERS_PATH=$BROWSERS "$NODE" "$cli" install --with-deps --only-shell chromium
+  chmod -R a+rX "$BROWSERS"
+  mkdir -p "$STATE"
+  : >"$stamp"
+}
+
+ensure_browser

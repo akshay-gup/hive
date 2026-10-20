@@ -135,6 +135,8 @@ export function bakeCloudConfig(options: {
     entry("hive-tunnel.service", "0644", base64(file("hive-tunnel.service"))),
     entry("nftables.conf", "0644", base64(file("nftables.conf"))),
     entry("hive-update", "0755", base64(file("hive-update"))),
+    entry("hive-update-fallback", "0755", base64(file("hive-update-fallback"))),
+    entry("hive-update-fallback.service", "0644", base64(file("hive-update-fallback.service"))),
     entry("hive-update.service", "0644", base64(file("hive-update.service"))),
     entry("hive-update.timer", "0644", base64(file("hive-update.timer"))),
     entry("hive-update.path", "0644", base64(file("hive-update.path"))),

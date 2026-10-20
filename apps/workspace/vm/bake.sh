@@ -80,16 +80,12 @@ install_crane() {
   crane version
 }
 
-# The browser the agent works with. Chromium and the libraries it needs are installed here, with the
-# Playwright that came in the image, so the two match. They are kept out of the container image to
-# keep updates small. An update that moves Playwright to a new version needs a new snapshot, or the
-# browser will not start (the workspace goes on without it and says so).
+# The browser the agent works with, and anything else a build needs from the machine, is made by
+# hive-ensure, the same script an update runs, so a new machine and an updated one are the same.
 install_browser() {
-  say "Chromium"
-  local cli=/app/browser-worker/node_modules/playwright/cli.js
-  [ -f "$cli" ] || { echo "The image has no browser worker ($cli)" >&2; exit 1; }
-  PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright "$PAYLOAD/node" "$cli" install --with-deps --only-shell chromium
-  chmod -R a+rX /opt/ms-playwright
+  say "What the build needs from the machine"
+  [ -f /app/machine/hive-ensure ] || { echo "The image has no machine/hive-ensure" >&2; exit 1; }
+  HIVE_APP=/app HIVE_NODE="$PAYLOAD/node" bash /app/machine/hive-ensure
 }
 
 # Docker is here only to take the workspace out of its image; seal removes it.
@@ -151,6 +147,10 @@ install_workspace() {
   # does anything on a machine whose /etc/hive/updater.json has not been written.
   install -d -m 0755 /var/lib/hive
   install -m 0755 "$HERE/hive-update" /usr/local/sbin/hive-update
+  # The updater that is known to work, for the fallback to go back to.
+  install -m 0755 "$HERE/hive-update" /usr/local/sbin/hive-update.good
+  install -m 0755 "$HERE/hive-update-fallback" /usr/local/sbin/hive-update-fallback
+  install -m 0644 "$HERE/hive-update-fallback.service" /etc/systemd/system/hive-update-fallback.service
   for unit in hive-update.service hive-update.timer hive-update.path; do
     install -m 0644 "$HERE/$unit" "/etc/systemd/system/$unit"
   done
