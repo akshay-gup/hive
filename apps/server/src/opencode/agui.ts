@@ -67,6 +67,31 @@ const TOOL_RESULT_LIMIT = 2_000;
  */
 const WHOLE_RESULT_TOOLS = new Set(["present_choices"]);
 
+/**
+ * What the chat is sent of a tool's result. A page the agent read is long, and cut short it is no
+ * longer JSON, so the card would say the page was never returned: keep the fields it shows and
+ * trim the page text.
+ */
+export function forwardedResult(tool: string, content: string): string {
+  if (WHOLE_RESULT_TOOLS.has(tool)) return content;
+  if (tool === "browse_web" && content.length > TOOL_RESULT_LIMIT) {
+    try {
+      const page = JSON.parse(content);
+      if (page && typeof page === "object" && !Array.isArray(page)) {
+        const { text, ...rest } = page as Record<string, unknown>;
+        const room = Math.max(0, TOOL_RESULT_LIMIT - JSON.stringify(rest).length - 32);
+        const shown = typeof text === "string" ? { ...rest, text: text.slice(0, room) } : rest;
+        const out = JSON.stringify(shown);
+        if (out.length <= TOOL_RESULT_LIMIT) return out;
+        return JSON.stringify(rest).slice(0, TOOL_RESULT_LIMIT);
+      }
+    } catch {
+      // not JSON: fall through to the plain cut
+    }
+  }
+  return content.slice(0, TOOL_RESULT_LIMIT);
+}
+
 export function parseModelRef(
   model: string | undefined,
 ): { providerID: string; modelID: string } | undefined {
@@ -431,9 +456,7 @@ export class RunTranslator {
         messageId: `toolresult-${callID}`,
         toolCallId: callID,
         role: "tool",
-        content: WHOLE_RESULT_TOOLS.has(hiveToolName(tool))
-          ? content
-          : content.slice(0, TOOL_RESULT_LIMIT),
+        content: forwardedResult(hiveToolName(tool), content),
       });
       track.ended = true;
     }

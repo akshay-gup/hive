@@ -81,16 +81,14 @@ export function BrowserToolCard({
   }, [api, sessionId, current?.updatedAt, retry]);
 
   const visited = observation.success ? observation.data : undefined;
-  const failure = toolError.success
-    ? toolError.data.error
-    : !loading && !visited
-      ? "The browser did not return a page. Try your request again."
-      : "";
+  // A reason comes from the browser itself; a call with no answer at all was cut off, and says only so.
+  const failure = toolError.success ? toolError.data.error : "";
+  const failed = !!failure || (!loading && !visited);
   const status = working
     ? "Reading the page…"
     : loading
       ? "Browsing paused"
-      : failure
+      : failed
         ? "Couldn’t read the page"
         : `Read ${siteLabel(visited?.url)}`;
   // Taking control is what the line is for; it is there once the page has been read.
@@ -134,8 +132,10 @@ export function BrowserToolCard({
         </IconSlot>
       </Pressable>
       {!!(failure || error) && (
-        <View style={[s.row, { gap: 10, paddingHorizontal: 4 }]}>
-          <Text style={[s.small, { color: colors.danger, flexShrink: 1 }]}>{failure || error}</Text>
+        <View style={[s.row, { gap: 10, paddingHorizontal: 14 }]}>
+          <Text style={[s.small, { color: colors.danger, flexShrink: 1 }]} numberOfLines={2}>
+            {failure || error}
+          </Text>
           {!!error && (
             <Pressable
               accessibilityRole="button"
