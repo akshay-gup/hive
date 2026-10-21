@@ -261,6 +261,11 @@ export function cloudConfig(
       ? file("/etc/hive/updater.json", JSON.stringify({ wantedUrl: options.updateUrl }))
       : []),
     "runcmd:",
+    // The snapshot is older than the build the control plane wants. Put that build on first, while
+    // nothing is running and nobody is connected, so the workspace never answers on an old one.
+    // If that cannot be done (the registry is down), the workspace starts on what it has and the
+    // timer tries again.
+    ...(options.updateUrl ? ["  - systemctl start hive-update.service || true"] : []),
     "  - [systemctl, start, --no-block, hive-workspace.service]",
     ...(options.tunnelToken ? ["  - [systemctl, start, --no-block, hive-tunnel.service]"] : []),
     "",

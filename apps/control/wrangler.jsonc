@@ -46,6 +46,7 @@
     "CLOUDFLARE_ZONE_ID": "8034fb3e2eb820737c9655df47f4781e",
     // Tried in this order; the image is copied to the later ones by the Worker (a minute after it starts).
     "DO_REGIONS": "nyc3,tor1,ric1",
+    "DO_WAIT_SECONDS": "480",
     // DigitalOcean backs each workspace's Droplet up daily, in the window that starts at 08:00 UTC
     // (4 a.m. in New York), on its usage-based plan ($0.03 per GB of a backup's restorable size a
     // month, kept 7 days) and not the flat one (30% of the Droplet's price). A Droplet is made on

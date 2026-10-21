@@ -996,3 +996,16 @@ test("DO_BACKUPS names the plan, DO_BACKUP_HOUR when, and a typo is refused rath
     /DO_BACKUP_HOUR/,
   );
 });
+
+test("a new Droplet puts the wanted build on before the workspace starts", async () => {
+  const { cloudConfig } = await import("../apps/control/src/digitalocean.ts");
+  const withUpdates = cloudConfig({ a: "b" }, { updateUrl: "https://api.example/v1/release/w1" });
+  const update = withUpdates.indexOf("systemctl start hive-update.service || true");
+  const start = withUpdates.indexOf("hive-workspace.service");
+  assert.ok(update > 0 && update < start, "the update comes first");
+  assert.doesNotMatch(
+    cloudConfig({ a: "b" }),
+    /hive-update\.service/,
+    "nothing to ask, nothing to do",
+  );
+});
