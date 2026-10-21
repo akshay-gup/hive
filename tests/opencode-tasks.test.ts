@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseTaskOutcome, TaskTextCollector } from "../apps/server/src/opencode/index.ts";
+import {
+  parseTaskOutcome,
+  planFromTodos,
+  TaskTextCollector,
+} from "../apps/server/src/opencode/index.ts";
 
 function partUpdated(messageID: string, text: string, synthetic = false) {
   return {
@@ -165,4 +169,40 @@ test("an approved-tool waiting outcome takes precedence over agent completion te
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("the agent's todo list becomes the plan: its words and order, with dropped items left out", () => {
+  assert.deepEqual(
+    planFromTodos([
+      { content: " Read the brief ", status: "completed", priority: "high" },
+      { content: "Draft the reply", status: "in_progress", priority: "medium" },
+      { content: "Ask for sign-off", status: "pending", priority: "low" },
+      { content: "Tidy the folder", status: "cancelled", priority: "low" },
+    ]),
+    [
+      { id: "0", title: "Read the brief", status: "succeeded" },
+      { id: "1", title: "Draft the reply", status: "running" },
+      { id: "2", title: "Ask for sign-off", status: "pending" },
+    ],
+  );
+});
+
+test("a todo list that is missing, empty or malformed is no plan", () => {
+  for (const todos of [
+    undefined,
+    null,
+    "steps",
+    {},
+    [],
+    [null, {}, { content: "  " }, { content: 4, status: "pending" }],
+  ])
+    assert.deepEqual(planFromTodos(todos), []);
+});
+
+test("a long list is cut to what can be read at a glance, and a long item to a line", () => {
+  const plan = planFromTodos(
+    Array.from({ length: 40 }, () => ({ content: "x".repeat(500), status: "pending" })),
+  );
+  assert.equal(plan.length, 30);
+  assert.equal(plan[0].title.length, 200);
 });

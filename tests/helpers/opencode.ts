@@ -39,6 +39,7 @@ export function opencodeStandIn(options: { dataDir: string; model?: string }) {
   let lease: { name: string; token: string } | undefined;
   let offered: string[] = [];
   let handler: (turn: AgentTurn) => void | Promise<void> = () => {};
+  let todos: unknown[] = [];
   const emit = (event: Record<string, unknown>) => listener({ id: "e", properties: {}, ...event });
   const say = (words: string, messageID = `m${prompts.length}`) => {
     emit({ type: "message.updated", properties: { info: { id: messageID, role: "assistant" } } });
@@ -77,6 +78,7 @@ export function opencodeStandIn(options: { dataDir: string; model?: string }) {
         return {};
       },
       abort: async () => ({}),
+      todo: async () => ({ data: todos }),
     },
     mcp: {
       add: async (request: { name: string; config: { headers: { Authorization: string } } }) => {
@@ -116,6 +118,10 @@ export function opencodeStandIn(options: { dataDir: string; model?: string }) {
     /** What the agent does each time it is prompted. */
     agent: (next: (turn: AgentTurn) => void | Promise<void>) => {
       handler = next;
+    },
+    /** The todo list the session already holds when a run starts (a session picked up again has one). */
+    setTodos: (list: unknown[]) => {
+      todos = list;
     },
     /** Forget the prompts so far, for a second run in the same test. */
     reset: () => {

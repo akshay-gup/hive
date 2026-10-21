@@ -100,7 +100,8 @@ test("task detail and controls are shared with everyone who is signed in", async
     201,
   );
   assert.equal(task.status, "queued");
-  assert.ok(task.plan.length > 0);
+  // An agent's plan is the list it keeps as it works, so a task has no steps before that.
+  assert.deepEqual(task.plan, []);
   // A teammate's task is the same workspace's task: visible, and open to the same controls.
   const theirs = await server.agent.createTask("other-user", { prompt: "A teammate's task" });
   assert.equal((await request(`/tasks/${theirs.id}`)).status, 200);

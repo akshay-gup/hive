@@ -16,7 +16,7 @@
  * visibility) belongs to the task worker; this module only runs the session.
  */
 import { mkdir } from "node:fs/promises";
-import type { AgentTask } from "../../../../packages/domain/src/agent.ts";
+import type { AgentTask, TaskStep } from "../../../../packages/domain/src/agent.ts";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent.ts";
 import type { Config } from "../config.ts";
 import { renderUpdate } from "../engine/brief.ts";
@@ -54,6 +54,31 @@ const MAX_FOLLOW_UPS = 3;
 
 const COMPLETE_MARKER = "TASK_COMPLETE:";
 const BLOCKED_MARKER = "TASK_BLOCKED:";
+
+/** A step's title is a line, and a plan is a list one can read at a glance. */
+const STEP_TITLE_CHARS = 200;
+const MAX_STEPS = 30;
+
+/**
+ * The agent's own todo list as the task's plan: what it writes is what the card shows, as it writes
+ * it. An item it dropped is not part of the plan.
+ */
+export function planFromTodos(todos: unknown): TaskStep[] {
+  if (!Array.isArray(todos)) return [];
+  const steps: TaskStep[] = [];
+  for (const todo of todos) {
+    const { content, status } = (todo ?? {}) as { content?: unknown; status?: unknown };
+    const title = typeof content === "string" ? content.trim().slice(0, STEP_TITLE_CHARS) : "";
+    if (!title || status === "cancelled") continue;
+    steps.push({
+      id: String(steps.length),
+      title,
+      status:
+        status === "completed" ? "succeeded" : status === "in_progress" ? "running" : "pending",
+    });
+  }
+  return steps.slice(0, MAX_STEPS);
+}
 
 /**
  * Assistant text collector for a task session. Snapshots (`message.part.updated`)
@@ -356,6 +381,30 @@ export async function runOpencodeTask(
     }
   };
 
+  // The agent's todo list is the task's plan. Writes go one at a time, in order, and only when the
+  // list changed.
+  let planJson = JSON.stringify(task.plan);
+  let planWrites: Promise<unknown> = Promise.resolve();
+  const syncPlan = (todos: unknown) => {
+    const plan = planFromTodos(todos);
+    planWrites = planWrites
+      .then(async () => {
+        if (JSON.stringify(plan) === planJson) return;
+        task = await ctx.checkpoint({ plan });
+        planJson = JSON.stringify(plan);
+      })
+      // A run that has lost its lease writes nothing more; the plan is not worth failing it for.
+      .catch(() => undefined);
+    return planWrites;
+  };
+  const todosNow = async (): Promise<unknown> => {
+    try {
+      return (await client.session.todo({ sessionID: sessionId, directory })).data ?? [];
+    } catch {
+      return undefined;
+    }
+  };
+
   // One turn at a time: the session reports idle when the agent has nothing left to do. A failure is
   // sticky, so a turn started after it fails at once rather than waiting for the timeout.
   let failure: Error | undefined;
@@ -437,6 +486,10 @@ export async function runOpencodeTask(
     if (event.type === "permission.replied") {
       const requestID = (event.properties as { requestID?: string }).requestID;
       if (typeof requestID === "string") runtime.tracker.remove(requestID);
+      return;
+    }
+    if (event.type === "todo.updated") {
+      void syncPlan((event.properties as { todos?: unknown }).todos);
       return;
     }
     collector.handle(event);
@@ -560,6 +613,10 @@ export async function runOpencodeTask(
         ctx.signal,
       );
     await runtime.bus.waitForConnection();
+    // A session that is picked up again already has its list, and a new one has none: the plan is
+    // what the agent has now, so one left by an earlier run does not outlive it.
+    const todos = await todosNow();
+    if (todos !== undefined) await syncPlan(todos);
     await runtime.bus.enqueue(scope, () =>
       client.session.promptAsync({
         sessionID: sessionId,
@@ -638,6 +695,8 @@ export async function runOpencodeTask(
     clearTimeout(timer);
     ctx.signal.removeEventListener("abort", onAbort);
     unsubscribe();
+    // What the agent wrote last is saved before the run's outcome is.
+    await planWrites;
     try {
       await runLog.close();
     } catch (error) {

@@ -51,7 +51,6 @@ test("the executor offers Hive's tools, runs what the agent calls, and persists 
   let offered: string[] = [];
   standIn.agent(async ({ call, tools, idle }) => {
     offered = tools;
-    await call("set_plan", { steps: ["Inspect available sources", "Save a practical plan"] });
     await call("read_workspace", { section: "files" });
     await call("save_artifact", {
       kind: "plan",
@@ -78,9 +77,11 @@ test("the executor offers Hive's tools, runs what the agent calls, and persists 
   assert.equal((await server.agent.accept("owner", task.id)).status, "succeeded");
   // The agent is told the task, and is offered the worker's tools but no way to approve its own work.
   assert.match(lastPrompt(standIn.prompts), /Make a weekend plan/);
-  for (const name of ["set_plan", "prepare_email", "prepare_event", "ask_user", "finish_task"])
+  for (const name of ["prepare_email", "prepare_event", "ask_user", "finish_task"])
     assert.ok(offered.includes(name), name);
-  for (const name of ["run_computer_command", "approve"]) assert.ok(!offered.includes(name), name);
+  // The agent keeps its own plan, so there is no tool for Hive's.
+  for (const name of ["set_plan", "run_computer_command", "approve"])
+    assert.ok(!offered.includes(name), name);
 
   // A calendar event is prepared for review, and the task waits for a person to approve it.
   standIn.reset();
@@ -267,4 +268,91 @@ test("browser reads keep observation identity distinct while reusing one session
   );
   assert.equal(sessionIds.size, 1, "both reads should reuse the same browser session");
   assert.equal(new Set(webEvidence.map((item) => item.id)).size, 2);
+});
+
+const until = async (check: () => Promise<boolean>) => {
+  for (let i = 0; i < 300; i++) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail("it did not happen in time");
+};
+const todos = (...items: [string, string][]) =>
+  items.map(([content, status]) => ({ content, status, priority: "medium" }));
+
+test("a task's plan is the todo list its agent keeps, shown as the agent writes it", async (t) => {
+  const { server, standIn } = await executor(t, "executor-plan");
+  let id = "";
+  const plan = async () =>
+    (await server.agent.getTask("owner", id)).plan.map((step) => `${step.title}:${step.status}`);
+  const seen: string[][] = [];
+  standIn.agent(async ({ emit, call, idle }) => {
+    emit({
+      type: "todo.updated",
+      properties: {
+        sessionID: "ses-1",
+        todos: todos(
+          ["Read the brief", "in_progress"],
+          ["Draft the reply", "pending"],
+          ["Tidy up", "pending"],
+        ),
+      },
+    });
+    await until(async () => (await plan()).length === 3);
+    seen.push(await plan());
+    emit({
+      type: "todo.updated",
+      properties: {
+        sessionID: "ses-1",
+        todos: todos(
+          ["Read the brief", "completed"],
+          ["Draft the reply", "in_progress"],
+          ["Tidy up", "cancelled"],
+        ),
+      },
+    });
+    await until(async () => (await plan()).length === 2);
+    seen.push(await plan());
+    await call("finish_task", { summary: "Drafted the reply." });
+    idle();
+  });
+  const task = await server.agent.createTask("owner", { prompt: "Reply to the brief" });
+  id = task.id;
+  // Nothing of Hive's own: a task has no steps until its agent writes some.
+  assert.deepEqual(await plan(), []);
+  await server.agent.worker.tick();
+  assert.deepEqual(seen, [
+    ["Read the brief:running", "Draft the reply:pending", "Tidy up:pending"],
+    ["Read the brief:succeeded", "Draft the reply:running"],
+  ]);
+  const finished = await server.agent.getTask("owner", id);
+  assert.equal(finished.status, "in_review", finished.error ?? finished.question);
+  // Handed in, what the agent listed is done. The item it dropped is still not on the plan.
+  assert.deepEqual(await plan(), ["Read the brief:succeeded", "Draft the reply:succeeded"]);
+});
+
+test("a run starts from the list its session already holds, so an old plan does not outlive it", async (t) => {
+  const { db, server, standIn } = await executor(t, "executor-plan-start");
+  const first = await server.agent.createTask("owner", { prompt: "Reply to the brief" });
+  // Steps written for this task before the agent kept its own: nothing ever filled them in.
+  await db.put("owner", "tasks", {
+    ...first,
+    plan: [{ id: "0", title: "Understand the outcome", status: "pending" }],
+  });
+  standIn.agent(({ say, idle }) => {
+    say("Looking into it.");
+    idle();
+  });
+  await server.agent.worker.tick();
+  // A new session has no list, and the old steps are gone with it.
+  assert.deepEqual((await server.agent.getTask("owner", first.id)).plan, []);
+
+  // A session that is picked up again already has its list, which is the plan from the start.
+  standIn.setTodos(todos(["Read the brief", "completed"], ["Draft the reply", "in_progress"]));
+  const second = await server.agent.createTask("owner", { prompt: "Reply to the other brief" });
+  await server.agent.worker.tick();
+  assert.deepEqual(
+    (await server.agent.getTask("owner", second.id)).plan.map((s) => `${s.title}:${s.status}`),
+    ["Read the brief:succeeded", "Draft the reply:running"],
+  );
 });

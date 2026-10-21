@@ -101,17 +101,6 @@ export async function executeTask(
   };
   const tools = [
     tool(
-      "set_plan",
-      "Make a concrete plan for the delegated outcome",
-      z.object({ steps: z.array(z.string().min(1)).min(1).max(12) }),
-      async ({ steps }) => {
-        task = await ctx.checkpoint({
-          plan: steps.map((title, i) => ({ id: String(i), title, status: "pending" })),
-        });
-        return { plan: task.plan };
-      },
-    ),
-    tool(
       "read_workspace",
       "Read the authorized workspace sources",
       z.object({ section: z.enum(["mail", "calendar", "files", "all"]) }),

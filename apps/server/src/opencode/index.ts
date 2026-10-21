@@ -53,6 +53,7 @@ export {
 export {
   type OpencodeTaskRuntime,
   parseTaskOutcome,
+  planFromTodos,
   runOpencodeTask,
   TaskTextCollector,
 } from "./tasks.ts";

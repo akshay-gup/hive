@@ -552,6 +552,8 @@ export class AgentService {
       ).length >= 100
     )
       throw new AppError("Finish or cancel some tasks before adding more", 409);
+    // Only the workflows that run as code have steps to start with, because the code ticks them off.
+    // What an agent does has none: its plan is the todo list the agent keeps as it works.
     const titles =
       input.kind === "document"
         ? [
@@ -565,7 +567,7 @@ export class AgentService {
           ? ["Check the source", "Compare with the last observation", "Report a meaningful change"]
           : input.kind === "finance"
             ? ["Validate transactions", "Calculate the summary", "Save your tracker"]
-            : ["Understand the outcome", "Plan the work", "Use connected tools", "Return a result"];
+            : [];
     const isManual = input.kind === "manual";
     if (!isManual && !input.prompt)
       throw new AppError("A prompt is required for agent-executed tasks", 422);
@@ -589,7 +591,7 @@ export class AgentService {
       threadId: input.threadId,
       createdBy: owner,
       status: held ? "paused" : "queued",
-      plan: isManual ? [] : titles.map((title, i) => ({ id: String(i), title, status: "pending" })),
+      plan: titles.map((title, i) => ({ id: String(i), title, status: "pending" })),
       evidence: [],
       input: input.input,
       state: {
