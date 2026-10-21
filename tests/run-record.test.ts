@@ -106,3 +106,32 @@ test("the shim says whether a thread has a run going, and Stop on one with none 
   });
   assert.equal(stop.status, 200);
 });
+
+test("a thread can be started from what is written in it, with no page attached", async () => {
+  const app = new Hono();
+  app.use("*", async (c, next) => {
+    c.set("owner" as never, "owner" as never);
+    await next();
+  });
+  let asked = "";
+  app.route(
+    "/",
+    opencodeShimRoutes({
+      config: {},
+      loadMessages: async (_owner: string, threadId: string) => {
+        asked = threadId;
+        return [{ id: "u1", role: "user", content: "no mention, so nothing to do" }];
+      },
+    } as never),
+  );
+  const started = await app.request("/start", {
+    method: "POST",
+    body: JSON.stringify({ threadId: "thread-1" }),
+    headers: { "content-type": "application/json" },
+  });
+  assert.equal(started.status, 200);
+  assert.equal(asked, "thread-1");
+  assert.deepEqual(await started.json(), { started: true });
+  const bad = await app.request("/start", { method: "POST", body: "{}" });
+  assert.equal(bad.status, 400);
+});

@@ -703,22 +703,39 @@ export function ChatScreen({
         name: opts.name,
         parentMessageId: opts.parentMessageId,
       });
+      // What starts the agent is written into the thread first, and the server starts it from there,
+      // so closing the page right now does not leave the message unanswered.
+      const first = opts.firstText
+        ? {
+            id: opts.firstMessageId ?? opts.parent.id,
+            role: "user" as const,
+            content: opts.firstText,
+          }
+        : undefined;
+      const seed =
+        first && !opts.seed.some((message) => message.id === first.id)
+          ? [...opts.seed, first]
+          : opts.seed;
       await api.request(
         `/api/conversation?threadId=${encodeURIComponent(binding.threadId)}`,
-        { messages: opts.seed },
+        { messages: seed },
         "PUT",
       );
+      let started = false;
+      if (first)
+        started = await api
+          .request("/api/agent/opencode/start", { threadId: binding.threadId }, "POST")
+          .then(() => true)
+          .catch(() => false);
       setChannelThreads((threads) => [...(threads ?? []), binding]);
+      // If the server could not start it, the open thread does, as it always did.
       setReplyPanel({
         binding,
         parent: opts.parent,
-        prompt: opts.firstText
-          ? {
-              id: Date.now(),
-              text: opts.firstText,
-              messageId: opts.firstMessageId ?? opts.parent.id,
-            }
-          : undefined,
+        prompt:
+          first && !started
+            ? { id: Date.now(), text: first.content, messageId: first.id }
+            : undefined,
       });
       setPanelOpen(true);
     },

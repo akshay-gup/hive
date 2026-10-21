@@ -50,6 +50,8 @@ export interface OpencodeShimDeps {
   hiveTools?: HiveToolBridge;
   /** Writes messages into a conversation, so a run nobody is watching is still kept. */
   saveMessages?: (owner: string, threadId: string, messages: RecordedMessage[]) => Promise<void>;
+  /** What a conversation holds now. */
+  loadMessages?: (owner: string, threadId: string) => Promise<unknown[]>;
 }
 
 const runInputSchema = z.object({
@@ -782,6 +784,84 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
     stoppers.get(threadId)?.abort();
     return c.json({ ok: true });
   });
+  /**
+   * Begin a run. It is written down as it goes and does not depend on anyone reading `onEvent`.
+   * Returns undefined when the thread already has a run going.
+   */
+  const launch = (
+    owner: string,
+    input: RunInput,
+    onEvent?: (event: AguiEvent) => void,
+  ): Promise<void> | undefined => {
+    const { threadId, runId } = input;
+    if (inflight.has(threadId)) return undefined;
+    inflight.set(threadId, runId);
+    const stopper = new AbortController();
+    stoppers.set(threadId, stopper);
+    settling.add(threadId);
+    const record = new RunRecord();
+    // Writes go one after another, so the last one is the newest state.
+    let saving: Promise<void> = Promise.resolve();
+    const save = (withInput = false) => {
+      if (!deps.saveMessages || threadId.startsWith("channel:")) return;
+      const messages = [
+        ...(withInput ? mergeableMessages(input.messages) : []),
+        ...record.messages(),
+      ];
+      saving = saving
+        .then(() => deps.saveMessages?.(owner, threadId, messages))
+        .catch(() => undefined);
+    };
+    save(true);
+    const send = (event: AguiEvent) => {
+      record.handle(event);
+      if (
+        event.type === "TOOL_CALL_RESULT" ||
+        event.type === "TEXT_MESSAGE_END" ||
+        event.type === "RUN_FINISHED" ||
+        event.type === "RUN_ERROR"
+      )
+        save();
+      onEvent?.(event);
+    };
+    const ctx: RunContext = {
+      deps,
+      owner,
+      input,
+      send,
+      signal: stopper.signal,
+      inflight,
+      settled: false,
+      onAbort: () => undefined,
+    };
+    return (async () => {
+      try {
+        await runOpencodeTurn(ctx);
+      } finally {
+        settleRun(ctx);
+        if (stoppers.get(threadId) === stopper) stoppers.delete(threadId);
+        save();
+        await saving;
+        settling.delete(threadId);
+      }
+    })();
+  };
+  /**
+   * Start the agent on a thread from what is already written in it, with no page attached. A thread
+   * made from a channel message is started this way, so closing the page right after posting does
+   * not leave the message unanswered.
+   */
+  app.post("/start", async (c) => {
+    const owner = c.get("owner");
+    const body = (await c.req.json().catch(() => ({}))) as { threadId?: unknown };
+    const threadId = typeof body.threadId === "string" ? body.threadId : "";
+    if (!threadId || !deps.loadMessages) return c.json({ error: "Invalid start" }, 400);
+    const messages = await deps.loadMessages(owner, threadId);
+    const run = launch(owner, { threadId, runId: `run-${Date.now()}`, messages });
+    if (!run) return c.json({ started: false });
+    void run.catch(() => undefined);
+    return c.json({ started: true });
+  });
   app.post("/run", async (c) => {
     const owner = c.get("owner");
     let body: unknown;
@@ -792,72 +872,28 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
     }
     const parsed = runInputSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "Invalid run input" }, 400);
-    const { threadId, runId } = parsed.data;
-    if (inflight.has(threadId)) {
-      return c.json({ error: "A run is already in progress on this thread" }, 409);
-    }
-    inflight.set(threadId, runId);
-    const stopper = new AbortController();
-    stoppers.set(threadId, stopper);
-    settling.add(threadId);
-
+    const busy = () => c.json({ error: "A run is already in progress on this thread" }, 409);
     const encoder = new TextEncoder();
-    const record = new RunRecord();
-    // Writes go one after another, so the last one is the newest state.
-    let saving: Promise<void> = Promise.resolve();
-    const save = (withInput = false) => {
-      if (!deps.saveMessages || threadId.startsWith("channel:")) return;
-      const messages = [
-        ...(withInput ? mergeableMessages(parsed.data.messages) : []),
-        ...record.messages(),
-      ];
-      saving = saving
-        .then(() => deps.saveMessages?.(owner, threadId, messages))
-        .catch(() => undefined);
-    };
-    save(true);
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const send = (event: AguiEvent) => {
-          record.handle(event);
-          if (
-            event.type === "TOOL_CALL_RESULT" ||
-            event.type === "TEXT_MESSAGE_END" ||
-            event.type === "RUN_FINISHED" ||
-            event.type === "RUN_ERROR"
-          )
-            save();
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-          } catch {
-            // Nobody is reading any more; the run carries on and is written down as it goes.
-          }
-        };
-        const ctx: RunContext = {
-          deps,
-          owner,
-          input: parsed.data,
-          send,
-          signal: stopper.signal,
-          inflight,
-          settled: false,
-          onAbort: () => undefined,
-        };
-        try {
-          await runOpencodeTurn(ctx);
-        } finally {
-          settleRun(ctx);
-          if (stoppers.get(threadId) === stopper) stoppers.delete(threadId);
-          save();
-          await saving;
-          settling.delete(threadId);
-          try {
-            controller.close();
-          } catch {
-            // Already closed.
-          }
-        }
+      start(c) {
+        controller = c;
       },
+    });
+    const run = launch(owner, parsed.data, (event) => {
+      try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      } catch {
+        // Nobody is reading any more; the run carries on and is written down as it goes.
+      }
+    });
+    if (!run) return busy();
+    void run.finally(() => {
+      try {
+        controller.close();
+      } catch {
+        // Already closed.
+      }
     });
     return new Response(stream, {
       headers: {

@@ -307,6 +307,12 @@ export async function createApp(
     tracker,
     rules,
     hiveTools,
+    loadMessages: async (owner: string, threadId: string) => {
+      const id = conversationKey(threadId);
+      const home = await conversationHome(id, owner, (o, t) => agent.channelOfThread(o, t));
+      const stored = await db.get<{ messages?: unknown[] }>(home.owner, "conversations", id);
+      return stored?.messages ?? [];
+    },
     // What the agent does is kept as it happens, so closing the page does not lose it.
     saveMessages: async (owner: string, threadId: string, added: RecordedMessage[]) => {
       const id = conversationKey(threadId);
