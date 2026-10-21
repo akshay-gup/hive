@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import type { AgentTask } from "../../../packages/domain/src/agent";
 import { TaskBoardCard } from "./task-board";
@@ -38,6 +39,9 @@ export function TaskTimeline({
   onSelect: (task: AgentTask) => void;
 }) {
   const today = todayStart();
+  // The chart fills a wide page; on a narrow one it keeps its scale and scrolls sideways.
+  const [width, setWidth] = useState(0);
+  const dayWidth = Math.max(DAY_WIDTH, Math.floor((width - LABEL_WIDTH) / WINDOW_DAYS));
   const dated: { task: AgentTask; startMs: number; dueMs: number | null; milestone: boolean }[] =
     [];
   const unscheduled: AgentTask[] = [];
@@ -70,14 +74,14 @@ export function TaskTimeline({
   const weekStarts = [0, 7, 14, 21].map((offset) => windowStart + offset * DAY_MS);
 
   return (
-    <View style={{ gap: 16 }}>
+    <View style={{ gap: 16 }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={{ gap: 4 }}>
           <View style={[s.row, { height: 28 }]}>
             <View style={{ width: LABEL_WIDTH }} />
-            <View style={[s.row, { width: WINDOW_DAYS * DAY_WIDTH }]}>
+            <View style={[s.row, { width: WINDOW_DAYS * dayWidth }]}>
               {weekStarts.map((ms) => (
-                <Text key={ms} style={[s.small, { width: 7 * DAY_WIDTH, fontWeight: "700" }]}>
+                <Text key={ms} style={[s.small, { width: 7 * dayWidth, fontWeight: "700" }]}>
                   {formatDay(ms)}
                 </Text>
               ))}
@@ -100,11 +104,11 @@ export function TaskTimeline({
                 >
                   {t.task.title}
                 </Text>
-                <View style={{ width: WINDOW_DAYS * DAY_WIDTH, justifyContent: "center" }}>
+                <View style={{ width: WINDOW_DAYS * dayWidth, justifyContent: "center" }}>
                   {t.milestone ? (
                     <View
                       style={{
-                        marginLeft: t.startOffset * DAY_WIDTH,
+                        marginLeft: t.startOffset * dayWidth,
                         width: 14,
                         height: 14,
                         borderRadius: 7,
@@ -114,8 +118,8 @@ export function TaskTimeline({
                   ) : (
                     <View
                       style={{
-                        marginLeft: t.startOffset * DAY_WIDTH,
-                        width: Math.max((t.endOffset - t.startOffset + 1) * DAY_WIDTH - 4, 14),
+                        marginLeft: t.startOffset * dayWidth,
+                        width: Math.max((t.endOffset - t.startOffset + 1) * dayWidth - 4, 14),
                         height: 16,
                         borderRadius: 8,
                         backgroundColor: barColor,
@@ -123,9 +127,7 @@ export function TaskTimeline({
                     />
                   )}
                   {!!t.task.blockedBy.length && (
-                    <Text
-                      style={[s.small, { marginLeft: t.startOffset * DAY_WIDTH, marginTop: 2 }]}
-                    >
+                    <Text style={[s.small, { marginLeft: t.startOffset * dayWidth, marginTop: 2 }]}>
                       Blocked by {t.task.blockedBy.length}
                     </Text>
                   )}

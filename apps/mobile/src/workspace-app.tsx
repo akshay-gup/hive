@@ -190,6 +190,9 @@ function WorkspaceShell({
                   ? GoalsScreen
                   : AppsScreen;
   const utility = ["mail", "calendar", "browser", "files"].includes(section);
+  // How wide a page may grow. Activity is columns and rows of work, so it uses the window; the pages
+  // of forms and settings read better in a narrower column.
+  const pageWidth = section === "activity" ? 1800 : 1040;
   return (
     <>
       <WorkspaceTools />
@@ -214,7 +217,7 @@ function WorkspaceShell({
                     paddingTop: 20,
                     paddingBottom: 28,
                     width: "100%",
-                    maxWidth: 1040,
+                    maxWidth: pageWidth,
                     alignSelf: "center",
                   }}
                   keyboardShouldPersistTaps="handled"

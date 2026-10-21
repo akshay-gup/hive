@@ -396,6 +396,9 @@ export function TaskBoard({
   const [width, setWidth] = useState(0);
   const [watch] = useState(watchRuns);
   const wide = width >= 4 * 260 + 3 * 12;
+  // Measured, not flexed: a flexible column inside a sideways scroller is as wide as its widest
+  // card, so on a wide page the columns ran off the edge instead of sharing it.
+  const columnWidth = wide ? Math.floor(width / columns.length) : 260;
   const byColumn = (column: TaskColumn) =>
     orderColumn(tasks.filter((t) => taskColumn(t.status) === column));
   const seen = watch(tasks, Date.now());
@@ -419,10 +422,9 @@ export function TaskBoard({
             <View
               key={column.id}
               style={{
-                width: wide ? undefined : 260,
+                width: columnWidth,
                 minWidth: 260,
                 flexShrink: 0,
-                flex: wide ? 1 : undefined,
                 gap: 10,
                 padding: 12,
                 ...(index > 0 ? { borderLeftWidth: 1, borderLeftColor: colors.line } : null),
