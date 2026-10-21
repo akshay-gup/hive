@@ -2,8 +2,8 @@ import { ChevronRight, Mail, Search } from "lucide-react-native";
 import { useContext } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { z } from "zod";
-import { BrowserRunContext } from "./browser-tool-card";
 import { useLineMaxWidth } from "./line-width";
+import { BrowserRunContext } from "./run-context";
 import { colors, ErrorNotice, IconSlot, radius, s, type WebPressState } from "./ui";
 import { useWorkspace } from "./workspace";
 

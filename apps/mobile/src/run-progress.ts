@@ -30,7 +30,6 @@ interface ToolMessageLike {
 export const CARD_TOOLS: ReadonlySet<string> = new Set([
   "search_mail",
   "read_mail_thread",
-  "browse_web",
   "present_choices",
   "send_file",
   "request_upload",
@@ -93,6 +92,16 @@ function wording(name: string, args: Args): Wording {
         running: `Fetching ${page}`,
         done: `Fetched ${page}`,
         failed: `Couldn't fetch ${page}`,
+      };
+    }
+    case "browse_web": {
+      const page = site(args.url);
+      const url = text(args.url);
+      return {
+        running: `Reading ${page}`,
+        done: `Read ${page}`,
+        failed: `Couldn't read ${page}`,
+        detail: url ? clip(url, 90) : undefined,
       };
     }
     case "websearch":

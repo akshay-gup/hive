@@ -112,7 +112,7 @@ test("arguments that are not JSON, or not an object, do not break a step", () =>
 test("steps between cards are gathered into lists, in the order they happened", () => {
   const calls = [
     call("a", "read", { filePath: "notes/plan.md" }),
-    call("b", "browse_web", { url: "https://example.org" }),
+    call("b", "send_file", { path: "a.pdf" }),
     call("c", "webfetch", { url: "https://example.org/news" }),
     call("d", "bash", { command: "date" }),
   ];
@@ -131,6 +131,21 @@ test("steps between cards are gathered into lists, in the order they happened", 
     last.kind === "steps" &&
       last.steps.map((s) => `${s.state}:${s.label}`).join() ===
         "done:Fetched example.org,running:Running a command",
+  );
+});
+
+test("pages the browser read are steps, and one that failed says so", () => {
+  const calls = [
+    call("a", "browse_web", { url: "https://www.bing.com/news?q=x" }),
+    call("b", "browse_web", { url: "https://blog.example.com/gone" }),
+  ];
+  const items = progressItems(calls, [result("a", "{}"), result("b", '{"error":"404"}')], false);
+  assert.equal(items.length, 1);
+  const [list] = items;
+  assert.ok(
+    list.kind === "steps" &&
+      list.steps.map((s) => `${s.state}:${s.label}`).join() ===
+        "done:Read bing.com,failed:Couldn't read blog.example.com",
   );
 });
 

@@ -45,7 +45,6 @@ import { z } from "zod";
 import type { Channel, ChannelThread } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AssistantResponse } from "./assistant-response";
-import { BrowserRunContext, BrowserToolCard } from "./browser-tool-card";
 import { ChannelMessage } from "./channel-message";
 import { ChannelThreadBanner } from "./channel-thread";
 import { looksLikeLostConnection } from "./connection-lost";
@@ -69,6 +68,7 @@ import {
   writePanelWidth,
 } from "./panel-width";
 import { RunProgress } from "./progress-steps";
+import { BrowserRunContext } from "./run-context";
 import { loadRunDurations, saveRunDurations } from "./run-durations";
 import { progressItems, showsRunningStep } from "./run-progress";
 import { TaskThreadCard } from "./thread-artifacts";
@@ -181,14 +181,6 @@ export function WorkspaceTools() {
     parameters: displayParameters,
     render: ({ result, status }) => (
       <MailToolCard result={result} loading={status !== "complete"} />
-    ),
-  });
-  useRenderTool({
-    name: "browse_web",
-    description: "Follow the agent as it reads a webpage",
-    parameters: displayParameters,
-    render: ({ args, result, status }) => (
-      <BrowserToolCard url={args.url} result={result} loading={status !== "complete"} />
     ),
   });
   useRenderTool({
