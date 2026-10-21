@@ -189,3 +189,10 @@ test("after a restart a reply that was being written is picked up again, once", 
   assert.deepEqual(loaded, ["fresh"], "one from an hour ago is left alone");
   assert.ok(cleared.includes("fresh") && cleared.includes("old"));
 });
+
+test("the main chat is one record whether the page or the agent names it", async () => {
+  const { conversationKey } = await import("../apps/server/src/app.ts");
+  assert.equal(conversationKey("local-main"), "default");
+  assert.equal(conversationKey(undefined), "default");
+  assert.equal(conversationKey("thread-7"), "thread-7");
+});

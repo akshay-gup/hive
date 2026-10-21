@@ -429,6 +429,20 @@ export async function createApp(
     const { owner } = await conversationHome(id, c.get("owner"), (o, t) =>
       agent.channelOfThread(o, t),
     );
+    // What the agent wrote under "local-main" before the two names were one is brought in.
+    if (id === "default") {
+      const stray = await db.get<{ messages?: RecordedMessage[] }>(
+        owner,
+        "conversations",
+        "local-main",
+      );
+      if (stray?.messages?.length) {
+        const own = await db.get<{ messages?: RecordedMessage[] }>(owner, "conversations", id);
+        const merged = mergeMessages(own?.messages ?? [], stray.messages);
+        await db.put(owner, "conversations", { id, messages: merged });
+        await db.remove(owner, "conversations", "local-main");
+      }
+    }
     return c.json((await db.get(owner, "conversations", id)) ?? { messages: [] });
   });
   const saveConversation = async (
@@ -585,7 +599,12 @@ export async function createApp(
  * legacy "default" key; channel threads persist under their thread id so each
  * thread keeps its own history.
  */
-function conversationKey(threadId: string | undefined): string {
+/**
+ * Where a conversation is kept. The main chat has no thread id of its own on the page's side
+ * (it reads and writes `/api/conversation`), but the agent knows it as "local-main": both are one
+ * record, or what the agent writes is not what a reload shows.
+ */
+export function conversationKey(threadId: string | undefined): string {
   const id = (threadId ?? "").trim().slice(0, 128);
-  return id ? id : "default";
+  return id && id !== "local-main" ? id : "default";
 }
