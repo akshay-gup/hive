@@ -262,7 +262,8 @@ export function ChannelMessage({
               top: -16,
               opacity: toolbarVisible ? 1 : 0,
               zIndex: 1,
-              backgroundColor: colors.surface,
+              // Opaque: the message under it is tinted, and a tint on a tint shows through.
+              backgroundColor: colors.paper,
               borderWidth: 1,
               borderColor: colors.line,
               borderRadius: radius.md,
@@ -281,11 +282,7 @@ export function ChannelMessage({
                 padding: 7,
                 borderRadius: radius.sm,
                 opacity: replyDisabled ? 0.4 : 1,
-                backgroundColor: pressed
-                  ? colors.primarySoftStrong
-                  : over
-                    ? colors.surfaceMuted
-                    : colors.surface,
+                backgroundColor: pressed || over ? colors.tile : colors.paper,
               })}
             >
               <MessageSquare size={16} color={colors.muted} />
@@ -300,11 +297,7 @@ export function ChannelMessage({
             style={({ pressed, hovered: over }: WebPressState) => ({
               padding: 7,
               borderRadius: radius.sm,
-              backgroundColor: pressed
-                ? colors.primarySoftStrong
-                : over
-                  ? colors.surfaceMuted
-                  : colors.surface,
+              backgroundColor: pressed || over ? colors.tile : colors.paper,
             })}
           >
             <Copy size={16} color={colors.muted} />
