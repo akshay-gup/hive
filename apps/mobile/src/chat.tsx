@@ -888,6 +888,14 @@ export function ChatScreen({
     (m, index) => (m.role === "user" || m.role === "assistant") && index > parentIndex,
   );
   const replying = busy || agent.isRunning;
+  // Whether the agent is actually going to answer. In your own chat it always is. In a channel it
+  // never answers there (a mention opens a thread for it), and in a thread it answers when asked by
+  // name, so a plain message to a teammate is not the agent thinking.
+  const agentAnswers = channelId
+    ? false
+    : threadParent
+      ? mentionsAgent(latestUserText ?? "")
+      : true;
   // A step that is under way has its own spinner, so the dots are for when nothing says it is working.
   const stepShown =
     replying &&
@@ -1175,7 +1183,7 @@ export function ChatScreen({
                 );
               })
             )}
-            {(busy || agent.isRunning) && !stepShown && (
+            {replying && agentAnswers && !stepShown && (
               <View
                 accessibilityLabel="Agent is working"
                 style={[
