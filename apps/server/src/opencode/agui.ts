@@ -609,7 +609,10 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     }
   }
 
-  if (!userText || (!picked && !mentionsAgent(userText, mention))) {
+  // Your own chat is a conversation with the agent: everything said there is for it. Only a shared
+  // channel, where people talk to each other too, needs the agent to be called by name.
+  const alone = binding.channelId === ORCHESTRATOR_CHANNEL_ID;
+  if (!userText || (!picked && !alone && !mentionsAgent(userText, mention))) {
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
     send({ type: "RUN_FINISHED", threadId: input.threadId, runId: input.runId });
     return;

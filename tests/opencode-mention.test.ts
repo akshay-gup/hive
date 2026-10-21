@@ -225,13 +225,13 @@ describe("opencodeShimRoutes mention gating", () => {
       .filter((chunk) => chunk.startsWith("data: "))
       .map((chunk) => (JSON.parse(chunk.slice("data: ".length)) as { type: string }).type);
 
-  it("completes a mention-less run as a no-op without touching OpenCode", async () => {
+  it("completes a mention-less run in a shared channel as a no-op without touching OpenCode", async () => {
     // The lazy orchestrator bind runs before the mention gate, but it only
     // touches the thread store — OpenCode itself is never reached.
     const app = opencodeShimRoutes(
       stubDeps({
         ensureOrchestratorChannel: async () => ({ id: "orchestrator" }),
-        ensureThreadBinding: async () => ({ threadId: "t1", channelId: "orchestrator" }),
+        ensureThreadBinding: async () => ({ threadId: "t1", channelId: "team" }),
       }),
     );
     const res = await app.request("/run", {
@@ -255,7 +255,7 @@ describe("opencodeShimRoutes mention gating", () => {
     const app = opencodeShimRoutes(
       stubDeps({
         ensureOrchestratorChannel: async () => ({ id: "orchestrator" }),
-        ensureThreadBinding: async () => ({ threadId: "t1", channelId: "orchestrator" }),
+        ensureThreadBinding: async () => ({ threadId: "t1", channelId: "team" }),
       }),
     );
     const body = (runId: string) =>
@@ -273,5 +273,25 @@ describe("opencodeShimRoutes mention gating", () => {
     });
     assert.equal(second.status, 200);
     assert.deepEqual(await eventTypes(second), ["RUN_STARTED", "RUN_FINISHED"]);
+  });
+
+  it("answers everything said in your own chat, mention or not", async () => {
+    const app = opencodeShimRoutes(
+      stubDeps({
+        ensureOrchestratorChannel: async () => ({ id: "orchestrator" }),
+        ensureThreadBinding: async () => ({ threadId: "t1", channelId: "orchestrator" }),
+      }),
+    );
+    const res = await app.request("/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        threadId: "t1",
+        runId: "r1",
+        messages: [{ role: "user", content: "what is on my list today" }],
+      }),
+    });
+    // The stub has no OpenCode behind it, so the run fails: it was not skipped as a no-op.
+    assert.notDeepEqual(await eventTypes(res), ["RUN_STARTED", "RUN_FINISHED"]);
   });
 });
