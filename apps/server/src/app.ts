@@ -307,6 +307,16 @@ export async function createApp(
     tracker,
     rules,
     hiveTools,
+    runMarks: {
+      set: async (threadId: string, owner: string) => {
+        await db.put(SHARED_OWNER, "live-runs", { id: threadId, owner, startedAt: Date.now() });
+      },
+      clear: (threadId: string) => db.remove(SHARED_OWNER, "live-runs", threadId),
+      all: async () =>
+        (
+          await db.list<{ id: string; owner: string; startedAt: number }>(SHARED_OWNER, "live-runs")
+        ).map((mark) => ({ threadId: mark.id, owner: mark.owner, startedAt: mark.startedAt })),
+    },
     loadMessages: async (owner: string, threadId: string) => {
       const id = conversationKey(threadId);
       const home = await conversationHome(id, owner, (o, t) => agent.channelOfThread(o, t));
@@ -330,7 +340,10 @@ export async function createApp(
       );
     },
   };
-  app.route("/api/agent/opencode", opencodeShimRoutes(shimDeps));
+  const shim = opencodeShimRoutes(shimDeps);
+  app.route("/api/agent/opencode", shim);
+  // Give OpenCode a moment to come up, then carry on any reply a restart cut off.
+  setTimeout(() => void shim.resume().catch(() => undefined), 15_000).unref?.();
   app.route("/api/agent/opencode", opencodePermissionRoutes(shimDeps));
   agent.opencodeRuntime = { bus, pool, tracker, config, hiveTools };
   const opencode = {

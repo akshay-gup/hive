@@ -50,6 +50,12 @@ export interface OpencodeShimDeps {
   hiveTools?: HiveToolBridge;
   /** Writes messages into a conversation, so a run nobody is watching is still kept. */
   saveMessages?: (owner: string, threadId: string, messages: RecordedMessage[]) => Promise<void>;
+  /** Which runs are going, kept across a restart so an update does not drop a reply half-written. */
+  runMarks?: {
+    set: (threadId: string, owner: string) => Promise<void>;
+    clear: (threadId: string) => Promise<void>;
+    all: () => Promise<Array<{ threadId: string; owner: string; startedAt: number }>>;
+  };
   /** What a conversation holds now. */
   loadMessages?: (owner: string, threadId: string) => Promise<unknown[]>;
 }
@@ -805,6 +811,7 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
     const stopper = new AbortController();
     stoppers.set(threadId, stopper);
     settling.add(threadId);
+    void deps.runMarks?.set(threadId, owner).catch(() => undefined);
     const record = new RunRecord();
     // Writes go one after another, so the last one is the newest state.
     let saving: Promise<void> = Promise.resolve();
@@ -849,6 +856,7 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
         save();
         await saving;
         settling.delete(threadId);
+        await deps.runMarks?.clear(threadId).catch(() => undefined);
         // What was said while it worked is answered next, without anyone having to be there.
         const next = pending.get(threadId);
         pending.delete(threadId);
@@ -946,5 +954,23 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
       },
     });
   });
-  return app;
+  /**
+   * After a restart (an update, a reboot), carry on the replies that were being written. Each goes
+   * back in from the conversation as it was saved, so the agent sees what it had already done.
+   */
+  const resume = async () => {
+    const marks = (await deps.runMarks?.all().catch(() => [])) ?? [];
+    for (const mark of marks) {
+      await deps.runMarks?.clear(mark.threadId).catch(() => undefined);
+      if (Date.now() - mark.startedAt > 30 * 60_000 || !deps.loadMessages) continue;
+      const messages = await deps.loadMessages(mark.owner, mark.threadId).catch(() => []);
+      const run = launch(mark.owner, {
+        threadId: mark.threadId,
+        runId: `run-${Date.now()}`,
+        messages,
+      });
+      void run?.catch(() => undefined);
+    }
+  };
+  return Object.assign(app, { resume });
 }

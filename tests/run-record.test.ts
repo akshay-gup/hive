@@ -164,3 +164,28 @@ test("a message sent while the agent is working is written down and answered nex
   assert.equal(saved[0], "u2", "it is kept before anything else happens");
   assert.equal((await post("/queue", { threadId: "t1" })).status, 400);
 });
+
+test("after a restart a reply that was being written is picked up again, once", async () => {
+  const cleared: string[] = [];
+  const loaded: string[] = [];
+  const routes = opencodeShimRoutes({
+    config: {},
+    runMarks: {
+      set: async () => {},
+      clear: async (threadId: string) => {
+        cleared.push(threadId);
+      },
+      all: async () => [
+        { threadId: "fresh", owner: "o", startedAt: Date.now() - 60_000 },
+        { threadId: "old", owner: "o", startedAt: Date.now() - 3 * 60 * 60_000 },
+      ],
+    },
+    loadMessages: async (_owner: string, threadId: string) => {
+      loaded.push(threadId);
+      return [];
+    },
+  } as never);
+  await routes.resume();
+  assert.deepEqual(loaded, ["fresh"], "one from an hour ago is left alone");
+  assert.ok(cleared.includes("fresh") && cleared.includes("old"));
+});
