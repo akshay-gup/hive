@@ -680,6 +680,72 @@ test("who may invite whom, and who may see or change what", async () => {
   assert.equal((await admin.del(`/v1/workspaces/${id}`)).status, 403);
 });
 
+test("a guest is invited as one, is shown only themselves, and signs in as a guest", async () => {
+  const owner = await signIn("owner31@example.com", "Olive");
+  const admin = await signIn("admin31@example.com", "Ada");
+  const guest = await signIn("guest31@example.com", "Gus");
+  const member = await signIn("member31@example.com", "Max");
+  const id = await readyWorkspace(owner);
+  const adminLink = (
+    await (await owner.post(`/v1/workspaces/${id}/invites`, { role: "admin" })).json()
+  ).link;
+  assert.equal((await admin.post(`/v1/invites/${adminLink.split("/").pop()}/accept`)).status, 200);
+
+  // An admin can invite a guest, and the link says that is what it is for.
+  const made = await admin.post(`/v1/workspaces/${id}/invites`, { role: "guest" });
+  assert.equal(made.status, 201);
+  const { invite, link } = await made.json();
+  assert.equal(invite.role, "guest");
+  const token = link.split("/").pop();
+  assert.equal((await (await control.app.request(`/v1/invites/${token}`)).json()).role, "guest");
+  const joined = await guest.post(`/v1/invites/${token}/accept`);
+  assert.equal(joined.status, 200);
+  assert.equal((await joined.json()).role, "guest");
+
+  // They are shown who they are here, and not who else is.
+  const own = await (await guest.get(`/v1/workspaces/${id}/members`)).json();
+  assert.deepEqual(
+    own.map((m: { name: string; role: string }) => [m.name, m.role]),
+    [["Gus", "guest"]],
+  );
+  const team = await (await owner.get(`/v1/workspaces/${id}/members`)).json();
+  assert.deepEqual(
+    team.map((m: { name: string; role: string }) => [m.name, m.role]),
+    [
+      ["Olive", "owner"],
+      ["Ada", "admin"],
+      ["Gus", "guest"],
+    ],
+  );
+  // A guest cannot invite or look at invites, and the workspace signs them in as a guest.
+  assert.equal((await guest.post(`/v1/workspaces/${id}/invites`, {})).status, 403);
+  assert.equal((await guest.get(`/v1/workspaces/${id}/invites`)).status, 403);
+  const { token: signed } = await (await guest.post(`/v1/workspaces/${id}/token`)).json();
+  assert.equal(verifyWorkspaceToken(keys.publicKey, signed, { workspaceId: id }).role, "guest");
+
+  // The owner can make a member a guest, and a guest a member. An admin cannot change roles.
+  const memberLink = (await (await owner.post(`/v1/workspaces/${id}/invites`, {})).json()).link;
+  assert.equal(
+    (await member.post(`/v1/invites/${memberLink.split("/").pop()}/accept`)).status,
+    200,
+  );
+  assert.equal(
+    (await admin.patch(`/v1/workspaces/${id}/members/${member.account.id}`, { role: "guest" }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await owner.patch(`/v1/workspaces/${id}/members/${member.account.id}`, { role: "guest" }))
+      .status,
+    200,
+  );
+  const { token: demoted } = await (await member.post(`/v1/workspaces/${id}/token`)).json();
+  assert.equal(verifyWorkspaceToken(keys.publicKey, demoted, { workspaceId: id }).role, "guest");
+  // An admin removes a guest, as they would a member.
+  assert.equal((await admin.del(`/v1/workspaces/${id}/members/${guest.account.id}`)).status, 200);
+  assert.equal((await guest.post(`/v1/workspaces/${id}/token`)).status, 404);
+});
+
 test("removing someone ends their access, and people can leave except the owner", async () => {
   const owner = await signIn("owner12@example.com");
   const admin = await signIn("admin12@example.com");

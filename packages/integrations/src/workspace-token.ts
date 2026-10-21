@@ -9,8 +9,9 @@ import {
 } from "node:crypto";
 import { z } from "zod";
 
-export type WorkspaceRole = "owner" | "admin" | "member";
-export const workspaceRoles: readonly WorkspaceRole[] = ["owner", "admin", "member"];
+/** A guest has the run of only the channels they were added to. */
+export type WorkspaceRole = "owner" | "admin" | "member" | "guest";
+export const workspaceRoles: readonly WorkspaceRole[] = ["owner", "admin", "member", "guest"];
 
 /** Who the control plane says a person is, and what they may do, for one workspace. */
 export interface WorkspaceIdentity {
@@ -53,7 +54,7 @@ const claimsSchema = z.object({
   sub: z.string().min(1).max(200),
   email: z.string().min(1).max(320),
   name: z.string().max(200),
-  role: z.enum(["owner", "admin", "member"]),
+  role: z.enum(["owner", "admin", "member", "guest"]),
   iat: z.number().int(),
   exp: z.number().int(),
   jti: z.string().min(8).max(100),

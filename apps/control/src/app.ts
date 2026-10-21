@@ -291,7 +291,9 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     c.json(await workspaces.members(c.get("account"), idParam.parse(c.req.param("id")))),
   );
   secure.patch("/workspaces/:id/members/:accountId", async (c) => {
-    const { role } = z.object({ role: z.enum(["admin", "member"]) }).parse(await c.req.json());
+    const { role } = z
+      .object({ role: z.enum(["admin", "member", "guest"]) })
+      .parse(await c.req.json());
     await workspaces.setRole(
       c.get("account"),
       idParam.parse(c.req.param("id")),
@@ -315,7 +317,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     const body = z
       .object({
         email: z.string().max(320).optional(),
-        role: z.enum(["admin", "member"]).optional(),
+        role: z.enum(["admin", "member", "guest"]).optional(),
       })
       .parse(await c.req.json().catch(() => ({})));
     return c.json(

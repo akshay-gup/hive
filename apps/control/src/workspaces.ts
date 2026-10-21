@@ -40,6 +40,8 @@ interface WorkspaceRecord {
    */
   leaseUntil?: number;
 }
+/** What a person can be invited as: the owner is the one who made the workspace. */
+export type InvitedRole = "admin" | "member" | "guest";
 interface MemberRecord {
   id: string;
   workspaceId: string;
@@ -52,7 +54,7 @@ interface InviteRecord {
   /** The digest of the token, so the token itself is only ever in the link. */
   id: string;
   workspaceId: string;
-  role: "admin" | "member";
+  role: InvitedRole;
   /** When set, only the person with this email can use it. */
   email?: string;
   createdBy: string;
@@ -85,7 +87,7 @@ export interface MemberView {
 }
 export interface InviteView {
   id: string;
-  role: "admin" | "member";
+  role: InvitedRole;
   email?: string;
   createdBy: string;
   createdAt: string;
@@ -450,8 +452,11 @@ export class WorkspaceService {
   // Members
 
   async members(account: Account, id: string): Promise<MemberView[]> {
-    await this.require(account, id);
-    const rows = await this.db.listWhere<MemberRecord>(HOME, "members", "workspaceId", id);
+    const { member } = await this.require(account, id);
+    const rows = (await this.db.listWhere<MemberRecord>(HOME, "members", "workspaceId", id)).filter(
+      // A guest is shown who they are here, not who else is.
+      (row) => member.role !== "guest" || row.accountId === account.id,
+    );
     const views: MemberView[] = [];
     for (const row of rows) {
       const person = await this.options.accounts.get(row.accountId);
@@ -464,16 +469,11 @@ export class WorkspaceService {
           joinedAt: row.joinedAt,
         });
     }
-    const rank: Record<WorkspaceRole, number> = { owner: 0, admin: 1, member: 2 };
+    const rank: Record<WorkspaceRole, number> = { owner: 0, admin: 1, member: 2, guest: 3 };
     return views.sort((a, b) => rank[a.role] - rank[b.role] || a.name.localeCompare(b.name));
   }
 
-  async setRole(
-    account: Account,
-    id: string,
-    targetId: string,
-    role: "admin" | "member",
-  ): Promise<void> {
+  async setRole(account: Account, id: string, targetId: string, role: InvitedRole): Promise<void> {
     const { member } = await this.require(account, id);
     if (member.role !== "owner") throw new HttpError("Only the owner can change roles", 403);
     const target = await this.db.get<MemberRecord>(HOME, "members", `${id}:${targetId}`);
@@ -491,7 +491,9 @@ export class WorkspaceService {
       throw new HttpError("The owner cannot leave. Delete the workspace instead.", 409);
     const leaving = targetId === account.id;
     const allowed =
-      leaving || member.role === "owner" || (member.role === "admin" && target.role === "member");
+      leaving ||
+      member.role === "owner" ||
+      (member.role === "admin" && (target.role === "member" || target.role === "guest"));
     if (!allowed) throw new HttpError("You cannot remove that person", 403);
     await this.db.remove(HOME, "members", target.id);
   }
@@ -533,7 +535,7 @@ export class WorkspaceService {
   async createInvite(
     account: Account,
     id: string,
-    input: { email?: string; role?: "admin" | "member" },
+    input: { email?: string; role?: InvitedRole },
   ): Promise<{ invite: InviteView; link: string }> {
     const { record, member } = await this.require(account, id);
     if (!manages(member.role)) throw new HttpError("Only an owner or admin can invite people", 403);
