@@ -13,6 +13,7 @@ import {
   ensureThreadSession,
   type OpencodeClientPool,
   opencodeAuthHeaders,
+  type PermissionRuleset,
   parsePermissionRules,
   rotateThreadSession,
   type SessionContext,
@@ -121,12 +122,15 @@ test("session directory is the channel workspace dir", () => {
 interface FakeSessionCalls {
   creates: unknown[];
   gets: string[];
-  sessions: Map<string, { id: string }>;
+  sessions: Map<string, { id: string; permission?: unknown[] }>;
+  /** What the server was told to add to a session's rules. */
+  updates?: { sessionID: string; permission: unknown[] }[];
 }
 
 function stubContext(
   calls: FakeSessionCalls,
   userRules?: SessionContext["userRules"],
+  permissionMode?: SessionContext["permissionMode"],
 ): SessionContext {
   const client = {
     session: {
@@ -143,10 +147,21 @@ function stubContext(
           ? { data: found, error: undefined }
           : { data: undefined, error: { message: "not found" } };
       },
+      // The server joins what it is told to the rules a session has.
+      ...(calls.updates
+        ? {
+            update: async (params: { sessionID: string; permission: unknown[] }) => {
+              calls.updates?.push(params);
+              const found = calls.sessions.get(params.sessionID);
+              if (found) found.permission = [...(found.permission ?? []), ...params.permission];
+              return { data: found, error: undefined };
+            },
+          }
+        : {}),
     },
   };
   const pool = { forDirectory: () => client } as unknown as OpencodeClientPool;
-  return { threads: new MemoryThreadStore(), clients: pool, config, userRules };
+  return { threads: new MemoryThreadStore(), clients: pool, config, userRules, permissionMode };
 }
 
 const binding: ChannelThread = {
@@ -205,4 +220,51 @@ test("session helpers throw 404 for unbound threads", async () => {
   const ctx = stubContext(calls);
   await assert.rejects(() => ensureThreadSession(ctx, "owner", "nope"), /not bound to a channel/);
   await assert.rejects(() => rotateThreadSession(ctx, "owner", "nope"), /not bound to a channel/);
+});
+
+test("a thread's session is told its rules again when its mode or rules changed since it began", async () => {
+  const updates: { sessionID: string; permission: unknown[] }[] = [];
+  const calls: FakeSessionCalls = { creates: [], gets: [], sessions: new Map(), updates };
+  let mode: "ask" | "auto" = "ask";
+  let rules: PermissionRuleset = [];
+  const ctx = stubContext(
+    calls,
+    () => rules,
+    () => mode,
+  );
+  await ctx.threads.write("owner", binding);
+  const first = await rotateThreadSession(ctx, "owner", "thread-1");
+  // The session was made with the rules the thread had, and the rules it ends with are those.
+  const session = calls.sessions.get(first.sessionId);
+  assert.ok(session);
+  session.permission = buildSessionRuleset([], "ask");
+  await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(updates.length, 0, "nothing changed, so nothing is said");
+
+  // The channel is switched to run without asking: the next run is under that.
+  mode = "auto";
+  await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0].permission, buildSessionRuleset([], "auto"));
+  await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(updates.length, 1, "told once");
+
+  // And back to asking, with a rule: the last rules win, so it is under those again.
+  mode = "ask";
+  rules = [{ permission: "read", pattern: "*", action: "allow" }];
+  await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(updates.length, 2);
+  const wanted = buildSessionRuleset(rules, "ask");
+  assert.deepEqual(updates[1].permission, wanted);
+  assert.deepEqual((session.permission ?? []).slice(-wanted.length), wanted);
+});
+
+test("a server that will not take a thread's new rules does not stop the thread running", async () => {
+  // The stub has no way to update a session.
+  const calls: FakeSessionCalls = { creates: [], gets: [], sessions: new Map() };
+  const ctx = stubContext(calls, undefined, () => "auto");
+  calls.sessions.set("ses_live", { id: "ses_live", permission: buildSessionRuleset([], "ask") });
+  await ctx.threads.write("owner", { ...binding, opencodeSessionId: "ses_live" });
+  const ref = await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(ref.sessionId, "ses_live");
 });

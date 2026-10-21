@@ -26,6 +26,38 @@ export interface OpencodeSessionRef {
   directory: string;
 }
 
+/**
+ * A session keeps the rules it was made with, so a mode or a rule changed since would never reach a
+ * thread that already has its session: switching a channel to ask first would leave the agent in it
+ * running as it did. The rules the thread should have are told to the session when they differ from
+ * the ones it ends with (a session joins what it is told to what it has, and the last rule wins).
+ */
+async function bringRulesUpToDate(
+  ctx: SessionContext,
+  binding: ChannelThread,
+  client: ReturnType<OpencodeClientPool["forDirectory"]>,
+  sessionId: string,
+  directory: string,
+  current: PermissionRuleset | undefined,
+): Promise<void> {
+  const desired = buildSessionRuleset(
+    (await ctx.userRules?.(binding)) ?? [],
+    (await ctx.permissionMode?.(binding)) ?? "ask",
+  );
+  const have = current ?? [];
+  const tail = have.slice(Math.max(0, have.length - desired.length));
+  const same =
+    tail.length === desired.length &&
+    desired.every(
+      (rule, i) =>
+        rule.permission === tail[i]?.permission &&
+        rule.pattern === tail[i]?.pattern &&
+        rule.action === tail[i]?.action,
+    );
+  if (same) return;
+  await client.session.update({ sessionID: sessionId, directory, permission: desired });
+}
+
 export interface SessionContext {
   threads: ThreadBindingStore;
   clients: OpencodeClientPool;
@@ -108,7 +140,18 @@ export async function ensureThreadSession(
     const existing = await client.session
       .get({ sessionID: binding.opencodeSessionId, directory })
       .catch(() => null);
-    if (existing?.data) return { sessionId: binding.opencodeSessionId, directory };
+    if (existing?.data) {
+      // Best effort: the thread carries on under the rules it had if the server will not take them.
+      await bringRulesUpToDate(
+        ctx,
+        binding,
+        client,
+        binding.opencodeSessionId,
+        directory,
+        existing.data.permission,
+      ).catch(() => undefined);
+      return { sessionId: binding.opencodeSessionId, directory };
+    }
     // Bound session is gone (server store was cold); rebind below.
   }
   return rotateThreadSession(ctx, owner, threadId);
