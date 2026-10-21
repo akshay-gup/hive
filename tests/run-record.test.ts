@@ -135,3 +135,32 @@ test("a thread can be started from what is written in it, with no page attached"
   const bad = await app.request("/start", { method: "POST", body: "{}" });
   assert.equal(bad.status, 400);
 });
+
+test("a message sent while the agent is working is written down and answered next", async () => {
+  const saved: string[] = [];
+  const app = new Hono();
+  app.use("*", async (c, next) => {
+    c.set("owner" as never, "owner" as never);
+    await next();
+  });
+  app.route(
+    "/",
+    opencodeShimRoutes({
+      config: {},
+      saveMessages: async (_o: string, _t: string, messages: Array<{ id: string }>) => {
+        for (const message of messages) saved.push(message.id);
+      },
+      loadMessages: async () => [{ id: "u2", role: "user", content: "later, no mention" }],
+    } as never),
+  );
+  const post = (path: string, body: unknown) =>
+    app.request(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+    });
+  const sent = await post("/queue", { threadId: "t1", message: { id: "u2", content: "hi" } });
+  assert.equal(sent.status, 200);
+  assert.equal(saved[0], "u2", "it is kept before anything else happens");
+  assert.equal((await post("/queue", { threadId: "t1" })).status, 400);
+});

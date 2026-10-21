@@ -616,6 +616,22 @@ export function ChatScreen({
   }, [error, busy, agent, loaded, isReady, queue, api.baseUrl, run, flush]);
   const enqueue = useCallback(
     (text: string, id?: string) => {
+      // The agent is working: the server keeps the message and answers it when it is free, so it does
+      // not wait on this page being open.
+      if (!channelId && (busy || agent.isRunning) && !queue.getSnapshot().paused) {
+        const messageId = id ?? `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        agent.addMessage({ id: messageId, role: "user", content: text });
+        void api
+          .request(
+            "/api/agent/opencode/queue",
+            { threadId, message: { id: messageId, content: text } },
+            "POST",
+          )
+          .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+        followLatest.current = true;
+        setAwayFromLatest(false);
+        return;
+      }
       queue.enqueue({
         id: id ?? `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         text,
@@ -624,7 +640,7 @@ export function ChatScreen({
       setAwayFromLatest(false);
       flush();
     },
-    [queue, flush],
+    [queue, flush, busy, agent, api, threadId, channelId],
   );
   const sendChoice = useCallback(
     (text: string, retry = false): Promise<void> => {

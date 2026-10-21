@@ -777,10 +777,13 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
   const stoppers = new Map<string, AbortController>();
   // A run is still going until what it said has been written down, not just until it ends.
   const settling = new Set<string>();
+  /** Threads with a message that came in while a run was going, and whose it was: they run next. */
+  const pending = new Map<string, string>();
   app.get("/live", (c) => c.json({ running: settling.has(c.req.query("threadId") ?? "") }));
   app.post("/stop", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { threadId?: unknown };
     const threadId = typeof body.threadId === "string" ? body.threadId : "";
+    pending.delete(threadId);
     stoppers.get(threadId)?.abort();
     return c.json({ ok: true });
   });
@@ -843,6 +846,14 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
         save();
         await saving;
         settling.delete(threadId);
+        // What was said while it worked is answered next, without anyone having to be there.
+        const next = pending.get(threadId);
+        pending.delete(threadId);
+        if (next && deps.loadMessages) {
+          const messages = await deps.loadMessages(next, threadId);
+          const run = launch(next, { threadId, runId: `run-${Date.now()}`, messages });
+          void run?.catch(() => undefined);
+        }
       }
     })();
   };
@@ -851,6 +862,35 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
    * made from a channel message is started this way, so closing the page right after posting does
    * not leave the message unanswered.
    */
+  /** A message sent while the agent is working: written into the thread, and answered when it is free. */
+  app.post("/queue", async (c) => {
+    const owner = c.get("owner");
+    const body = (await c.req.json().catch(() => ({}))) as {
+      threadId?: unknown;
+      message?: { id?: unknown; content?: unknown };
+    };
+    const { threadId, message } = body;
+    if (
+      typeof threadId !== "string" ||
+      !threadId ||
+      typeof message?.id !== "string" ||
+      typeof message.content !== "string" ||
+      !deps.saveMessages ||
+      !deps.loadMessages
+    )
+      return c.json({ error: "Invalid message" }, 400);
+    await deps.saveMessages(owner, threadId, [
+      { id: message.id, role: "user", content: message.content },
+    ]);
+    if (settling.has(threadId)) {
+      pending.set(threadId, owner);
+      return c.json({ queued: true });
+    }
+    const messages = await deps.loadMessages(owner, threadId);
+    const run = launch(owner, { threadId, runId: `run-${Date.now()}`, messages });
+    void run?.catch(() => undefined);
+    return c.json({ queued: false });
+  });
   app.post("/start", async (c) => {
     const owner = c.get("owner");
     const body = (await c.req.json().catch(() => ({}))) as { threadId?: unknown };
