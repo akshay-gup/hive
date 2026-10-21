@@ -213,7 +213,8 @@ describe("opencodeShimRoutes mention gating", () => {
   const testConnection = { url: "http://127.0.0.1:1", password: undefined };
   const stubDeps = (service: Record<string, unknown>) =>
     ({
-      service,
+      // Nobody in these tests is a guest.
+      service: { access: { isGuest: async () => false }, ...service },
       bus: new OpencodeEventBus(testConnection),
       pool: {},
       config: { model: "openai/gpt-4o", agentMention: "@hive" },

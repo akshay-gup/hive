@@ -359,7 +359,24 @@ export interface Channel {
   /** PID of the spawned channel worker, when running. */
   workerPid?: number | null;
   lastActiveAt?: string | null;
+  /**
+   * The guests added to this channel, by email address (lowercase). Everyone else in the workspace
+   * can open every channel; a guest can open only the channels that name them.
+   */
+  members?: string[];
 }
+export const channelMembersSchema = z.object({
+  members: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .max(320)
+        .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "That is not an email address"),
+    )
+    .max(200),
+});
 export const createChannelSchema = z.object({
   name: z.string().trim().min(1).max(80),
   id: z

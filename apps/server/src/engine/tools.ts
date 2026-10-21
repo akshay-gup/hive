@@ -38,6 +38,8 @@ export function conversationTools(
      */
     jevOwner?: string;
     latestText?: string;
+    /** A guest is offered only what the conversation in their channel needs (see `guestTools`). */
+    guest?: boolean;
   },
 ) {
   const {
@@ -48,6 +50,7 @@ export function conversationTools(
     jevMode,
     jevOwner = owner,
     latestText = "",
+    guest = false,
   } = options;
   const key = (name: string, value: unknown) =>
     `${requestKey}:${name}:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
@@ -56,7 +59,7 @@ export function conversationTools(
     channelId ??
     (await service.channelOfThread(owner, input.threadId))?.channelId ??
     ORCHESTRATOR_CHANNEL_ID;
-  return [
+  const tools = [
     ...(jev
       ? [
           presentChoicesTool(
@@ -417,4 +420,18 @@ export function conversationTools(
       },
     }),
   ];
+  return guest ? tools.filter((tool) => guestTools.has(tool.name)) : tools;
 }
+
+/**
+ * What the agent may be asked to do for a guest: show choices, put an item on their channel's board,
+ * share a file from the channel's workspace, ask for an upload, read a page. The rest reaches beyond
+ * the channel (the mail, other tasks and projects, goals, the workspace's memory), so it is not theirs.
+ */
+export const guestTools: ReadonlySet<string> = new Set([
+  "present_choices",
+  "create_issue",
+  "send_file",
+  "request_upload",
+  "browse_web",
+]);

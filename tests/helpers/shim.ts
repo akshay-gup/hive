@@ -39,10 +39,19 @@ export async function shimFixture(
     jevAdapter?: JevAdapter;
     /** What the browser worker answers; a page the agent can read by default. */
     browse?: Parameters<typeof browserFixture>[1];
+    /** A workspace the control plane runs, so people have roles (kept under `system/users`). */
+    managed?: boolean;
   } = {},
 ) {
   const browser = await browserFixture(t, options.browse ?? pageOf);
-  const config = { ...browser.config, model: "openai/fixture", jevMode: options.jevMode };
+  const config = {
+    ...browser.config,
+    model: "openai/fixture",
+    jevMode: options.jevMode,
+    ...(options.managed
+      ? { managed: { workspaceId: "w1fixture", controlPublicKey: "unused" } }
+      : {}),
+  };
   const server = await createApp(browser.db, config, { jevAdapter: options.jevAdapter });
   t.after(() => server.agent.stop());
   await server.workspace.ensureSample("local-user", server.actions);

@@ -11,6 +11,7 @@ import {
   addNoteSchema,
   type Channel,
   type ChannelThread,
+  channelMembersSchema,
   createChannelSchema,
   createProjectSchema,
   createTaskSchema,
@@ -37,6 +38,7 @@ import type {
   Mail,
   ProposalInput,
 } from "../../../../packages/domain/src/index.ts";
+import { Access } from "../access.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
 import type { Config } from "../config.ts";
@@ -87,6 +89,8 @@ export class AgentService {
   readonly uploadRequests: UploadRequests;
   /** The choice cards an agent can show (`present_choices`), or null when JEV_MODE is off. */
   readonly jev: JevService | null;
+  /** What each person may open: everything, but for a guest, who has only the channels they were added to. */
+  readonly access: Access;
   constructor(
     readonly db: Store,
     readonly config: Config,
@@ -98,6 +102,7 @@ export class AgentService {
     jev: JevService | null = createJevService(db, config),
   ) {
     this.jev = jev;
+    this.access = new Access(db, Boolean(config.managed));
     this.taskFiles = new TaskFiles(config.dataDir);
     this.channelFiles = new ChannelFiles(config, files, (owner, id) => this.getChannel(owner, id));
     this.uploadRequests = new UploadRequests(db);
@@ -222,6 +227,12 @@ export class AgentService {
     await this.db.put(this.channelOwner(channel.id, owner), "channels", channel);
   }
   async listChannels(owner: string): Promise<Channel[]> {
+    // A guest has no orchestrator chat, and is shown only the channels they were added to.
+    if (await this.access.isGuest(owner))
+      return this.access.visibleChannels(
+        owner,
+        await this.db.list<Channel>(SHARED_OWNER, "channels"),
+      );
     await this.ensureOrchestratorChannel(owner);
     const shared = await this.db.list<Channel>(SHARED_OWNER, "channels");
     const orchestrator = await this.db.get<Channel>(owner, "channels", ORCHESTRATOR_CHANNEL_ID);
@@ -261,6 +272,31 @@ export class AgentService {
       /* storage unavailable */
     }
     return channel;
+  }
+  /** Who was added to a channel, and the guests this workspace knows, to choose from. */
+  async channelAccess(owner: string, channelId: string) {
+    if (!(await this.access.manages(owner)))
+      throw new AppError("Only an owner or admin can see who can open a channel", 403);
+    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
+    if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID)
+      throw new AppError("Channel not found", 404);
+    return { members: channel.members ?? [], guests: await this.access.knownGuests() };
+  }
+  /** Replace the guests added to a channel. */
+  async setChannelMembers(owner: string, channelId: string, raw: unknown) {
+    if (!(await this.access.manages(owner)))
+      throw new AppError("Only an owner or admin can change who can open a channel", 403);
+    const { members } = channelMembersSchema.parse(raw);
+    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
+    if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID)
+      throw new AppError("Channel not found", 404);
+    const updated: Channel = {
+      ...channel,
+      members: [...new Set(members)].sort(),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.db.put(SHARED_OWNER, "channels", updated);
+    return { members: updated.members ?? [], guests: await this.access.knownGuests() };
   }
   async archiveChannel(id: string): Promise<Channel> {
     if (id === ORCHESTRATOR_CHANNEL_ID)
@@ -432,7 +468,36 @@ export class AgentService {
       });
     return updated;
   }
+  /**
+   * What a guest is shown of the work: the tasks of the channels they were added to, and what came
+   * of them. The goals, ideas, memories and notifications belong to the whole workspace.
+   */
+  private async guestSnapshot(owner: string): Promise<AgentWorkspace> {
+    const open = await this.access.guestChannelIds(owner);
+    const inChannel = (id?: string) => open.has(id ?? ORCHESTRATOR_CHANNEL_ID);
+    const tasks = (await this.db.list<AgentTask>(owner, "tasks")).filter(
+      (task) => inChannel(task.channelId) || inChannel(task.originChannelId),
+    );
+    const ids = new Set(tasks.map((task) => task.id));
+    const [artifacts, identity] = await Promise.all([
+      this.db.list<AgentArtifact>(owner, "agent-artifacts"),
+      this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
+    ]);
+    return {
+      tasks: await this.present(owner, tasks),
+      goals: [],
+      projects: [],
+      monitors: [],
+      ideas: [],
+      memories: [],
+      artifacts: artifacts.filter((artifact) => !artifact.taskId || ids.has(artifact.taskId)),
+      notifications: [],
+      identity: identity ?? { name: "Hive", tone: "warm" },
+      worker: { running: this.worker.running, lastTickAt: this.worker.lastTickAt },
+    };
+  }
   async snapshot(owner: string): Promise<AgentWorkspace> {
+    if (await this.access.isGuest(owner)) return this.guestSnapshot(owner);
     await this.ensure(owner);
     const [tasks, goals, projects, monitors, ideas, memories, artifacts, notifications, identity] =
       await Promise.all([

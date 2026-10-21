@@ -25,7 +25,10 @@
  */
 import { Hono } from "hono";
 import { z } from "zod";
-import { ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent.ts";
+import {
+  type ChannelThread,
+  ORCHESTRATOR_CHANNEL_ID,
+} from "../../../../packages/domain/src/agent.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import type { Config } from "../config.ts";
 import type { AgentService } from "../engine/service.ts";
@@ -36,6 +39,7 @@ import type { AskedPermissionProps, PermissionTracker } from "./approvals.ts";
 import type { OpencodeClientPool } from "./client.ts";
 import { type OpenCodeEvent, type OpencodeEventBus, sessionErrorMessage } from "./events.ts";
 import type { HiveToolBridge } from "./hive-tools.ts";
+import { buildSessionRuleset } from "./permissions.ts";
 import type { PermissionRulesStore } from "./rules.ts";
 import { mergeableMessages, type RecordedMessage, RunRecord } from "./run-record.ts";
 import { ensureThreadSession } from "./sessions.ts";
@@ -539,6 +543,33 @@ async function abortRunSession(ctx: RunContext): Promise<void> {
   }
 }
 
+const GUEST_CHANNELS_ONLY = "Guests can open only the channels they were added to";
+
+/**
+ * Why the agent will not take a guest's message, if it will not. They have no say in what the agent
+ * is allowed to do, so in a channel where it runs without asking first, whatever a guest wrote would
+ * be done unchecked.
+ */
+async function guestRefusal(
+  deps: OpencodeShimDeps,
+  owner: string,
+  binding: ChannelThread | null,
+): Promise<string | undefined> {
+  if (!binding) return GUEST_CHANNELS_ONLY;
+  try {
+    await deps.service.access.assertChannel(owner, binding.channelId);
+  } catch {
+    return GUEST_CHANNELS_ONLY;
+  }
+  const rules = buildSessionRuleset(
+    await deps.rules.effectiveRules(owner, binding),
+    await deps.rules.effectiveMode(owner, binding),
+  );
+  if (rules.some((rule) => rule.action === "allow"))
+    return "In this thread the agent is allowed to act without asking first, so guests can't use it. An admin can change that in the thread's permissions.";
+  return undefined;
+}
+
 async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   const { deps, owner, input, send, signal } = ctx;
   const mention = normalizeMention(deps.config.agentMention);
@@ -557,13 +588,27 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   // without CopilotKit Intelligence there is no hosted thread record, so the
   // first run binds it to the orchestrator channel instead of failing. This
   // runs before the mention gate so plain chat also leaves a bound thread.
-  await deps.service.ensureOrchestratorChannel(owner);
-  const binding = await deps.service.ensureThreadBinding(
-    owner,
-    input.threadId,
-    ORCHESTRATOR_CHANNEL_ID,
-    "Main chat",
-  );
+  // A guest has no main chat: their runs are in threads of the channels they were added to.
+  const guest = await deps.service.access.isGuest(owner);
+  if (!guest) await deps.service.ensureOrchestratorChannel(owner);
+  const binding = guest
+    ? await deps.service.channelOfThread(owner, input.threadId)
+    : await deps.service.ensureThreadBinding(
+        owner,
+        input.threadId,
+        ORCHESTRATOR_CHANNEL_ID,
+        "Main chat",
+      );
+  const refusal = guest ? await guestRefusal(deps, owner, binding) : undefined;
+  if (!binding || refusal) {
+    send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
+    send({
+      type: "RUN_ERROR",
+      message: refusal ?? GUEST_CHANNELS_ONLY,
+      code: "OPENCODE_RUN_FAILED",
+    });
+    return;
+  }
 
   // Mention-only triggering: without the mention token in the last user
   // message this is plain chat. Complete the run as a no-op — the message is
@@ -704,6 +749,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
           jevMode: deps.config.jevMode,
           jevOwner: jevHome,
           latestText: stripped,
+          guest,
         }),
         toolAbort.signal,
       );

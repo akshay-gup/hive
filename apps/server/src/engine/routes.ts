@@ -124,6 +124,13 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   app.post("/channels", async (c) =>
     c.json(await service.createChannel(c.get("owner"), await c.req.json()), 201),
   );
+  /** Who was added to a channel. Only an owner or admin sees or changes it. */
+  app.get("/channels/:id/members", async (c) =>
+    c.json(await service.channelAccess(c.get("owner"), c.req.param("id"))),
+  );
+  app.put("/channels/:id/members", async (c) =>
+    c.json(await service.setChannelMembers(c.get("owner"), c.req.param("id"), await c.req.json())),
+  );
   app.post("/channels/:id/archive", async (c) =>
     c.json(await service.archiveChannel(c.req.param("id"))),
   );

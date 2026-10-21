@@ -401,9 +401,13 @@ A stopped machine does nothing, and Fly decides a machine is idle from the reque
 
 ## Who can do what
 
-The control plane decides. An **owner** (who made the workspace) can invite admins and members, change roles, remove anyone, retry a workspace that failed to start, and delete it. An **admin** can invite members and remove members. A **member** can leave. Invitations are a link anyone can use (50 uses, 7 days) or one for a single email address (1 use, 7 days). A person who is not in a workspace gets "not found" for it, not "forbidden".
+The control plane decides. An **owner** (who made the workspace) can invite admins, members and guests, change roles, remove anyone, retry a workspace that failed to start, and delete it. An **admin** can invite members and guests and remove them. A **member** can leave. A **guest** can leave, and is shown only themselves in the list of people. Invitations are a link anyone can use (50 uses, 7 days; always as a member) or one for a single email address (1 use, 7 days; as a member, admin or guest). A person who is not in a workspace gets "not found" for it, not "forbidden".
 
-A workspace stores the role it was told, but does not yet use it: inside a workspace everyone who is let in can do what any member of a self-hosted Hive can (see the [roadmap](../ROADMAP.md)).
+A workspace stores the role it was told, at each sign-in (an hour's session, so a changed role is taken up within the hour), and uses it for one thing so far: **a guest can open only the channels they were added to**. Everyone else can do what any member of a self-hosted Hive can (see the [roadmap](../ROADMAP.md)).
+
+**Guests.** An owner or admin adds a guest to a channel (the channel's *Access* button), by email address, so a guest can be added before they have ever signed in; until then a guest has no channel and sees nothing. The server holds them to it: `apps/server/src/guest-gate.ts` lists what a guest may ask for, so a route added later is closed to them until it is put there. What is open to them is the conversation in their channels (messages, threads, files and board), and the agent in a channel's threads. What is not: the orchestrator chat, the team's mail, calendar, files, goals, memories and notifications, other channels (a channel they were not added to is "not found"), creating or archiving channels, and the settings of the agent. In a channel a guest can write to the team and the agent, put items on the board, and look at what the agent does, but cannot steer agent work that runs unattended (task notes, answers, retries, handing an item to the agent) or allow what the agent asks to do, and the agent offers them only the tools the conversation needs. **The agent does not run for a guest in a channel set to auto-approve**, since whatever they wrote would be done unchecked.
+
+**What a guest's isolation does not yet cover is the agent's own reach.** The agent works in the channel's folder, but its shell can read other folders on the machine, and a guest's words are untrusted text the agent reads. A teammate sees what the agent asks to run, and a guest cannot allow it, but until the agent's shell is confined to the channel, a guest should be someone you would also trust with the team's files when a teammate is careless with an approval.
 
 ## What is not built
 
@@ -417,7 +421,7 @@ A workspace stores the role it was told, but does not yet use it: inside a works
 - **Backups of a workspace's disk**, on either host. See [updates and backups](#updates-and-backups).
 - **TLS between the edge and a workspace.** (Not with tunnels, where the Droplet connects out and the server listens on 127.0.0.1.) The edge speaks plain http to a Droplet over the private network. The agent can be root on its Droplet, so a workspace's neighbours on that network matter: DigitalOcean's private networks are meant to keep one Droplet from seeing another's traffic or posing as it, and that has not been tried here.
 - **Apple's rules.** Whether and how the app may sell or sign people in on iOS has not been checked, and nothing here builds a signed binary or a Mac app.
-- **Roles inside a workspace, per-person limits, and cleaning up expired records** (sessions, login codes, sign-in states) in the control plane's database.
+- **Other roles inside a workspace, per-person limits, confining the agent to its channel, and cleaning up expired records** (sessions, login codes, sign-in states) in the control plane's database. Which actions are owner-only, and holding the agent's shell to the channel's folder, come next.
 
 ## Verification
 

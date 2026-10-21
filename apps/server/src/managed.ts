@@ -37,7 +37,7 @@ export class ManagedSignIn {
     private readonly auth: Auth,
     private readonly managed: ManagedWorkspace,
     /** Gives a person who is new here what a signed-in person has (their orchestrator chat). */
-    private readonly welcome: (owner: string) => Promise<unknown>,
+    private readonly welcome: (owner: string, role: WorkspaceRole) => Promise<unknown> | undefined,
   ) {}
 
   async signIn(token: string) {
@@ -67,7 +67,7 @@ export class ManagedSignIn {
       createdAt: existing?.createdAt ?? at,
       lastLoginAt: at,
     });
-    await this.welcome(owner);
+    await this.welcome(owner, verified.role);
     const session = await this.auth.sessionForOwner(owner, MANAGED_SESSION_MS);
     return {
       ...session,

@@ -286,6 +286,22 @@ export class WorkspaceService {
     await this.db.put(owner, "settings", { id: "google", enabled: true });
     await this.db.put(owner, "settings", { id: "seeded", value: true });
   }
+  /** What a guest is shown of the workspace: who they are, and none of the team's mail, calendar or files. */
+  async guestSnapshot(owner: string): Promise<Workspace> {
+    const user = await this.db.get<{ name?: string; email?: string }>("system", "users", owner);
+    return {
+      mode: this.config.mode,
+      profile: { name: user?.name ?? "You", email: user?.email ?? "" },
+      mail: [],
+      events: [],
+      files: [],
+      browsers: [],
+      actions: [],
+      activity: [],
+      connections: [],
+      runtime: { richThreads: Boolean(this.config.intelligenceApiKey) },
+    };
+  }
   async snapshot(owner: string, query?: string): Promise<Workspace> {
     let mail: Mail[], events: CalendarEvent[];
     const connected = await this.connected(owner);

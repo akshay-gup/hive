@@ -24,6 +24,7 @@ import { LocalDiskThreadStore, type ThreadBindingStore } from "./engine/threads.
 import { AppError } from "./errors.ts";
 import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
+import { guestGate } from "./guest-gate.ts";
 import type { JevAdapter } from "./jev/adapter.ts";
 import { createJevService } from "./jev/service.ts";
 import { ManagedSignIn } from "./managed.ts";
@@ -242,7 +243,10 @@ export async function createApp(
    * workspace has this; anywhere else people sign in with Google.
    */
   const managed = config.managed
-    ? new ManagedSignIn(db, auth, config.managed, (owner) => agent.ensure(owner))
+    ? new ManagedSignIn(db, auth, config.managed, (owner, role) =>
+        // A guest has no orchestrator chat of their own to make ready.
+        role === "guest" ? undefined : agent.ensure(owner),
+      )
     : undefined;
   app.post("/api/auth/managed", async (c) => {
     if (!managed) throw new AppError("This workspace signs in with Google", 404);
@@ -271,6 +275,8 @@ export async function createApp(
         ? auth.verify(new URL(c.req.url))
         : await auth.owner(c.req.header("authorization"));
     c.set("owner", owner);
+    // A guest is let through only to what the channels they were added to hold.
+    if (config.managed && (await agent.access.isGuest(owner))) await guestGate(c, owner, agent);
     await next();
   });
   app.get("/api/auth/session", (c) => c.json({ authenticated: true }));
@@ -279,6 +285,9 @@ export async function createApp(
     return c.json({ ok: true });
   });
   app.get("/api/workspace", async (c) => {
+    // The mail, calendar and files are the team's, not a guest's: they are shown who they are.
+    if (await agent.access.isGuest(c.get("owner")))
+      return c.json(await workspace.guestSnapshot(c.get("owner")));
     const [snapshot, reachable] = await Promise.all([
       workspace.snapshot(c.get("owner"), c.req.query("q")),
       browser.reachable(),
