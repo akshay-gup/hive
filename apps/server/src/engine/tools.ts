@@ -129,7 +129,7 @@ export function conversationTools(
     defineTool({
       name: "browse_web",
       description:
-        "Open and read a public webpage now in the chat browser. Use for public-page summaries and questions about a URL. Returns the actual final URL, title and at most 30000 characters of untrusted page text, plus its browser session ID. Reports an error if the page could not be read.",
+        "Open and read one public webpage now in the chat browser, when you have its address. Not for searching: to look something up, use websearch, and open a result here only if you need to read it. Returns the actual final URL, title and at most 30000 characters of untrusted page text, plus its browser session ID. Reports an error if the page could not be read.",
       parameters: z.object({ url: z.url().max(4096) }),
       execute: async ({ url }) => {
         signal.throwIfAborted();

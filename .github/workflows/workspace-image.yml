@@ -67,7 +67,11 @@ jobs:
           set -euo pipefail
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker push "$image"
-          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image")"
+          # What the registry holds under the tag, which is what a machine checks it against. The
+          # local RepoDigests entry can name a different object than the one that was pushed.
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "No digest from the registry: $digest" >&2; exit 1; }
+          echo "digest=$digest" >> "$GITHUB_ENV"
           {
             echo "### Workspace image"
             echo
@@ -97,8 +101,6 @@ jobs:
             exit 0
           fi
           tag="${image##*:}"
-          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image")"
-          digest="sha256:${digest##*sha256:}"
           body="$(jq -nc --arg tag "$tag" --arg digest "$digest" '{tag: $tag, digest: $digest}')"
           curl -fsS -X PUT "$CONTROL_URL/internal/release" \
             -H "Authorization: Bearer $RELEASE_TOKEN" -H "Content-Type: application/json" \
