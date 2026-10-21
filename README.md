@@ -249,7 +249,6 @@ flowchart TD
   Tasks --> Browser[Chromium worker + persistent profiles]
   API --> Browser
   Tasks --> Files[PDF files + structured artifacts]
-  API -. future adapter .-> OpenBot[OpenBot]
 ```
 
 | Directory | Purpose |
@@ -262,12 +261,7 @@ flowchart TD
 | `apps/edge` | The public face of workspaces that run on Droplets: ends TLS with one wildcard certificate and passes each request on to the workspace its host name names. |
 | `packages/domain` | Shared types and request validation. |
 | `packages/integrations` | Google and browser protocol adapters. |
-| `packages/backends` | Optional OpenBot HTTP adapter and its identity boundary. |
 | `tests` | Workflow, runtime, persistence, provider-contract, and authorization tests. |
-
-### OpenBot compatibility
-
-Hive's native client and agent workflows are independent of OpenBot. The disabled OpenBot adapter is pinned and contract-tested against upstream interfaces. Live user/session bridging and routine mapping remain future work. OpenBot's Intelligence runtime is not a raw AG-UI endpoint. [Integration contract](docs/OPENBOT-INTEGRATION.md).
 
 ## Development
 

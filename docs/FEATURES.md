@@ -17,6 +17,5 @@ The native and web agent core runs locally. This inventory describes the current
 | Generated results | Plans/reports/comparisons, finance CSV metrics, and scripts saved as artifacts | Managed tool installation/versioning and image/audio generation |
 | Notifications | Durable in-app inbox, source-linked change alerts, restart reconciliation | APNs/FCM/device push delivery |
 | Connectors | Searchable capability/status catalogue, Google connection, browser worker | Plaid, health, Instagram, WhatsApp and partner APIs |
-| OpenBot | Disabled adapter with pinned protocol/identity tests | Live session bridge, routines and computer backend wiring |
 
 The implementation and validation details are in [VERIFICATION.md](VERIFICATION.md). Planned extensions are not claims of current support. Priorities are tracked in the [roadmap](../ROADMAP.md).

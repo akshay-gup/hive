@@ -28,7 +28,7 @@ The model responses were scripted with [CopilotKit AI Mock](https://github.com/C
 - **Take control**, which opens that session's live browser console.
 - The project's open-source repository.
 
-Captures are trimmed and paced for readability, including brief slowdowns of the browser card and faster transitions into takeover. This is a reproducible demonstration of the app and tool flow; it is not an evaluation of a live model's reasoning. Site content changes, so your highlights can differ. Personal workspace information is fictional. Live Google, provider quality, Intelligence persistence/replay, and OpenBot require separately configured acceptance runs; see [verification](VERIFICATION.md).
+Captures are trimmed and paced for readability, including brief slowdowns of the browser card and faster transitions into takeover. This is a reproducible demonstration of the app and tool flow; it is not an evaluation of a live model's reasoning. Site content changes, so your highlights can differ. Personal workspace information is fictional. Live Google, provider quality, and Intelligence persistence/replay require separately configured acceptance runs; see [verification](VERIFICATION.md).
 
 ## Desktop web
 
