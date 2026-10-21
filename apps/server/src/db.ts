@@ -24,8 +24,10 @@ interface Database {
 export const SHARED_KINDS: ReadonlySet<string> = new Set([
   // Work
   "tasks",
+  "task-sessions",
   "runs",
   "run-events",
+  "live-runs",
   "projects",
   "goals",
   "monitors",
@@ -45,6 +47,7 @@ export const SHARED_KINDS: ReadonlySet<string> = new Set([
   "browsers",
   "chat-browsers",
   "browser-downloads",
+  "browser-shots",
   // The agent
   "memories",
   "agent-settings",

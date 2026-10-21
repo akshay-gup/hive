@@ -150,5 +150,14 @@ export async function shimFixture(
     return { status: response.status, events, tools, text, last: events.at(-1)?.type };
   }
 
-  return { ...server, browser, db: browser.db, config, standIn, whenPrompted, run };
+  /** Press Stop on a thread, as the client does. */
+  async function stop(threadId = "thread-1") {
+    return shim.request("/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-test-owner": "local-user" },
+      body: JSON.stringify({ threadId }),
+    });
+  }
+
+  return { ...server, browser, db: browser.db, config, standIn, whenPrompted, run, stop };
 }

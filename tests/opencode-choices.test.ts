@@ -236,8 +236,17 @@ test("a later turn that mentions the agent retires the earlier choices", async (
 
 test("so does a message that never reaches the agent, because the transcript shows them stale", async (t) => {
   const f = await shimFixture(t, { jevMode: "sample" });
-  const panel = await panelIn(f);
-  const chatter = await f.run("What a nice day");
+  // In a person's own chat every message is for the agent; in a channel's thread one that does not
+  // mention it is not, and never reaches it.
+  const threadId = await teamThread(f);
+  f.whenPrompted(async ({ call, idle }) => {
+    await call("present_choices", choices([explore, other]));
+    idle();
+  });
+  const first = await f.run("@hive What next?", { threadId, owner: "alice" });
+  const panel = jevToolResultSchema.parse(first.tools[0].result).panel;
+  assert.ok(panel);
+  const chatter = await f.run("What a nice day", { threadId, owner: "alice" });
   assert.equal(chatter.last, "RUN_FINISHED");
   assert.equal(f.standIn.prompts.length, 1, "the agent was not asked anything");
   const transcript = [
@@ -246,7 +255,9 @@ test("so does a message that never reaches the agent, because the transcript sho
     { role: "user", content: "What a nice day" },
   ];
   assert.equal(latestJevPanelId(transcript, panel.threadId), null);
-  await assertRetired(f, panel);
+  const head = await f.db.get<{ currentPanelId: string | null }>("shared", "jev_threads", threadId);
+  assert.equal(head?.currentPanelId, null);
+  assert.equal((await f.run(pickOf(panel), { threadId, owner: "alice" })).last, "RUN_ERROR");
 });
 
 test("a turn that fails still retires the earlier choices", async (t) => {
@@ -263,9 +274,10 @@ test("a turn that fails still retires the earlier choices", async (t) => {
 test("cancelling a turn still retires the earlier choices", async (t) => {
   const f = await shimFixture(t, { jevMode: "sample" });
   const panel = await panelIn(f);
-  const stop = new AbortController();
-  f.whenPrompted(() => stop.abort());
-  const cancelled = await f.run("@hive hello", { signal: stop.signal });
+  f.whenPrompted(async () => {
+    await f.stop();
+  });
+  const cancelled = await f.run("@hive hello");
   assert.equal(cancelled.last, "RUN_ERROR");
   await assertRetired(f, panel);
 });

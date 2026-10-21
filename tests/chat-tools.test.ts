@@ -53,10 +53,16 @@ test("browse_web reaches the chat as real tool events, with the page the browser
   const [shown] = chat.tools;
   assert.equal(shown.name, "browse_web");
   assert.deepEqual(shown.args, { url: requestedUrl });
-  const page = shown.result as { sessionId: string };
+  const { shot, ...page } = shown.result as { sessionId: string; shot?: string };
   assert.deepEqual(page, { sessionId: page.sessionId, ...observed });
   assert.match(page.sessionId, /^[a-f0-9-]{36}$/);
-  assert.deepEqual(f.browserCalls, ["/sessions", `/sessions/${page.sessionId}/read`]);
+  // The picture of the page the steps list shows, kept by the workspace and named by the result.
+  assert.match(shot ?? "", /^[a-f0-9-]{36}$/);
+  assert.deepEqual(f.browserCalls, [
+    "/sessions",
+    `/sessions/${page.sessionId}/read`,
+    `/sessions/${page.sessionId}/screenshot`,
+  ]);
   assert.equal((await f.db.list("local-user", "tasks")).length, 0);
   assert.match(f.standIn.prompts[0].parts[0].text, /untrusted/);
 
@@ -87,17 +93,16 @@ test("browse_web reports a page that could not be opened as it is, not as a page
 
 test("a reply that has been stopped cannot open pages", async (t) => {
   const f = await browsing(t);
-  const stop = new AbortController();
   let refused: unknown;
   f.whenPrompted(async ({ call }) => {
-    stop.abort();
+    await f.stop();
     try {
       await call("browse_web", { url: requestedUrl });
     } catch (error) {
       refused = error;
     }
   });
-  await f.run(`@hive Summarize ${requestedUrl}`, { signal: stop.signal });
+  await f.run(`@hive Summarize ${requestedUrl}`);
   assert.ok(refused, "the agent's tool call was refused");
   assert.deepEqual(f.browserCalls, []);
 });

@@ -74,7 +74,15 @@ async function wired(
       .map((frame) => JSON.parse(frame.slice("data: ".length)) as Record<string, unknown>);
     return { events, types: events.map((event) => String(event.type)) };
   }
-  return { ...server, db, config, opencode, chat };
+  /** Press Stop on a thread, as the app does. */
+  async function stop(threadId = "wire-thread") {
+    return server.app.request("/api/agent/opencode/stop", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId }),
+    });
+  }
+  return { ...server, db, config, opencode, chat, stop };
 }
 
 test("a reply travels over OpenCode's protocol and comes back as AG-UI events", async (t) => {
@@ -97,13 +105,15 @@ test("a reply travels over OpenCode's protocol and comes back as AG-UI events", 
   assert.equal(prompt.text, "hi there", "the mention is not part of what the agent is asked");
   assert.match(prompt.context, /\[hive context\]/);
 
-  // A message that does not mention the agent never reaches OpenCode, and the next one that does
-  // goes to the same session.
-  assert.deepEqual((await f.chat("just us chatting")).types, ["RUN_STARTED", "RUN_FINISHED"]);
-  assert.equal(f.opencode.prompts.length, 1);
-  await f.chat("@hive and again");
+  // In a person's own chat nobody else is listening, so the agent answers without being mentioned,
+  // and every message goes to the same session. (Shared channels still need @hive: see
+  // opencode-mention.test.ts.)
+  await f.chat("just us chatting");
   assert.equal(f.opencode.prompts.length, 2);
   assert.equal(f.opencode.prompts[1].sessionID, prompt.sessionID);
+  await f.chat("@hive and again");
+  assert.equal(f.opencode.prompts.length, 3);
+  assert.equal(f.opencode.prompts[2].sessionID, prompt.sessionID);
 });
 
 test("the agent reaches Hive's tools over HTTP, and their results come back as tool events", async (t) => {
@@ -150,13 +160,14 @@ test("a task runs as an OpenCode session, and the agent hands its work in for re
 });
 
 test("stopping a reply stops the OpenCode session", async (t) => {
-  const stop = new AbortController();
+  const pressed: { stop?: () => Promise<unknown> } = {};
   const f = await wired(t, async () => {
-    stop.abort();
+    await pressed.stop?.();
     // The agent is still working when the person stops the reply.
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
-  await f.chat("@hive take your time", { signal: stop.signal });
+  pressed.stop = () => f.stop();
+  await f.chat("@hive take your time");
   assert.deepEqual(f.opencode.aborted, [f.opencode.prompts[0].sessionID]);
 });
 
