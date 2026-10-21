@@ -1065,7 +1065,7 @@ export function ChatScreen({
                       maxWidth: channelId || threadParent ? "100%" : user ? "85%" : "95%",
                       width:
                         channelId || threadParent ? "100%" : toolCalls.length ? "95%" : undefined,
-                      gap: 6,
+                      gap: channelId || threadParent ? 2 : 6,
                     }}
                   >
                     {channelId && newDay && (
@@ -1087,7 +1087,6 @@ export function ChatScreen({
                           author={user ? message.name || w.profile.name || "You" : agentName}
                           assistant={!user}
                           grouped={grouped}
-                          own={user && (!message.name || message.name === w.profile.name)}
                           timestamp={timestamp}
                           selected={panelOpen && replyPanel?.parent.id === message.id}
                           onReply={channelId ? () => void openReply(message) : undefined}

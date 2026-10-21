@@ -78,7 +78,6 @@ export function ChannelMessage({
   replyDisabled,
   selected,
   grouped = false,
-  own = false,
   timestamp,
   onNotify,
 }: {
@@ -92,8 +91,6 @@ export function ChannelMessage({
   selected?: boolean;
   onNotify: (message: string) => void;
   grouped?: boolean;
-  /** Written by the person looking at the channel: it sits on the right, in a bubble, like a message you sent. */
-  own?: boolean;
   timestamp?: number;
 }) {
   const [rowHovered, setHovered] = useState(false);
@@ -154,30 +151,31 @@ export function ChannelMessage({
         else if (nativeEvent.actionName === "copy") void copy();
       }}
       style={{
-        paddingHorizontal: 12,
-        paddingVertical: grouped ? 1 : 6,
-        borderRadius: radius.lg,
+        paddingHorizontal: 8,
+        paddingTop: grouped ? 1 : 6,
+        paddingBottom: 1,
+        borderRadius: radius.md,
         backgroundColor: selected ? colors.surface : hovered ? colors.surfaceMuted : "transparent",
         ...(selected ? { boxShadow: shadow.active } : null),
       }}
     >
-      <View style={{ flexDirection: own ? "row-reverse" : "row", gap: 10 }}>
-        {!own && (
-          <View style={{ width: 36, alignItems: "center" }}>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {
+          <View style={{ width: 32, alignItems: "center" }}>
             {grouped ? (
               showGutterTime && (
-                <Text style={[s.small, { fontSize: fontSize.micro, lineHeight: 22 }]}>
+                <Text style={[s.small, { fontSize: fontSize.micro, lineHeight: 21 }]}>
                   {clock(timestamp, false)}
                 </Text>
               )
             ) : assistant ? (
-              <Mascot size={36} variant={data?.identity.avatar} />
+              <Mascot size={32} variant={data?.identity.avatar} />
             ) : (
               <View
                 style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: radius.lg,
+                  width: 32,
+                  height: 32,
+                  borderRadius: radius.md,
                   backgroundColor: authorTint(author),
                   alignItems: "center",
                   justifyContent: "center",
@@ -189,8 +187,8 @@ export function ChannelMessage({
               </View>
             )}
           </View>
-        )}
-        <View style={{ flex: 1, minWidth: 0, alignItems: own ? "flex-end" : "stretch" }}>
+        }
+        <View style={{ flex: 1, minWidth: 0 }}>
           {!grouped && (
             <View style={[s.row, { gap: 8 }]}>
               <Text style={[s.text, { fontWeight: "700", lineHeight: 20 }]}>{author}</Text>
@@ -200,22 +198,10 @@ export function ChannelMessage({
           {assistant ? (
             <AssistantResponse content={text} />
           ) : (
-            // What people say sits in a bubble, as in a chat; what the agent says is plain text on the page.
-            <View
-              style={{
-                alignSelf: own ? "flex-end" : "flex-start",
-                maxWidth: "85%",
-                paddingHorizontal: 14,
-                paddingVertical: 9,
-                borderRadius: radius.xl,
-                ...(own ? { borderBottomRightRadius: 6 } : { borderTopLeftRadius: 6 }),
-                backgroundColor: own ? colors.primarySoft : colors.surface,
-              }}
-            >
-              <Text selectable style={[s.text, { lineHeight: 22 }]}>
-                {text}
-              </Text>
-            </View>
+            // Flat, as in a team chat: everyone's words sit on the page, on the left, under their name.
+            <Text selectable style={[s.text, { lineHeight: 21 }]}>
+              {text}
+            </Text>
           )}
           {onReply && hasThread && (
             <Pressable
@@ -272,7 +258,7 @@ export function ChannelMessage({
             {
               gap: 2,
               position: "absolute",
-              right: 12,
+              right: 8,
               top: -16,
               opacity: toolbarVisible ? 1 : 0,
               zIndex: 1,
