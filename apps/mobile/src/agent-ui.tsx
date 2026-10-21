@@ -99,26 +99,36 @@ function errorText(e: unknown) {
 function activeTask(task: AgentTask) {
   return !["succeeded", "failed", "cancelled"].includes(task.status);
 }
+/** How long something has to stay wrong before it is worth saying; a blip mends itself first. */
+const STATUS_GRACE_MS = 20_000;
+
 /**
- * What is wrong with the agent, when something is. While it is still being checked it says
- * nothing: a "Checking…" row above everything else is taken away a moment later, and the whole
- * screen below it jumps up when it goes. It is also one more thing spinning.
+ * What is wrong with the agent, when something has been wrong for a while. The page asks every few
+ * seconds and tries again by itself, so a failed ask (a phone waking up, the workspace restarting)
+ * is not news and has no button to press: it only says something if it keeps going. While it is
+ * still being checked it says nothing either, since a row above everything else that is taken away
+ * a moment later makes the whole screen below it jump.
  */
 export function AgentStatus() {
-  const { data, error, refresh } = useAgentWorkspace();
-  if (!data && !error) return null;
-  if (data?.worker.running && !error) return null;
+  const { data, error } = useAgentWorkspace();
+  const wrong = !!error || (!!data && !data.worker.running);
+  const [lasting, setLasting] = useState(false);
+  useEffect(() => {
+    if (!wrong) {
+      setLasting(false);
+      return;
+    }
+    const timer = setTimeout(() => setLasting(true), STATUS_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [wrong]);
+  if (!wrong || !lasting) return null;
   return (
     <View style={{ gap: 12 }}>
-      <ErrorNotice error={error ? `Agent updates unavailable. ${error}` : ""} />
-      {!!error && (
-        <Button small onPress={() => void refresh().catch(() => {})}>
-          Reconnect agent
-        </Button>
-      )}
-      {data && !data.worker.running && (
-        <Text style={s.small}>Worker is offline. Saved work will continue when it reconnects.</Text>
-      )}
+      <Text style={s.small}>
+        {error
+          ? "Can't reach your workspace right now. Trying again."
+          : "The agent is offline. Saved work will continue when it reconnects."}
+      </Text>
     </View>
   );
 }
