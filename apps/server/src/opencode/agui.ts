@@ -37,6 +37,7 @@ import type { OpencodeClientPool } from "./client.ts";
 import { type OpenCodeEvent, type OpencodeEventBus, sessionErrorMessage } from "./events.ts";
 import type { HiveToolBridge } from "./hive-tools.ts";
 import type { PermissionRulesStore } from "./rules.ts";
+import { mergeableMessages, type RecordedMessage, RunRecord } from "./run-record.ts";
 import { ensureThreadSession } from "./sessions.ts";
 
 export interface OpencodeShimDeps {
@@ -47,6 +48,8 @@ export interface OpencodeShimDeps {
   tracker: PermissionTracker;
   rules: PermissionRulesStore;
   hiveTools?: HiveToolBridge;
+  /** Writes messages into a conversation, so a run nobody is watching is still kept. */
+  saveMessages?: (owner: string, threadId: string, messages: RecordedMessage[]) => Promise<void>;
 }
 
 const runInputSchema = z.object({
@@ -58,7 +61,7 @@ const runInputSchema = z.object({
 type RunInput = z.infer<typeof runInputSchema>;
 
 /** Bound for a run whose terminal events never arrive (e.g. a reconnect gap). */
-const RUN_TIMEOUT_MS = 10 * 60_000;
+const RUN_TIMEOUT_MS = 60 * 60_000;
 /** Truncation for tool results forwarded as TOOL_CALL_RESULT content. */
 const TOOL_RESULT_LIMIT = 2_000;
 /**
@@ -762,6 +765,17 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
   // synchronous, so concurrent requests for the same thread cannot both pass.
   const inflight = new Map<string, string>();
 
+  /** Runs go on when the page that started them is closed; only Stop (below) ends one early. */
+  const stoppers = new Map<string, AbortController>();
+  // A run is still going until what it said has been written down, not just until it ends.
+  const settling = new Set<string>();
+  app.get("/live", (c) => c.json({ running: settling.has(c.req.query("threadId") ?? "") }));
+  app.post("/stop", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { threadId?: unknown };
+    const threadId = typeof body.threadId === "string" ? body.threadId : "";
+    stoppers.get(threadId)?.abort();
+    return c.json({ ok: true });
+  });
   app.post("/run", async (c) => {
     const owner = c.get("owner");
     let body: unknown;
@@ -777,15 +791,40 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
       return c.json({ error: "A run is already in progress on this thread" }, 409);
     }
     inflight.set(threadId, runId);
+    const stopper = new AbortController();
+    stoppers.set(threadId, stopper);
+    settling.add(threadId);
 
     const encoder = new TextEncoder();
+    const record = new RunRecord();
+    // Writes go one after another, so the last one is the newest state.
+    let saving: Promise<void> = Promise.resolve();
+    const save = (withInput = false) => {
+      if (!deps.saveMessages || threadId.startsWith("channel:")) return;
+      const messages = [
+        ...(withInput ? mergeableMessages(parsed.data.messages) : []),
+        ...record.messages(),
+      ];
+      saving = saving
+        .then(() => deps.saveMessages?.(owner, threadId, messages))
+        .catch(() => undefined);
+    };
+    save(true);
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const send = (event: AguiEvent) => {
+          record.handle(event);
+          if (
+            event.type === "TOOL_CALL_RESULT" ||
+            event.type === "TEXT_MESSAGE_END" ||
+            event.type === "RUN_FINISHED" ||
+            event.type === "RUN_ERROR"
+          )
+            save();
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
           } catch {
-            // Controller closed (client went away); the abort handler cleans up.
+            // Nobody is reading any more; the run carries on and is written down as it goes.
           }
         };
         const ctx: RunContext = {
@@ -793,7 +832,7 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
           owner,
           input: parsed.data,
           send,
-          signal: c.req.raw.signal,
+          signal: stopper.signal,
           inflight,
           settled: false,
           onAbort: () => undefined,
@@ -802,6 +841,10 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
           await runOpencodeTurn(ctx);
         } finally {
           settleRun(ctx);
+          if (stoppers.get(threadId) === stopper) stoppers.delete(threadId);
+          save();
+          await saving;
+          settling.delete(threadId);
           try {
             controller.close();
           } catch {

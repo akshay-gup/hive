@@ -28,6 +28,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  AppState,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -466,6 +467,7 @@ export function ChatScreen({
     setSaveError("");
     onSaved?.();
   }, [agent, api, conversationPath, richThreads, onSaved]);
+  const followLiveRef = useRef<() => Promise<void>>(async () => {});
   const run = useCallback(
     async (message?: QueuedMessage) => {
       if (runLock.current || agent.isRunning || !isReady || !loaded)
@@ -511,6 +513,8 @@ export function ChatScreen({
         } finally {
           runLock.current = false;
           setBusy(false);
+          // The connection may have dropped while the agent carried on.
+          void followLiveRef.current();
         }
       }
     },
@@ -527,6 +531,46 @@ export function ChatScreen({
       threadId,
     ],
   );
+  /**
+   * The agent keeps working when this page is closed, locked or reloaded. Coming back to a thread
+   * whose run is still going, the page follows what the server has written down until it ends.
+   */
+  const following = useRef(false);
+  const followLive = useCallback(async () => {
+    if (richThreads || following.current || runLock.current) return;
+    following.current = true;
+    let claimed = false;
+    const ask = () =>
+      api.request<{ running: boolean }>(
+        `/api/agent/opencode/live?threadId=${encodeURIComponent(threadId)}`,
+      );
+    try {
+      if (!(await ask()).running) return;
+      claimed = true;
+      setError("");
+      setBusy(true);
+      for (let running = true; running; ) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        running = (await ask()).running;
+        const { messages } = await api.request<{ messages: Message[] }>(conversationPath);
+        if (!runLock.current) agent.setMessages(messages);
+      }
+      await Promise.all([refresh(), refreshAgent()]);
+    } catch {
+      // The next visit or the next focus looks again.
+    } finally {
+      following.current = false;
+      if (claimed) setBusy(false);
+    }
+  }, [agent, api, conversationPath, refresh, refreshAgent, richThreads, threadId]);
+  followLiveRef.current = followLive;
+  useEffect(() => {
+    if (loaded) void followLive();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && loaded) void followLive();
+    });
+    return () => subscription.remove();
+  }, [loaded, followLive]);
   const runQueued = useCallback(
     async (message: QueuedMessage) => {
       try {
@@ -740,6 +784,8 @@ export function ChatScreen({
   async function stop() {
     queue.pause();
     try {
+      // Closing the connection no longer ends a run, so the server is told to.
+      await api.request("/api/agent/opencode/stop", { threadId }, "POST").catch(() => {});
       await copilotkit.stopAgent({ agent });
     } catch (e) {
       setError(`Could not stop response: ${e instanceof Error ? e.message : String(e)}`);

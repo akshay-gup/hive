@@ -38,6 +38,7 @@ import {
   PermissionRulesStore,
   PermissionTracker,
 } from "./opencode/index.ts";
+import { mergeMessages, type RecordedMessage } from "./opencode/run-record.ts";
 import { SHARED_OWNER } from "./shared.ts";
 import { serveWebFile, webRootDir } from "./web-static.ts";
 import { WorkspaceService } from "./workspace.ts";
@@ -298,7 +299,31 @@ export async function createApp(
   const pool = new OpencodeClientPool(connection);
   const tracker = new PermissionTracker();
   const rules = new PermissionRulesStore(config.dataDir);
-  const shimDeps = { service: agent, bus, pool, config, tracker, rules, hiveTools };
+  const shimDeps = {
+    service: agent,
+    bus,
+    pool,
+    config,
+    tracker,
+    rules,
+    hiveTools,
+    // What the agent does is kept as it happens, so closing the page does not lose it.
+    saveMessages: async (owner: string, threadId: string, added: RecordedMessage[]) => {
+      const id = conversationKey(threadId);
+      const home = await conversationHome(id, owner, (o, t) => agent.channelOfThread(o, t));
+      const stored = await db.get<{ messages?: RecordedMessage[] }>(
+        home.owner,
+        "conversations",
+        id,
+      );
+      const merged = mergeMessages(stored?.messages ?? [], added).slice(-1000);
+      await saveConversation(
+        id,
+        owner,
+        merged.map((message) => MessageSchema.parse(message)),
+      );
+    },
+  };
   app.route("/api/agent/opencode", opencodeShimRoutes(shimDeps));
   app.route("/api/agent/opencode", opencodePermissionRoutes(shimDeps));
   agent.opencodeRuntime = { bus, pool, tracker, config, hiveTools };
@@ -387,15 +412,11 @@ export async function createApp(
     );
     return c.json((await db.get(owner, "conversations", id)) ?? { messages: [] });
   });
-  app.put("/api/conversation", async (c) => {
-    const body = await c.req.json();
-    const incoming = z
-      .array(z.unknown())
-      .max(1000)
-      .parse(body.messages)
-      .map((message) => MessageSchema.parse(message));
-    const id = conversationKey(c.req.query("threadId"));
-    const sessionOwner = c.get("owner");
+  const saveConversation = async (
+    id: string,
+    sessionOwner: string,
+    incoming: ReturnType<typeof MessageSchema.parse>[],
+  ) => {
     const home = await conversationHome(id, sessionOwner, (o, t) => agent.channelOfThread(o, t));
     if (home.owner === SHARED_OWNER) {
       // A thread forked from a channel starts as copies of channel messages that keep their author.
@@ -405,6 +426,15 @@ export async function createApp(
           : undefined;
       await saveSharedConversation(db, id, sessionOwner, incoming, inherited);
     } else await db.put(home.owner, "conversations", { id, messages: incoming });
+  };
+  app.put("/api/conversation", async (c) => {
+    const body = await c.req.json();
+    const incoming = z
+      .array(z.unknown())
+      .max(1000)
+      .parse(body.messages)
+      .map((message) => MessageSchema.parse(message));
+    await saveConversation(conversationKey(c.req.query("threadId")), c.get("owner"), incoming);
     return c.json({ ok: true });
   });
   app.post("/api/files", async (c) => {
