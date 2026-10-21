@@ -1270,14 +1270,6 @@ export function ConnectionsScreen({ query = "" }: { query?: string }) {
       connected: w.connections.some((c) => c.id === "browser" && c.status === "connected"),
       group: "browser",
     },
-    {
-      id: "openbot",
-      name: "OpenBot",
-      icon: Sparkles,
-      color: brand.openbot,
-      connected: false,
-      group: "openbot",
-    },
   ].filter((row) => `${row.name} ${row.group}`.toLowerCase().includes(query.toLowerCase()));
   return (
     <View style={{ gap: 24 }}>
@@ -1356,77 +1348,64 @@ export function ConnectionsScreen({ query = "" }: { query?: string }) {
       {!rows.length && <Text style={s.muted}>No matching connectors.</Text>}
       {selected && (
         <Sheet
-          title={selected === "google" ? "Google connection" : "OpenBot"}
-          subtitle={selected === "google" ? google?.account : "A computer for your agent"}
+          title="Google connection"
+          subtitle={google?.account}
           onClose={() => setSelected(undefined)}
         >
-          {selected === "google" ? (
-            <View style={{ gap: 18 }}>
-              <Text style={s.muted}>
-                {connected
-                  ? "One Google account is connected for your whole team. Everyone sees its mail, calendar and Drive, and anyone can approve what Hive prepares for it."
-                  : "Connect one Google account for your whole team: Gmail, Google Calendar, and Google Drive, shared by everyone. Choose read access, then enable sending and editing when you need it."}
-              </Text>
-              {connected && google?.account && (
-                <SettingsLine
-                  label="Connected account"
-                  value={
-                    google.connectedBy
-                      ? `${google.account} · by ${google.connectedBy}`
-                      : google.account
-                  }
-                />
-              )}
-              <View style={[s.row, { gap: 7, flexWrap: "wrap" }]}>
-                {google?.capabilities.map((cap) => (
-                  <Chip key={cap}>{capabilityLabel(cap)}</Chip>
-                ))}
-              </View>
-              <ErrorNotice error={error} />
-              {!connected && (
-                <Button busy={busy} primary icon={Link2} onPress={() => void connect("read")}>
-                  Connect Google
-                </Button>
-              )}
-              {(!connected || (w.mode === "live" && !canSend)) && (
-                <Button busy={busy} onPress={() => void connect("write")}>
-                  Enable sending & editing
-                </Button>
-              )}
-              {connected && (
-                <Button busy={busy} danger onPress={() => void disconnect()}>
-                  Disconnect Google
-                </Button>
-              )}
+          <View style={{ gap: 18 }}>
+            <Text style={s.muted}>
+              {connected
+                ? "One Google account is connected for your whole team. Everyone sees its mail, calendar and Drive, and anyone can approve what Hive prepares for it."
+                : "Connect one Google account for your whole team: Gmail, Google Calendar, and Google Drive, shared by everyone. Choose read access, then enable sending and editing when you need it."}
+            </Text>
+            {connected && google?.account && (
               <SettingsLine
-                label="Environment"
-                value={w.mode === "sample" ? "Local · example data" : "Live workspace"}
+                label="Connected account"
+                value={
+                  google.connectedBy
+                    ? `${google.account} · by ${google.connectedBy}`
+                    : google.account
+                }
               />
-              <SettingsLine label="Assistant" value="OpenCode" />
-              <SettingsLine
-                label="Rich Threads"
-                value={w.runtime.richThreads ? "CopilotKit Intelligence" : "Not connected"}
-              />
-              <Button
-                small
-                icon={ArrowDownToLine}
-                onPress={() => void refresh().catch((e) => setError(String(e)))}
-              >
-                Refresh connections
+            )}
+            <View style={[s.row, { gap: 7, flexWrap: "wrap" }]}>
+              {google?.capabilities.map((cap) => (
+                <Chip key={cap}>{capabilityLabel(cap)}</Chip>
+              ))}
+            </View>
+            <ErrorNotice error={error} />
+            {!connected && (
+              <Button busy={busy} primary icon={Link2} onPress={() => void connect("read")}>
+                Connect Google
               </Button>
-            </View>
-          ) : (
-            <View style={{ gap: 14 }}>
-              <Text style={s.text}>
-                The OpenBot adapter is available in this open-source project. A live OpenBot backend
-                has not been configured.
-              </Text>
-              <Text style={s.muted}>
-                Your current computer uses Hive’s persistent Chromium worker. OpenBot integration
-                will expand the execution backend while keeping this interface.
-              </Text>
-            </View>
-          )}
+            )}
+            {(!connected || (w.mode === "live" && !canSend)) && (
+              <Button busy={busy} onPress={() => void connect("write")}>
+                Enable sending & editing
+              </Button>
+            )}
+            {connected && (
+              <Button busy={busy} danger onPress={() => void disconnect()}>
+                Disconnect Google
+              </Button>
+            )}
+            <SettingsLine
+              label="Environment"
+              value={w.mode === "sample" ? "Local · example data" : "Live workspace"}
+            />
+            <SettingsLine label="Assistant" value="OpenCode" />
+            <SettingsLine
+              label="Rich Threads"
+              value={w.runtime.richThreads ? "CopilotKit Intelligence" : "Not connected"}
+            />
+            <Button
+              small
+              icon={ArrowDownToLine}
+              onPress={() => void refresh().catch((e) => setError(String(e)))}
+            >
+              Refresh connections
+            </Button>
+          </View>
         </Sheet>
       )}
     </View>

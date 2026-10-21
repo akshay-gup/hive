@@ -210,7 +210,6 @@ export const brand = {
   googleCalendar: "#4285F4",
   googleDrive: "#34A853",
   browser: "#1987CF",
-  openbot: "#6866A6",
   /** The red PDF badge on shared files. */
   pdf: "#FC2359",
 } as const;

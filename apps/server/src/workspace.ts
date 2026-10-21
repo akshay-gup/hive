@@ -360,15 +360,8 @@ export class WorkspaceService {
           status: this.config.workerUrl && this.config.workerToken ? "connected" : "unconfigured",
           capabilities: ["Persistent sessions", "PDF downloads"],
         },
-        {
-          id: "openbot",
-          name: "OpenBot",
-          status: "unconfigured",
-          capabilities: ["Integration adapter available"],
-        },
       ],
       runtime: {
-        openbotConfigured: false,
         richThreads: Boolean(this.config.intelligenceApiKey),
       },
     };
