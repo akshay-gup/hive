@@ -40,6 +40,7 @@ import {
 } from "./opencode/index.ts";
 import { mergeMessages, type RecordedMessage } from "./opencode/run-record.ts";
 import { SHARED_OWNER } from "./shared.ts";
+import { readUpdateStatus } from "./update-status.ts";
 import { serveWebFile, webRootDir } from "./web-static.ts";
 import { WorkspaceService } from "./workspace.ts";
 
@@ -150,7 +151,7 @@ export async function createApp(
       502,
     );
   });
-  app.get("/api/health", (c) =>
+  app.get("/api/health", async (c) =>
     c.json({
       ok: true,
       mode: config.mode,
@@ -160,6 +161,7 @@ export async function createApp(
       // A managed workspace says which one it is, so the control plane and the app can tell they
       // reached the right one.
       ...(config.managed ? { managed: true, workspace: config.managed.workspaceId } : {}),
+      ...(config.managed ? { update: await readUpdateStatus() } : {}),
     }),
   );
   let loginWindow = 0,
