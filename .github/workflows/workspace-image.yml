@@ -67,9 +67,15 @@ jobs:
           set -euo pipefail
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker push "$image"
-          # What the registry holds under the tag, which is what a machine checks it against. The
-          # local RepoDigests entry can name a different object than the one that was pushed.
-          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          # What the registry serves under the tag, asked the way a machine asks it (crane does the same),
+          # since that is what the machine checks the build against. What docker keeps locally can name
+          # a different object than the one that was pushed.
+          repo="${image%:*}"
+          repo="${repo#ghcr.io/}"
+          bearer="$(curl -fsS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r .token)"
+          digest="$(curl -fsSI -H "Authorization: Bearer $bearer" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/${repo}/manifests/${image##*:}" | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest" {print $2}')"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "No digest from the registry: $digest" >&2; exit 1; }
           echo "digest=$digest" >> "$GITHUB_ENV"
           {
