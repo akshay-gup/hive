@@ -26,6 +26,39 @@ export const priorityColors: Record<TaskPriority, string> = {
   urgent: colors.danger,
 };
 
+/**
+ * The tint a card takes when it needs a person, or has failed, over the whole card rather than along
+ * one edge of it. On the board the Failed column already says so, so only a card that waits for a
+ * person is tinted there: no column holds those apart from the rest.
+ */
+export function attentionTint(
+  task: Pick<AgentTask, "status" | "kind">,
+  columns = false,
+): { bg: string; line: string } | undefined {
+  if (task.kind !== "manual" && needsYou(task.status))
+    return { bg: colors.warningBg, line: colors.warningLine };
+  if (task.status === "failed" && !columns) return { bg: colors.dangerBg, line: colors.dangerLine };
+  return undefined;
+}
+
+/** The tint, laid over a card's paper and under what is written on it, so every card shows the same colour. */
+export function TintLayer({ tint }: { tint?: { bg: string } }) {
+  if (!tint) return null;
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        backgroundColor: tint.bg,
+      }}
+    />
+  );
+}
+
 export const statusMeta: Record<TaskStatus, { label: string; dot: string }> = {
   queued: { label: "QUEUED", dot: colors.neutral },
   running: { label: "RUNNING", dot: colors.success },
@@ -146,16 +179,9 @@ export function TaskBoardCard({
   const fileCount = task.attachments?.length ?? 0;
   const attention = !manual && needsYou(task.status);
   const running = !manual && task.status === "running";
-  const failed = task.status === "failed";
   const finished = task.status === "succeeded" || task.status === "cancelled";
   const since = running ? runStartedAt(task, seenRunning) : undefined;
-  const stripe = attention
-    ? colors.warning
-    : running
-      ? colors.primary
-      : failed
-        ? colors.danger
-        : undefined;
+  const tint = attentionTint(task, true);
 
   // What the card leads with under the title: the live step, a question or
   // error needing attention, or the task's own description.
@@ -188,23 +214,12 @@ export function TaskBoardCard({
         backgroundColor: colors.paper,
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor: colors.line,
+        borderColor: tint?.line ?? colors.line,
         overflow: "hidden",
       }}
     >
-      {!!stripe && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: 4,
-            backgroundColor: stripe,
-          }}
-        />
-      )}
+      {/* Under the card's buttons too, so the tint reaches its whole face. */}
+      <TintLayer tint={tint} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Open ${manual ? "issue" : "task"}: ${task.title}, ${taskStatusLabel(task).toLowerCase()}`}

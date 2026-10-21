@@ -32,12 +32,22 @@ import type {
   RunEvent,
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
+import { needsYou } from "./board-order";
 import { useLineMaxWidth } from "./line-width";
 import { PermissionsSettings } from "./opencode-permissions";
 import { ActivityScreen, ConnectionsScreen } from "./screens";
 import { useServerFeature } from "./server-features";
 import { TaskAttention } from "./task-attention";
-import { ago, formatDue, isOverdue, statusMeta, TaskBoard, taskStatusLabel } from "./task-board";
+import {
+  ago,
+  attentionTint,
+  formatDue,
+  isOverdue,
+  statusMeta,
+  TaskBoard,
+  TintLayer,
+  taskStatusLabel,
+} from "./task-board";
 import { TaskCreate } from "./task-create";
 import { TaskDetail as IssueDetail } from "./task-detail";
 import {
@@ -140,7 +150,7 @@ export function TaskLine({ task }: { task: AgentTask }) {
   const { open } = useWorkspace();
   const maxWidth = useLineMaxWidth();
   const done = task.plan.filter((step) => step.status === "succeeded").length;
-  const waiting = ["waiting_input", "waiting_approval", "in_review"].includes(task.status);
+  const tint = attentionTint(task);
   const meta = statusMeta[task.status];
   const steps = task.plan.length ? ` · ${done}/${task.plan.length} steps` : "";
   const label = taskStatusLabel(task);
@@ -159,17 +169,13 @@ export function TaskLine({ task }: { task: AgentTask }) {
         paddingHorizontal: 14,
         borderRadius: radius.xl,
         borderWidth: 1,
-        borderColor: colors.line,
-        // What needs a person, and what failed, is marked by the card's left edge, not by a tint.
-        ...(task.status === "failed" || waiting
-          ? {
-              borderLeftWidth: 4,
-              borderLeftColor: task.status === "failed" ? colors.danger : colors.warning,
-            }
-          : null),
+        // What needs a person, and what failed, is tinted over the whole card.
+        borderColor: tint?.line ?? colors.line,
         backgroundColor: pressed || hovered ? colors.surfaceMuted : colors.paper,
+        overflow: "hidden",
       })}
     >
+      <TintLayer tint={tint} />
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: meta.dot }} />
       <View style={{ flexShrink: 1 }}>
         <Text style={[s.text, { fontWeight: "600" }]} numberOfLines={1}>
@@ -199,7 +205,8 @@ export function TaskCard({
   const { open } = useWorkspace();
   const done = task.plan.filter((step) => step.status === "succeeded").length;
   const next = task.plan.find((step) => ["running", "waiting"].includes(step.status));
-  const waiting = ["waiting_input", "waiting_approval", "in_review"].includes(task.status);
+  const waiting = needsYou(task.status);
+  const tint = attentionTint(task);
   const meta = statusMeta[task.status];
   const updated = ago(task.updatedAt);
   const due = formatDue(task.dueAt);
@@ -221,17 +228,13 @@ export function TaskCard({
         padding: compact ? 12 : 14,
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor: hovered ? colors.lineStrong : colors.line,
-        // What needs a person, and what failed, is marked by the card's left edge, not by a tint.
-        ...(task.status === "failed" || waiting
-          ? {
-              borderLeftWidth: 4,
-              borderLeftColor: task.status === "failed" ? colors.danger : colors.warning,
-            }
-          : null),
+        // What needs a person, and what failed, is tinted over the whole card.
+        borderColor: tint?.line ?? (hovered ? colors.lineStrong : colors.line),
         backgroundColor: pressed ? colors.surfaceMuted : colors.paper,
+        overflow: "hidden",
       })}
     >
+      <TintLayer tint={tint} />
       <View style={[s.row, { gap: 8 }]}>
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: meta.dot }} />
         <Text style={[s.small, { fontWeight: "800", letterSpacing: 0.5 }]}>
