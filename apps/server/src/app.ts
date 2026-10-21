@@ -261,7 +261,7 @@ export async function createApp(
   app.route("/api/hive-tools", hiveTools.routes);
   app.use("/api/*", async (c, next) => {
     const signedRoute =
-      /^\/api\/files\/[^/]+\/content$|^\/api\/agent\/tasks\/[^/]+\/attachments\/[^/]+\/content$|^\/api\/browsers\/[^/]+\/(?:preview|console)$/.test(
+      /^\/api\/files\/[^/]+\/content$|^\/api\/agent\/tasks\/[^/]+\/attachments\/[^/]+\/content$|^\/api\/browsers\/[^/]+\/(?:preview|console)$|^\/api\/browser-shots\/[0-9a-f-]{36}$/.test(
         c.req.path,
       );
     const view = fileLink.exec(c.req.path);
@@ -546,6 +546,19 @@ export async function createApp(
   app.post("/api/browsers/:id/import-downloads", async (c) =>
     c.json(await browser.imports(c.get("owner"), c.req.param("id"))),
   );
+  // A picture of a page the agent read, kept with the conversation. The link is short-lived; the
+  // name in the conversation is not.
+  app.get("/api/browser-shots/:name/link", async (c) => {
+    const name = c.req.param("name");
+    await browser.shot(c.get("owner"), name);
+    return c.json({ url: auth.sign(c.get("owner"), `/api/browser-shots/${name}`) });
+  });
+  app.get("/api/browser-shots/:name", async (c) => {
+    const bytes = await browser.shot(c.get("owner"), c.req.param("name"));
+    c.header("Content-Type", "image/png");
+    c.header("Cache-Control", "private, max-age=3600");
+    return c.body(new Uint8Array(bytes));
+  });
   app.get("/api/browsers/:id/preview", async (c) => {
     const response = await browser.preview(c.get("owner"), c.req.param("id"));
     c.header("Content-Type", "image/png");

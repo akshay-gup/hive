@@ -247,3 +247,15 @@ test("a finished run says how long it took when that is known and worth saying",
     "Working · Fetching example.org",
   );
 });
+
+test("a page step carries the picture that was kept of it", () => {
+  const page = JSON.stringify({
+    sessionId: "s1",
+    title: "A page",
+    url: "https://example.com/a",
+    text: "hello",
+    shot: "11111111-2222-3333-4444-555555555555",
+  });
+  const step = progressStep(call("a", "browse_web", { url: "https://example.com/a" }), page, false);
+  assert.equal(step?.shot, "11111111-2222-3333-4444-555555555555");
+});

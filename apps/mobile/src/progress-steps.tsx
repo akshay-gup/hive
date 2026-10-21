@@ -1,6 +1,6 @@
 import { Check, ChevronDown, ChevronRight, ExternalLink, Minus, X } from "lucide-react-native";
-import { useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import type { BrowserSession } from "../../../packages/domain/src";
 import { type ProgressStep, summarizeSteps } from "./run-progress";
 import { colors, IconSlot, radius, s, type WebPressState } from "./ui";
@@ -90,7 +90,20 @@ function StepRow({ step }: { step: ProgressStep }) {
   const { api, open: show } = useWorkspace();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
-  const more = !!step.output || !!step.browserId;
+  const more = !!step.output || !!step.browserId || !!step.shot;
+  const [picture, setPicture] = useState("");
+  // The picture's link is short-lived, so it is asked for when the step is opened, not kept.
+  useEffect(() => {
+    if (!open || !step.shot || picture) return;
+    let live = true;
+    api
+      .request<{ url: string }>(`/api/browser-shots/${encodeURIComponent(step.shot)}/link`)
+      .then((link) => live && setPicture(link.url))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [open, step.shot, picture, api]);
   async function takeOver() {
     setError("");
     try {
@@ -143,8 +156,25 @@ function StepRow({ step }: { step: ProgressStep }) {
             borderColor: colors.line,
           }}
         >
+          {!!step.shot && (
+            <Image
+              accessibilityLabel="What the page looked like"
+              source={picture ? { uri: api.url(picture) } : undefined}
+              resizeMode="cover"
+              style={{
+                width: "100%",
+                aspectRatio: 1.6,
+                borderRadius: radius.md,
+                backgroundColor: colors.surfaceMuted,
+              }}
+            />
+          )}
           {!!step.output && (
-            <Text style={[s.small, { color: colors.text }]} selectable>
+            <Text
+              style={[s.small, { color: colors.text }]}
+              numberOfLines={step.shot ? 4 : undefined}
+              selectable
+            >
               {step.output}
             </Text>
           )}

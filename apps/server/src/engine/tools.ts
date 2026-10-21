@@ -151,7 +151,9 @@ export function conversationTools(
               page.url,
               page.text,
             );
-          return page;
+          // What the page looked like, kept for the chat: the window it was read in may be gone.
+          const shot = await service.browser.saveShot(owner, page.sessionId, signal);
+          return shot ? { ...page, shot } : page;
         } catch (error) {
           signal.throwIfAborted();
           return { error: error instanceof Error ? error.message : "Could not read the page" };

@@ -165,6 +165,9 @@ export function agentEnv(
     OPENCODE_DISABLE_AUTOUPDATE: "true",
     OPENCODE_DISABLE_SHARE: "true",
     OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
+    // OpenCode's own web search, for questions the answer to which is out on the web. The browser is
+    // for reading a page the agent was pointed at, not for looking things up.
+    OPENCODE_ENABLE_EXA: "true",
   };
 }
 

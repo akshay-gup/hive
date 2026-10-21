@@ -198,6 +198,11 @@ test("the agent runs on the volume, pinned and not sharing, without the server's
   assert.equal(env.HOME, "/home/hive");
   assert.equal(env.XDG_DATA_HOME, "/data/opencode/data");
   assert.equal(env.XDG_STATE_HOME, "/data/opencode/state");
+  assert.equal(
+    env.OPENCODE_ENABLE_EXA,
+    "true",
+    "the agent can search the web, not only open pages",
+  );
   assert.equal(env.OPENCODE_SERVER_PASSWORD, secrets.opencodePassword);
   assert.equal(env.OPENCODE_DISABLE_AUTOUPDATE, "true");
   assert.equal(env.OPENCODE_DISABLE_SHARE, "true");

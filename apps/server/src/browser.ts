@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
 import type { BrowserSession } from "../../../packages/domain/src/index.ts";
 import type { Auth } from "./auth.ts";
@@ -216,6 +218,34 @@ export class BrowserService {
     return this.serial(id, async () => {
       await this.get(owner, id);
       return this.save(owner, await (await this.request(`/sessions/${id}/close`, {})).json(), id);
+    });
+  }
+  /**
+   * Keep a picture of the page as it was just read, so it can still be looked at after the browser
+   * window is gone. Returns its name, or nothing when the picture could not be taken: a step is
+   * never worth failing over a missing picture.
+   */
+  async saveShot(owner: string, id: string, signal?: AbortSignal): Promise<string | undefined> {
+    try {
+      signal?.throwIfAborted();
+      const response = await this.request(`/sessions/${id}/screenshot`, undefined, signal);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (!bytes.length) return undefined;
+      const name = randomUUID();
+      await mkdir(join(this.config.dataDir, "browser-shots"), { recursive: true });
+      await writeFile(join(this.config.dataDir, "browser-shots", `${name}.png`), bytes);
+      await this.db.put(owner, "browser-shots", { id: name });
+      return name;
+    } catch {
+      return undefined;
+    }
+  }
+  /** A kept picture, if it is this person's. */
+  async shot(owner: string, name: string): Promise<Buffer> {
+    if (!/^[0-9a-f-]{36}$/.test(name) || !(await this.db.get(owner, "browser-shots", name)))
+      throw new AppError("Picture not found", 404);
+    return readFile(join(this.config.dataDir, "browser-shots", `${name}.png`)).catch(() => {
+      throw new AppError("Picture not found", 404);
     });
   }
   async preview(owner: string, id: string) {

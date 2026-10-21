@@ -17,6 +17,8 @@ export interface ProgressStep {
   output?: string;
   /** The browser session a page was read in, so the page can be taken over. */
   browserId?: string;
+  /** A kept picture of the page, which outlasts the browser window. */
+  shot?: string;
   state: StepState;
 }
 
@@ -274,6 +276,7 @@ export function progressStep(
       detail: site(page.url),
       output: page.text ? clip(page.text, 700) : undefined,
       browserId: page.sessionId,
+      shot: page.shot,
       state: "done",
     };
   const output = name === "write" || name === "edit" ? undefined : outputOf(result);
@@ -290,6 +293,7 @@ function pageOf(result: string | undefined) {
       title: text(value.title),
       url: text(value.url),
       text: text(value.text),
+      shot: text(value.shot),
     };
   } catch {
     return undefined;
