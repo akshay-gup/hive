@@ -9,6 +9,7 @@ import {
   ORCHESTRATOR_CHANNEL_ID,
   type TaskStatus,
 } from "../../../packages/domain/src/agent";
+import { useGuest } from "./access";
 import { ThreadPermissionRules } from "./opencode-permissions";
 import { colors, fontSize, radius, s } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -65,6 +66,8 @@ export function ChannelThreadBanner({
   mainId: string | null;
 }) {
   const { api, open } = useWorkspace();
+  // What the agent may do without asking is for the team to say.
+  const guest = useGuest();
   const [binding, setBinding] = useState<ChannelThread | null | undefined>(undefined);
   const [channelName, setChannelName] = useState<string | null>(null);
   const [tasks, setTasks] = useState<AgentTask[] | null>(null);
@@ -149,22 +152,24 @@ export function ChannelThreadBanner({
           <FolderOpen size={14} color={colors.muted} />
           <Text style={s.small}>Files</Text>
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Thread permission rules"
-          onPress={() => setShowPermissions((show) => !show)}
-          style={[s.row, { gap: 4, alignItems: "center" }]}
-        >
-          <ShieldCheck size={14} color={colors.muted} />
-          <Text style={s.small}>Permissions</Text>
-          <ChevronDown
-            size={14}
-            color={colors.muted}
-            style={showPermissions ? { transform: [{ rotate: "180deg" }] } : undefined}
-          />
-        </Pressable>
+        {!guest && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Thread permission rules"
+            onPress={() => setShowPermissions((show) => !show)}
+            style={[s.row, { gap: 4, alignItems: "center" }]}
+          >
+            <ShieldCheck size={14} color={colors.muted} />
+            <Text style={s.small}>Permissions</Text>
+            <ChevronDown
+              size={14}
+              color={colors.muted}
+              style={showPermissions ? { transform: [{ rotate: "180deg" }] } : undefined}
+            />
+          </Pressable>
+        )}
       </View>
-      {showPermissions && <ThreadPermissionRules threadId={threadId} />}
+      {!guest && showPermissions && <ThreadPermissionRules threadId={threadId} />}
       {!!tasks?.length && (
         <View
           style={{

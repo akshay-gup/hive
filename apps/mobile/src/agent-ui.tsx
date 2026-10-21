@@ -31,6 +31,7 @@ import type {
   Monitor,
   RunEvent,
 } from "../../../packages/domain/src/agent";
+import { useGuest } from "./access";
 import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
 import { useLineMaxWidth } from "./line-width";
@@ -537,6 +538,8 @@ export function EvidenceList({ items }: { items: Evidence[] }) {
 export function TaskDetail({ taskId }: { taskId: string }) {
   const { api, close, open } = useWorkspace();
   const { data, mutate } = useAgentWorkspace();
+  // A guest looks at what the agent is doing, and does not steer it.
+  const guest = useGuest();
   const [detail, setDetail] = useState<{
     task: AgentTask;
     events: RunEvent[];
@@ -607,8 +610,8 @@ export function TaskDetail({ taskId }: { taskId: string }) {
           <Text selectable style={s.text}>
             {task.prompt}
           </Text>
-          <TaskAttention task={task} />
-          <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+          {!guest && <TaskAttention task={task} />}
+          <View style={[s.row, { gap: 8, flexWrap: "wrap" }, guest && { display: "none" }]}>
             {["queued", "running", "scheduled", "waiting_input", "waiting_approval"].includes(
               task.status,
             ) && (
@@ -693,6 +696,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
               <Button
                 small
                 busy={busy}
+                style={guest ? { display: "none" } : undefined}
                 onPress={() => {
                   setBusy(true);
                   void (async () => {

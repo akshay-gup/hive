@@ -9,6 +9,8 @@ import {
 } from "lucide-react-native";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
+import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
+import { useGuest } from "./access";
 import { ChannelsSection } from "./channels";
 import type { Selection } from "./thread-ids";
 import { Button, ErrorNotice, LinkRow, Pending, Sheet, s } from "./ui";
@@ -31,6 +33,8 @@ const ThreadContext = createContext<{
   mainId: string;
   loading: boolean;
   error: string;
+  /** A guest who was not added to any channel yet: there is nothing for them to open. */
+  empty: boolean;
   retry: () => void;
   select: (selection: Selection) => void;
   start: () => void;
@@ -39,18 +43,46 @@ const ThreadContext = createContext<{
 export function ThreadsProvider({ children }: { children: ReactNode }) {
   const { workspace, navigate, api } = useWorkspace();
   const handledPrompt = useRef(0);
+  const guest = useGuest();
   const enabled = workspace.runtime.richThreads === true;
   const [selection, setSelection] = useState<Selection>({ id: "local", existing: false });
   const [visited, setVisited] = useState<Selection[]>([]);
   const [mainId, setMainId] = useState("local");
-  const [loading, setLoading] = useState(enabled);
+  const [loading, setLoading] = useState(enabled || guest);
   const [error, setError] = useState("");
+  const [empty, setEmpty] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled && !guest) return;
     let active = true;
     setLoading(true);
     setError("");
+    setEmpty(false);
+    // No main chat to open: a guest starts in the first channel they were added to, whether or not
+    // the workspace keeps threads.
+    if (guest) {
+      void api
+        .request<Channel[]>("/api/agent/channels")
+        .then((channels) => {
+          if (!active) return;
+          const first = channels
+            .filter((c) => c.id !== ORCHESTRATOR_CHANNEL_ID && c.status !== "archived")
+            .sort((a, b) => a.name.localeCompare(b.name))[0];
+          if (first) {
+            const next = { id: `channel:${first.id}`, existing: true };
+            setMainId("");
+            setSelection(next);
+            setVisited([next]);
+          } else setEmpty(true);
+          setLoading(false);
+        })
+        .catch((e) => {
+          if (active) setError(e instanceof Error ? e.message : String(e));
+        });
+      return () => {
+        active = false;
+      };
+    }
     void api
       .request<{ threadId: string; existing: boolean }>("/api/main-thread")
       .then((main) => {
@@ -67,7 +99,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [api, enabled, attempt]);
+  }, [api, enabled, attempt, guest]);
   function select(next: Selection) {
     setSelection(next);
     setVisited((items) => (items.some((item) => item.id === next.id) ? items : [...items, next]));
@@ -86,6 +118,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
         visited,
         loading,
         error,
+        empty,
         retry: () => setAttempt((n) => n + 1),
         selection,
         select,

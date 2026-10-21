@@ -18,6 +18,7 @@ import {
   Plus,
   RotateCcw,
   Square,
+  Users,
   X,
 } from "lucide-react-native";
 import {
@@ -44,6 +45,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { z } from "zod";
 import type { Channel, ChannelThread } from "../../../packages/domain/src/agent";
+import { useManagesAccess } from "./access";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AssistantResponse } from "./assistant-response";
 import { ChannelMessage } from "./channel-message";
@@ -124,6 +126,7 @@ function channelIdOf(selection: { id: string }): string | null {
 /** Banner for a channel chat: just the channel name, like a Slack channel header. */
 export function ChannelChatBanner({ channelId }: { channelId: string }) {
   const { api, open } = useWorkspace();
+  const manages = useManagesAccess();
   const [name, setName] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -145,6 +148,16 @@ export function ChannelChatBanner({ channelId }: { channelId: string }) {
         # {name ?? "channel"}
       </Text>
       <View style={{ flex: 1 }} />
+      {manages && (
+        <Button
+          small
+          icon={Users}
+          accessibilityLabel="Who can open this channel"
+          onPress={() => open({ type: "channelAccess", channelId, name: name ?? undefined })}
+        >
+          Access
+        </Button>
+      )}
       <Button
         small
         icon={FolderOpen}

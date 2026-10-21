@@ -3,10 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import { AppState, Pressable, ScrollView, Text, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
 import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
+import { useGuest } from "./access";
 import { useAgentWorkspace } from "./agent-workspace";
 import { useHosted } from "./hosted/context";
 import { readLastCount, writeLastCount } from "./last-count";
-import { places } from "./places";
+import { guestPlaces, places } from "./places";
 import { useMuseThread } from "./threads";
 import {
   Button,
@@ -233,6 +234,9 @@ export function Sidebar({
 }) {
   const { api, open, section, navigate, workspace, logout } = useWorkspace();
   const hosted = useHosted();
+  const guest = useGuest();
+  // A guest has the conversations in their channels, and no other place in the workspace.
+  const reachable = guest ? guestPlaces : places;
   const { enabled, selection, select, mainId } = useMuseThread();
   const { data } = useAgentWorkspace();
   // Each workspace remembers how many channels it had, to hold room for them while they load.
@@ -400,34 +404,38 @@ export function Sidebar({
   // The conversations: the agent, then the channels with a plus to add one.
   const conversations = (
     <>
-      <SidebarRow
-        dense={dense}
-        icon={Bot}
-        label={data?.identity.name || "Hive"}
-        active={section === "chat" && isMainActive}
-        onPress={() => conversation(mainSelection)}
-      />
-      <View style={[s.row, { marginTop: 24, marginBottom: 4, paddingLeft: 8 }]}>
+      {!guest && (
+        <SidebarRow
+          dense={dense}
+          icon={Bot}
+          label={data?.identity.name || "Hive"}
+          active={section === "chat" && isMainActive}
+          onPress={() => conversation(mainSelection)}
+        />
+      )}
+      <View style={[s.row, { marginTop: guest ? 0 : 24, marginBottom: 4, paddingLeft: 8 }]}>
         <Text style={[s.label, { flex: 1 }]}>Channels</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="New channel"
-          disabled={busy}
-          hitSlop={6}
-          onPress={() => setCreating(true)}
-          {...newChannelTip.props}
-          style={({ pressed, hovered }: WebPressState) => ({
-            width: 28,
-            height: 28,
-            borderRadius: radius.sm,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
-          })}
-        >
-          <Plus size={16} color={colors.muted} />
-          {newChannelTip.tip}
-        </Pressable>
+        {!guest && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="New channel"
+            disabled={busy}
+            hitSlop={6}
+            onPress={() => setCreating(true)}
+            {...newChannelTip.props}
+            style={({ pressed, hovered }: WebPressState) => ({
+              width: 28,
+              height: 28,
+              borderRadius: radius.sm,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
+            })}
+          >
+            <Plus size={16} color={colors.muted} />
+            {newChannelTip.tip}
+          </Pressable>
+        )}
       </View>
       <ErrorNotice error={error} />
       {!!error && (
@@ -520,7 +528,7 @@ export function Sidebar({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ alignItems: "center", paddingTop: 8, gap: 10 }}
           >
-            {places.map((item) => (
+            {reachable.map((item) => (
               <RailItem
                 key={item.id}
                 icon={item.icon}
@@ -531,18 +539,22 @@ export function Sidebar({
             ))}
           </ScrollView>
           <View style={{ alignItems: "center", gap: 10, paddingBottom: 12 }}>
-            <RailItem
-              icon={SquarePen}
-              label="Delegate"
-              onPress={delegate}
-              accessibilityLabel="Delegate task"
-            />
-            <RailItem
-              icon={Monitor}
-              label="Computer"
-              onPress={openComputer}
-              accessibilityLabel="Agent computer"
-            />
+            {!guest && (
+              <>
+                <RailItem
+                  icon={SquarePen}
+                  label="Delegate"
+                  onPress={delegate}
+                  accessibilityLabel="Delegate task"
+                />
+                <RailItem
+                  icon={Monitor}
+                  label="Computer"
+                  onPress={openComputer}
+                  accessibilityLabel="Agent computer"
+                />
+              </>
+            )}
             {hosted ? (
               <Pressable
                 accessibilityRole="button"
@@ -647,22 +659,24 @@ export function Sidebar({
       >
         {title}
         <View style={{ flex: 1 }} />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Delegate task"
-          hitSlop={6}
-          onPress={delegate}
-          style={({ pressed, hovered }: WebPressState) => ({
-            width: 32,
-            height: 32,
-            borderRadius: radius.md,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
-          })}
-        >
-          <SquarePen size={17} color={colors.muted} />
-        </Pressable>
+        {!guest && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Delegate task"
+            hitSlop={6}
+            onPress={delegate}
+            style={({ pressed, hovered }: WebPressState) => ({
+              width: 32,
+              height: 32,
+              borderRadius: radius.md,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
+            })}
+          >
+            <SquarePen size={17} color={colors.muted} />
+          </Pressable>
+        )}
         <IconButton icon={X} label="Close navigation" onPress={() => onNavigate?.()} />
       </View>
       <ScrollView
@@ -670,26 +684,30 @@ export function Sidebar({
         contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8, gap: 2 }}
       >
         {conversations}
-        <View style={[s.divider, { marginVertical: 8, marginHorizontal: 8 }]} />
-        {places
-          .filter((item) => !item.bar)
-          .map((item) => (
+        {!guest && (
+          <>
+            <View style={[s.divider, { marginVertical: 8, marginHorizontal: 8 }]} />
+            {reachable
+              .filter((item) => !item.bar)
+              .map((item) => (
+                <SidebarRow
+                  dense={dense}
+                  key={item.id}
+                  icon={item.icon}
+                  label={item.label}
+                  active={section === item.id}
+                  onPress={() => go(item.id)}
+                />
+              ))}
             <SidebarRow
               dense={dense}
-              key={item.id}
-              icon={item.icon}
-              label={item.label}
-              active={section === item.id}
-              onPress={() => go(item.id)}
+              icon={Monitor}
+              label="Computer"
+              accessibilityLabel="Agent computer"
+              onPress={openComputer}
             />
-          ))}
-        <SidebarRow
-          dense={dense}
-          icon={Monitor}
-          label="Computer"
-          accessibilityLabel="Agent computer"
-          onPress={openComputer}
-        />
+          </>
+        )}
       </ScrollView>
       <View style={{ borderTopWidth: 1, borderTopColor: colors.line, padding: 8 }}>
         {hosted ? (

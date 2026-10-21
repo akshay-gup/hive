@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react-native";
+import { Check, Hash, X } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Section, Workspace } from "../../../packages/domain/src";
+import { useGuest } from "./access";
 import { AgentActivityScreen, AgentStatus, AppsScreen, GoalsScreen, IdeasScreen } from "./agent-ui";
 import { AgentWorkspaceProvider } from "./agent-workspace";
 import type { MuseApi } from "./api";
@@ -19,7 +20,7 @@ import { ChatScreen, WorkspaceTools } from "./chat";
 import { ComputerDraftProvider } from "./computer-drafts";
 import { Details } from "./details";
 import { ProgressScreen } from "./hosted/progress";
-import { places } from "./places";
+import { guestPlaces, places } from "./places";
 import { BrowserScreen, CalendarScreen, FilesScreen, MailScreen } from "./screens";
 import { ShellHeader } from "./shell-header";
 import { Sidebar } from "./sidebar";
@@ -28,6 +29,7 @@ import {
   Backdrop,
   Button,
   colors,
+  Empty,
   ErrorNotice,
   fontSize,
   GlassBar,
@@ -40,8 +42,6 @@ import {
 } from "./ui";
 import { type Detail, useWorkspace, WorkspaceContext } from "./workspace";
 
-/** What the bar along the bottom of a phone holds: the places that have room in it. */
-const nav = places.filter((place) => place.bar);
 /**
  * A workspace once the person is in it. `identity` is who they are here and stays the same when
  * their session is renewed, so what they were doing is kept.
@@ -157,15 +157,19 @@ function WorkspaceShell({
   prompt?: { id: number; text: string };
 }) {
   const { section, navigate } = useWorkspace();
+  const guest = useGuest();
   const {
     selection,
     visited,
     mainId,
     loading: threadsLoading,
     error: threadsError,
+    empty: noChannels,
     retry: retryThreads,
     enabled: richThreads,
   } = useMuseThread();
+  /** What the bar along the bottom of a phone holds: the places that have room in it. */
+  const nav = (guest ? guestPlaces : places).filter((place) => place.bar);
   const [threadsOpen, setThreadsOpen] = useState(false);
   const { width } = useWindowDimensions();
   const desktop = width >= 900;
@@ -247,7 +251,14 @@ function WorkspaceShell({
                   paddingBottom: desktop && !ownPanels ? 12 : 0,
                 }}
               >
-                {!channelChat && <AgentStatus />}
+                {!channelChat && !guest && <AgentStatus />}
+                {guest && noChannels && (
+                  <Empty
+                    icon={Hash}
+                    title="No channels yet"
+                    detail="You have not been added to a channel. Ask whoever invited you to add you to one."
+                  />
+                )}
                 {richThreads ? (
                   <>
                     <ErrorNotice error={threadsError} />
@@ -270,7 +281,7 @@ function WorkspaceShell({
                         <ActivityIndicator color={colors.primary} />
                       </View>
                     ) : null}
-                    {!threadsLoading && selection.id !== mainId && (
+                    {!threadsLoading && !guest && selection.id !== mainId && (
                       <Text style={[s.small, { textAlign: "center", marginBottom: 8 }]}>
                         Side chat
                       </Text>
@@ -309,17 +320,19 @@ function WorkspaceShell({
                           />
                         </View>
                       ))}
-                    <View
-                      style={{
-                        display: selection.id === "local" ? "flex" : "none",
-                        flex: 1,
-                      }}
-                    >
-                      <ChatScreen
-                        prompt={selection.id === "local" ? prompt : undefined}
-                        active={section === "chat" && selection.id === "local"}
-                      />
-                    </View>
+                    {!guest && (
+                      <View
+                        style={{
+                          display: selection.id === "local" ? "flex" : "none",
+                          flex: 1,
+                        }}
+                      >
+                        <ChatScreen
+                          prompt={selection.id === "local" ? prompt : undefined}
+                          active={section === "chat" && selection.id === "local"}
+                        />
+                      </View>
+                    )}
                   </>
                 )}
               </View>

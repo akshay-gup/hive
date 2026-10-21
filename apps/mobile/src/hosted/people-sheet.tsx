@@ -16,8 +16,8 @@ import {
 } from "../ui";
 import { useWorkspace } from "../workspace";
 import { useHosted } from "./context";
-import type { InviteSummary, Member } from "./control-api";
-import { describeInvite, roleLabel } from "./people-text";
+import type { InvitedRole, InviteSummary, Member } from "./control-api";
+import { describeInvite, guestHint, roleLabel } from "./people-text";
 import { RemoveWorkspaceSheet } from "./remove-workspace";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -67,7 +67,7 @@ export function PeopleSheet() {
   const [invites, setInvites] = useState<InviteSummary[]>([]);
   const [link, setLink] = useState("");
   const [email, setEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
+  const [inviteRole, setInviteRole] = useState<InvitedRole>("member");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState(false);
@@ -121,7 +121,7 @@ export function PeopleSheet() {
   return (
     <Sheet
       title={workspace.name}
-      subtitle={`You are ${mine === "admin" ? "an admin" : mine === "owner" ? "the owner" : "a member"}${members ? ` · ${members.length} ${members.length === 1 ? "person" : "people"}` : ""}`}
+      subtitle={`You are ${mine === "admin" ? "an admin" : mine === "owner" ? "the owner" : mine === "guest" ? "a guest" : "a member"}${members ? ` · ${members.length} ${members.length === 1 ? "person" : "people"}` : ""}`}
       onClose={close}
       tall
     >
@@ -181,19 +181,20 @@ export function PeopleSheet() {
               keyboardType="email-address"
               autoComplete="email"
             />
-            {mine === "owner" && (
-              <View style={{ marginBottom: 12 }}>
-                <Segmented
-                  label="Role"
-                  value={inviteRole}
-                  onChange={setInviteRole}
-                  options={[
-                    { id: "member", label: "Member" },
-                    { id: "admin", label: "Admin" },
-                  ]}
-                />
-              </View>
-            )}
+            <View style={{ marginBottom: 12, gap: 8 }}>
+              <Segmented
+                label="Role"
+                value={inviteRole}
+                onChange={setInviteRole}
+                options={[
+                  { id: "member", label: "Member" },
+                  // Only the owner makes admins.
+                  ...(mine === "owner" ? [{ id: "admin" as const, label: "Admin" }] : []),
+                  { id: "guest", label: "Guest" },
+                ]}
+              />
+              {inviteRole === "guest" && <Text style={s.small}>{guestHint}</Text>}
+            </View>
             <View style={s.row}>
               <Button
                 busy={busy === "email"}
@@ -203,7 +204,7 @@ export function PeopleSheet() {
                     const to = email.trim();
                     const made = await control.createInvite(workspaceId, {
                       email: to,
-                      role: mine === "owner" ? inviteRole : "member",
+                      role: inviteRole,
                     });
                     setEmail("");
                     setLink(made.link);
@@ -260,7 +261,7 @@ export function PeopleSheet() {
             const canRemove =
               !you &&
               ((mine === "owner" && person.role !== "owner") ||
-                (mine === "admin" && person.role === "member"));
+                (mine === "admin" && (person.role === "member" || person.role === "guest")));
             return (
               <View key={person.accountId} style={{ gap: 8 }}>
                 <View style={[s.row, { gap: 12 }]}>
@@ -294,7 +295,11 @@ export function PeopleSheet() {
                     {mine === "owner" && person.role !== "owner" && (
                       <Segmented
                         label={`Role of ${person.name}`}
-                        value={person.role === "admin" ? "admin" : "member"}
+                        value={
+                          person.role === "admin" || person.role === "guest"
+                            ? person.role
+                            : "member"
+                        }
                         disabled={busy === `role:${person.accountId}`}
                         onChange={(role) =>
                           void run(`role:${person.accountId}`, () =>
@@ -304,6 +309,7 @@ export function PeopleSheet() {
                         options={[
                           { id: "member", label: "Member" },
                           { id: "admin", label: "Admin" },
+                          { id: "guest", label: "Guest" },
                         ]}
                       />
                     )}

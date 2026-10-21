@@ -1,4 +1,6 @@
-export type Role = "owner" | "admin" | "member";
+export type Role = "owner" | "admin" | "member" | "guest";
+/** What a person can be invited, or made, as: the owner is whoever made the workspace. */
+export type InvitedRole = "admin" | "member" | "guest";
 export type WorkspaceStatus = "provisioning" | "ready" | "failed" | "deleting";
 
 export interface ControlAccount {
@@ -29,7 +31,7 @@ export interface Member {
 }
 export interface InviteSummary {
   id: string;
-  role: "admin" | "member";
+  role: InvitedRole;
   email?: string;
   createdBy: string;
   createdAt: string;
@@ -194,7 +196,7 @@ export class ControlApi {
   members(id: string) {
     return this.call<Member[]>("GET", `/v1/workspaces/${encodeURIComponent(id)}/members`);
   }
-  async setRole(id: string, accountId: string, role: "admin" | "member") {
+  async setRole(id: string, accountId: string, role: InvitedRole) {
     await this.call(
       "PATCH",
       `/v1/workspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(accountId)}`,
@@ -212,7 +214,7 @@ export class ControlApi {
     return this.call<InviteSummary[]>("GET", `/v1/workspaces/${encodeURIComponent(id)}/invites`);
   }
   /** A link anyone can join with, or an invitation for one email address, which is also sent to it. */
-  createInvite(id: string, input: { email?: string; role?: "admin" | "member" } = {}) {
+  createInvite(id: string, input: { email?: string; role?: InvitedRole } = {}) {
     return this.call<{ invite: InviteSummary; link: string }>(
       "POST",
       `/v1/workspaces/${encodeURIComponent(id)}/invites`,

@@ -2,6 +2,7 @@ import { Text, View } from "react-native";
 import { Button, Card, ErrorNotice, Mascot, pageBee, s } from "../ui";
 import type { InvitePreview } from "./control-api";
 import { Frame } from "./frame";
+import { invitedAs } from "./people-text";
 
 /** An invitation, and the one thing to do about it: join. */
 export function JoinScreen({
@@ -27,8 +28,10 @@ export function JoinScreen({
             <Text style={s.title}>Join {preview.workspaceName}</Text>
             <Text style={s.muted}>
               {preview.inviterName} invited you
-              {preview.role === "admin" ? " as an admin" : ""}. Everyone in the workspace shares its
-              chat, files and agent.
+              {invitedAs(preview.role)}.{" "}
+              {preview.role === "guest"
+                ? "You will see only the channels you are added to."
+                : "Everyone in the workspace shares its chat, files and agent."}
             </Text>
             <ErrorNotice error={error} />
             <View style={{ gap: 10 }}>

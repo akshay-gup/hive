@@ -20,3 +20,6 @@ export const places: { id: Section; label: string; icon: LucideIcon; bar: boolea
   { id: "apps", label: "Apps", icon: Shapes, bar: true },
   { id: "files", label: "Files", icon: FileText, bar: false },
 ];
+
+/** A guest has the conversations in their channels and nowhere else to go. */
+export const guestPlaces = places.filter((place) => place.id === "chat");

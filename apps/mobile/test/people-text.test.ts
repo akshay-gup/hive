@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { describeInvite, expiresIn, roleLabel } from "../src/hosted/people-text.ts";
+import { describeInvite, expiresIn, invitedAs, roleLabel } from "../src/hosted/people-text.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.UTC(2026, 9, 10, 12);
@@ -37,5 +37,23 @@ test("a link invitation says how much of it is used, and one for an address says
 });
 
 test("roles have names people would use", () => {
-  assert.deepEqual(roleLabel, { owner: "Owner", admin: "Admin", member: "Member" });
+  assert.deepEqual(roleLabel, {
+    owner: "Owner",
+    admin: "Admin",
+    member: "Member",
+    guest: "Guest",
+  });
+});
+
+test("an invitation for a guest says so, in the list and in the words of the invitation", () => {
+  assert.deepEqual(
+    describeInvite(
+      { ...invite, email: "client@example.com", role: "guest", maxUses: 1, uses: 0 },
+      now,
+    ),
+    { title: "client@example.com", detail: "Guest · expires in 7 days" },
+  );
+  assert.equal(invitedAs("guest"), " as a guest");
+  assert.equal(invitedAs("admin"), " as an admin");
+  assert.equal(invitedAs("member"), "");
 });

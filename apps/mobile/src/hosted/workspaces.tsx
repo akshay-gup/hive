@@ -14,12 +14,11 @@ import {
   pageBee,
   s,
 } from "../ui";
-import type { ControlAccount, Role, WorkspaceSummary } from "./control-api";
+import type { ControlAccount, WorkspaceSummary } from "./control-api";
 import { Frame } from "./frame";
 import { inviteTokenFrom } from "./invite-link";
 import { Notice } from "./notice";
-
-const roleLabel: Record<Role, string> = { owner: "Owner", admin: "Admin", member: "Member" };
+import { roleLabel } from "./people-text";
 
 function statusText(workspace: WorkspaceSummary) {
   if (workspace.status === "provisioning") return "Setting up…";

@@ -21,6 +21,7 @@ export type Detail =
   | { type: "task"; taskId: string }
   | { type: "channelFiles"; channelId: string; name?: string; path?: string }
   | { type: "channelFile"; channelId: string; path: string }
+  | { type: "channelAccess"; channelId: string; name?: string }
   | { type: "delegate"; threadId?: string }
   | { type: "notifications" }
   | { type: "computer" }

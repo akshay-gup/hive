@@ -2,6 +2,7 @@ import { Hash, ShieldCheck } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Channel } from "../../../packages/domain/src/agent";
+import { useGuest } from "./access";
 import {
   Button,
   Card,
@@ -44,6 +45,8 @@ function requestSummary(request: PendingRequest): string {
  */
 export function PendingApprovals({ threadId }: { threadId: string }) {
   const { api } = useWorkspace();
+  // A guest sees what the agent is waiting for, and a teammate decides.
+  const guest = useGuest();
   const [pending, setPending] = useState<PendingRequest[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -110,36 +113,39 @@ export function PendingApprovals({ threadId }: { threadId: string }) {
             </Text>
           </View>
           <Text style={s.small}>
-            The agent is paused until you decide · waiting {waited(request.askedAt)}
+            The agent is paused until {guest ? "a teammate decides" : "you decide"} · waiting{" "}
+            {waited(request.askedAt)}
           </Text>
-          <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-            <Button
-              small
-              primary
-              busy={busy === request.requestId}
-              disabled={busy === request.requestId}
-              onPress={() => void reply(request.requestId, "once")}
-            >
-              Approve once
-            </Button>
-            <Button
-              small
-              busy={busy === request.requestId}
-              disabled={busy === request.requestId}
-              onPress={() => void reply(request.requestId, "always")}
-            >
-              Always allow
-            </Button>
-            <Button
-              small
-              danger
-              busy={busy === request.requestId}
-              disabled={busy === request.requestId}
-              onPress={() => void reply(request.requestId, "reject")}
-            >
-              Deny
-            </Button>
-          </View>
+          {!guest && (
+            <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+              <Button
+                small
+                primary
+                busy={busy === request.requestId}
+                disabled={busy === request.requestId}
+                onPress={() => void reply(request.requestId, "once")}
+              >
+                Approve once
+              </Button>
+              <Button
+                small
+                busy={busy === request.requestId}
+                disabled={busy === request.requestId}
+                onPress={() => void reply(request.requestId, "always")}
+              >
+                Always allow
+              </Button>
+              <Button
+                small
+                danger
+                busy={busy === request.requestId}
+                disabled={busy === request.requestId}
+                onPress={() => void reply(request.requestId, "reject")}
+              >
+                Deny
+              </Button>
+            </View>
+          )}
         </View>
       ))}
     </View>
