@@ -1,5 +1,6 @@
 import {
   type Message,
+  type ToolCall,
   type ToolMessage,
   useAgent,
   useAgentContext,
@@ -70,7 +71,7 @@ import {
 import { RunProgress } from "./progress-steps";
 import { BrowserRunContext } from "./run-context";
 import { loadRunDurations, saveRunDurations } from "./run-durations";
-import { progressItems, showsRunningStep } from "./run-progress";
+import { mergeItems, type ProgressItem, progressItems, showsRunningStep } from "./run-progress";
 import { TaskThreadCard } from "./thread-artifacts";
 import { countThreadReplies } from "./thread-replies";
 import { resolveThreadId, type Selection, useMuseThread } from "./threads";
@@ -864,6 +865,23 @@ export function ChatScreen({
           progressItems("toolCalls" in message ? message.toolCalls || [] : [], toolMessages, true),
         ),
     );
+  // Replies that are only tool calls, one after another, are one stretch of work: one list, not one each.
+  const stepItems = new Map<string, ProgressItem<ToolCall, ToolMessage>[]>();
+  let leader: string | undefined;
+  for (const m of visible) {
+    const calls = "toolCalls" in m ? m.toolCalls || [] : [];
+    const going = replying && messages.indexOf(m) > latestUserIndex;
+    const items = progressItems(calls, toolMessages, going);
+    const silent = m.role === "assistant" && !textOf(m);
+    const lead = leader ? stepItems.get(leader) : undefined;
+    if (silent && leader && lead) {
+      stepItems.set(leader, mergeItems([...lead, ...items]));
+      stepItems.set(m.id, []);
+    } else {
+      stepItems.set(m.id, items);
+      leader = silent ? m.id : undefined;
+    }
+  }
   const agentName = agentWorkspace?.identity.name || "Hive";
   // On a wide window a channel is a panel of its own, with its header inside, beside the thread's.
   const panels = !!channelId && !threadParent && width >= 900;
@@ -1103,7 +1121,7 @@ export function ChatScreen({
                           active: working,
                         }}
                       >
-                        {progressItems(toolCalls, toolMessages, working).map((item) =>
+                        {(stepItems.get(message.id) ?? []).map((item) =>
                           item.kind === "card" ? (
                             <View key={item.id}>
                               {renderToolCall({

@@ -13,6 +13,10 @@ export interface ProgressStep {
   label: string;
   /** What the step was about, shown when the list is open: a command, a file, the reason it failed. */
   detail?: string;
+  /** What it brought back, shown when the step itself is opened. */
+  output?: string;
+  /** The browser session a page was read in, so the page can be taken over. */
+  browserId?: string;
   state: StepState;
 }
 
@@ -262,7 +266,39 @@ export function progressStep(
   }
   if (failure)
     return { id: call.id, label: words.failed, detail: clip(failure, 160), state: "failed" };
-  return { id: call.id, label: words.done, detail: words.detail, state: "done" };
+  const page = name === "browse_web" ? pageOf(result) : undefined;
+  if (page)
+    return {
+      id: call.id,
+      label: page.title ? clip(page.title, 70) : words.done,
+      detail: site(page.url),
+      output: page.text ? clip(page.text, 700) : undefined,
+      browserId: page.sessionId,
+      state: "done",
+    };
+  const output = name === "write" || name === "edit" ? undefined : outputOf(result);
+  return { id: call.id, label: words.done, detail: words.detail, output, state: "done" };
+}
+
+/** A page the browser read, from the tool's answer. */
+function pageOf(result: string | undefined) {
+  if (!result) return undefined;
+  try {
+    const value = JSON.parse(result) as Args;
+    return {
+      sessionId: text(value.sessionId),
+      title: text(value.title),
+      url: text(value.url),
+      text: text(value.text),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function outputOf(result: string | undefined): string | undefined {
+  const value = text(result);
+  return value && value !== "{}" && value !== "null" ? clip(value, 700) : undefined;
 }
 
 export type ProgressItem<Call = ToolCallLike, Message = ToolMessageLike> =
@@ -299,6 +335,20 @@ export function progressItems<Call extends ToolCallLike, Message extends ToolMes
   }
   flush();
   return items;
+}
+
+/** Lists that run into each other, with no words between them, read as one list. */
+export function mergeItems<Call, Message>(
+  items: readonly ProgressItem<Call, Message>[],
+): ProgressItem<Call, Message>[] {
+  const out: ProgressItem<Call, Message>[] = [];
+  for (const item of items) {
+    const last = out.at(-1);
+    if (last?.kind === "steps" && item.kind === "steps")
+      out[out.length - 1] = { ...last, steps: [...last.steps, ...item.steps] };
+    else out.push(item);
+  }
+  return out;
 }
 
 /**

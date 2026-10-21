@@ -1,8 +1,10 @@
-import { Check, ChevronDown, ChevronRight, Minus, X } from "lucide-react-native";
+import { Check, ChevronDown, ChevronRight, ExternalLink, Minus, X } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import type { BrowserSession } from "../../../packages/domain/src";
 import { type ProgressStep, summarizeSteps } from "./run-progress";
 import { colors, IconSlot, radius, s, type WebPressState } from "./ui";
+import { useWorkspace } from "./workspace";
 
 function StepIcon({ state }: { state: ProgressStep["state"] }) {
   // The line above already has the spinner; a second one on the step would be two things moving.
@@ -75,22 +77,95 @@ export function RunProgress({ steps, elapsedMs }: { steps: ProgressStep[]; elaps
           }}
         >
           {steps.map((step) => (
-            <View key={step.id} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
-              <View
-                style={{ width: 16, height: 20, alignItems: "center", justifyContent: "center" }}
-              >
-                <StepIcon state={step.state} />
-              </View>
-              <View style={{ flexShrink: 1, gap: 1 }}>
-                <Text style={[s.small, { color: colors.text }]}>{step.label}</Text>
-                {!!step.detail && (
-                  <Text style={[s.small, { color: colors.muted }]} numberOfLines={3}>
-                    {step.detail}
-                  </Text>
-                )}
-              </View>
-            </View>
+            <StepRow key={step.id} step={step} />
           ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** One step. When it brought something back it opens to show it, and a page can be taken over. */
+function StepRow({ step }: { step: ProgressStep }) {
+  const { api, open: show } = useWorkspace();
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const more = !!step.output || !!step.browserId;
+  async function takeOver() {
+    setError("");
+    try {
+      const browser = await api.request<BrowserSession>(
+        `/api/browsers/${encodeURIComponent(step.browserId || "")}`,
+      );
+      show({ type: "browser", browser });
+    } catch {
+      setError("That browser window is closed now.");
+    }
+  }
+  const Chevron = open ? ChevronDown : ChevronRight;
+  return (
+    <View style={{ gap: 4 }}>
+      <Pressable
+        accessibilityRole={more ? "button" : undefined}
+        accessibilityState={more ? { expanded: open } : undefined}
+        disabled={!more}
+        onPress={() => setOpen(!open)}
+        style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}
+      >
+        <View style={{ width: 16, height: 20, alignItems: "center", justifyContent: "center" }}>
+          <StepIcon state={step.state} />
+        </View>
+        <View style={{ flexShrink: 1, gap: 1 }}>
+          <Text style={[s.small, { color: colors.text }]} numberOfLines={open ? undefined : 2}>
+            {step.label}
+          </Text>
+          {!!step.detail && (
+            <Text style={[s.small, { color: colors.muted }]} numberOfLines={open ? undefined : 1}>
+              {step.detail}
+            </Text>
+          )}
+        </View>
+        {more && (
+          <View style={{ height: 20, justifyContent: "center" }}>
+            <Chevron size={14} strokeWidth={2} color={colors.muted} />
+          </View>
+        )}
+      </Pressable>
+      {open && (
+        <View
+          style={{
+            marginLeft: 24,
+            gap: 8,
+            padding: 10,
+            borderRadius: radius.md,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.line,
+          }}
+        >
+          {!!step.output && (
+            <Text style={[s.small, { color: colors.text }]} selectable>
+              {step.output}
+            </Text>
+          )}
+          {!!step.browserId && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void takeOver()}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                alignSelf: "flex-start",
+              }}
+            >
+              <ExternalLink size={14} color={colors.primaryText} />
+              <Text style={[s.small, { fontWeight: "700", color: colors.primaryText }]}>
+                Open in the browser
+              </Text>
+            </Pressable>
+          )}
+          {!!error && <Text style={[s.small, { color: colors.danger }]}>{error}</Text>}
         </View>
       )}
     </View>

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   CARD_TOOLS,
   formatElapsed,
+  mergeItems,
   type ProgressStep,
   progressItems,
   progressStep,
@@ -27,6 +28,7 @@ test("a page, a command and a file read as what the agent did", () => {
     id: "1",
     label: "Fetched techcrunch.com",
     detail: undefined,
+    output: "page text",
     state: "done",
   });
 
@@ -134,19 +136,38 @@ test("steps between cards are gathered into lists, in the order they happened", 
   );
 });
 
-test("pages the browser read are steps, and one that failed says so", () => {
+test("a page the browser read is a step with its title, site, text and browser", () => {
+  const page = JSON.stringify({
+    sessionId: "s1",
+    title: "Clairic announced",
+    url: "https://www.example.com/news/a",
+    text: "Cloudflare announced a new thing.",
+  });
   const calls = [
-    call("a", "browse_web", { url: "https://www.bing.com/news?q=x" }),
+    call("a", "browse_web", { url: "https://www.example.com/news/a" }),
     call("b", "browse_web", { url: "https://blog.example.com/gone" }),
   ];
-  const items = progressItems(calls, [result("a", "{}"), result("b", '{"error":"404"}')], false);
-  assert.equal(items.length, 1);
-  const [list] = items;
-  assert.ok(
-    list.kind === "steps" &&
-      list.steps.map((s) => `${s.state}:${s.label}`).join() ===
-        "done:Read bing.com,failed:Couldn't read blog.example.com",
+  const [list] = progressItems(calls, [result("a", page), result("b", '{"error":"404"}')], false);
+  assert.ok(list.kind === "steps");
+  const [read, missed] = list.steps;
+  assert.equal(read.label, "Clairic announced");
+  assert.equal(read.detail, "example.com");
+  assert.equal(read.output, "Cloudflare announced a new thing.");
+  assert.equal(read.browserId, "s1");
+  assert.equal(missed.state, "failed");
+  assert.equal(missed.label, "Couldn't read blog.example.com");
+});
+
+test("lists with nothing said between them become one list, cards stay where they are", () => {
+  const a = progressItems([call("a", "bash", { command: "ls" })], [result("a", "x")], false);
+  const b = progressItems([call("b", "bash", { command: "pwd" })], [result("b", "y")], false);
+  const card = progressItems([call("c", "send_file")], [], false);
+  const merged = mergeItems([...a, ...b, ...card, ...a]);
+  assert.deepEqual(
+    merged.map((item) => item.kind),
+    ["steps", "card", "steps"],
   );
+  assert.equal(merged[0].kind === "steps" && merged[0].steps.length, 2);
 });
 
 test("a message with only cards, or only hidden tools, has no list", () => {

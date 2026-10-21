@@ -441,7 +441,13 @@ export class RunTranslator {
       current.started = true;
     };
     if (!track.started && (state.status === "pending" || state.status === "running")) start();
-    if (track.started && !track.argsSent && state.input != null) {
+    // A call is announced before its arguments are known, so empty ones are not the final word.
+    const hasInput =
+      state.input != null &&
+      (typeof state.input !== "object" || Object.keys(state.input as object).length > 0);
+    const finishing = state.status === "completed" || state.status === "error";
+    if (!track.started && finishing) start();
+    if (track.started && !track.argsSent && (hasInput || (finishing && state.input != null))) {
       this.send({
         type: "TOOL_CALL_ARGS",
         toolCallId: callID,
