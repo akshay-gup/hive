@@ -4,7 +4,9 @@ name: Workspace image
 # The job summary says which image was pushed and the command that makes the snapshot from it.
 on:
   push:
-    branches: [collab, main]
+    # Only main builds. A second branch pushed together with it would build the same commit again, push it
+    # under the same tag and leave the registry holding a different image than the one the release names.
+    branches: [main]
     paths:
       - apps/workspace/**
       - apps/server/**
