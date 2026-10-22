@@ -127,6 +127,15 @@ export function useDense(): boolean {
   const { width } = useWindowDimensions();
   return Platform.OS === "web" && width >= 900;
 }
+/**
+ * True on a wide window that is not a touch screen. A box there can have small text; on a phone or
+ * a tablet, text under 16 px makes the browser zoom in when the box is tapped.
+ */
+export function useFineInput(): boolean {
+  const { width } = useWindowDimensions();
+  if (Platform.OS !== "web" || width < 900 || typeof window === "undefined") return false;
+  return !window.matchMedia?.("(pointer: coarse)").matches;
+}
 /** react-native-web also passes hover and focus state to Pressable style callbacks; React Native's types only declare `pressed`. */
 export type WebPressState = { pressed: boolean; hovered?: boolean; focused?: boolean };
 export const s = StyleSheet.create({
@@ -259,11 +268,11 @@ export function Button({
         (pressed || hovered) && {
           backgroundColor: primary ? colors.actionPressed : colors.surfaceHover,
         },
-        dense && { minHeight: 40, paddingVertical: 8 },
+        dense && { minHeight: 34, paddingVertical: 6 },
         small && {
-          minHeight: dense ? 32 : 36,
-          paddingVertical: dense ? 6 : 6,
-          paddingHorizontal: 12,
+          minHeight: dense ? 28 : 36,
+          paddingVertical: dense ? 4 : 6,
+          paddingHorizontal: dense ? 10 : 12,
         },
         (disabled || busy) && { opacity: 0.5 },
         style,
@@ -364,6 +373,9 @@ export function IconButton({
   onPress: () => void;
 }) {
   const { props, tip } = useHoverTip(label);
+  // A pointer is exact, so on a wide window the button is the size of its icon plus a little.
+  const dense = useDense();
+  const size = dense ? 32 : 44;
   return (
     <Pressable
       accessibilityRole="button"
@@ -372,16 +384,16 @@ export function IconButton({
       {...props}
       style={({ pressed, hovered }: WebPressState) => [
         {
-          width: 44,
-          height: 44,
+          width: size,
+          height: size,
           alignItems: "center",
           justifyContent: "center",
-          borderRadius: 22,
+          borderRadius: size / 2,
           backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
         },
       ]}
     >
-      <Icon size={20} strokeWidth={1.8} color={colors.text} />
+      <Icon size={dense ? 18 : 20} strokeWidth={1.8} color={colors.text} />
       {tip}
     </Pressable>
   );
@@ -507,7 +519,7 @@ export function SegmentedRow<T extends string>({
   disabled,
 }: SegmentedProps<T>) {
   const dense = useDense();
-  const height = dense ? 32 : 34;
+  const height = dense ? 28 : 34;
   // The tabs are as wide as their labels, so each reports its width, and the slab behind them is
   // cut to fit. (Widths, not positions: a layout event comes only when a size changes.) Until they
   // have all reported, the slab is a plain pill.
@@ -644,6 +656,7 @@ export function Field({
   ...props
 }: TextInputProps & { label: string; compact?: boolean }) {
   const [focused, setFocused] = useState(false);
+  const fine = useFineInput();
   return (
     <View style={[s.field, compact && { marginBottom: 0 }]}>
       <Text style={[s.small, { fontWeight: "600", color: colors.text }]}>{label}</Text>
@@ -661,6 +674,7 @@ export function Field({
         }}
         style={[
           s.input,
+          fine && { fontSize: fontSize.body, minHeight: 34, paddingVertical: 6 },
           noOutline,
           focused && { borderColor: colors.primary, boxShadow: shadow.focus },
           props.multiline && { minHeight: 120, textAlignVertical: "top" },
@@ -688,6 +702,7 @@ export function SearchField({
   slim?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
+  const fine = useFineInput();
   return (
     <View
       style={[
@@ -721,8 +736,8 @@ export function SearchField({
           {
             flex: 1,
             minWidth: 0,
-            paddingVertical: slim ? 6 : 10,
-            fontSize: fontSize.input,
+            paddingVertical: slim ? (fine ? 4 : 6) : fine ? 6 : 10,
+            fontSize: fine ? fontSize.ui : fontSize.input,
             color: colors.text,
           },
           noOutline,

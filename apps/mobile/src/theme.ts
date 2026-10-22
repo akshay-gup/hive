@@ -297,4 +297,4 @@ export const fontFamily = {
 } as const;
 
 /** Shared chrome sizes, so the sidebar header and the main header always line up. */
-export const layout = { headerHeight: 56, phoneHeaderHeight: 50 } as const;
+export const layout = { headerHeight: 48, phoneHeaderHeight: 50 } as const;

@@ -99,6 +99,8 @@ import {
   s,
   shadow,
   TypingDots,
+  useDense,
+  useFineInput,
 } from "./ui";
 import { UploadRequestToolCard } from "./upload-request";
 import { useWorkspace } from "./workspace";
@@ -457,7 +459,11 @@ export function ChatScreen({
   const [mentionPick, setMentionPick] = useState(0);
   const composerRef = useRef<TextInput>(null);
   const [focused, setFocused] = useState(false);
-  const [inputHeight, setInputHeight] = useState(INPUT_MIN);
+  // A pointer needs less room than a thumb: on a wide window the message box is a little shorter.
+  const denseUi = useDense();
+  const fineInput = useFineInput();
+  const inputMin = denseUi ? 32 : INPUT_MIN;
+  const [inputHeight, setInputHeight] = useState(inputMin);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -907,7 +913,7 @@ export function ChatScreen({
     const clearComposer = () => {
       setDraft("");
       onDraftChange?.("");
-      setInputHeight(INPUT_MIN);
+      setInputHeight(inputMin);
       setAttachments([]);
       setPicking(false);
     };
@@ -1042,7 +1048,7 @@ export function ChatScreen({
           style={{
             flex: 1,
             minHeight: 0,
-            paddingHorizontal: channelId ? (width >= 900 ? 24 : 16) : 0,
+            paddingHorizontal: channelId ? (width >= 900 ? 20 : 16) : 0,
             paddingBottom: channelId ? 16 : 0,
           }}
         >
@@ -1431,11 +1437,11 @@ export function ChatScreen({
             <GlassBar
               kind="raised"
               style={{
-                borderRadius: radius.xxl,
+                borderRadius: denseUi ? 22 : radius.xxl,
                 borderWidth: 1,
                 borderColor: focused ? colors.primary : colors.lineStrong,
                 backgroundColor: colors.paper,
-                padding: 6,
+                padding: denseUi ? 4 : 6,
                 ...(focused ? { boxShadow: shadow.focus } : null),
               }}
             >
@@ -1480,15 +1486,15 @@ export function ChatScreen({
                   accessibilityState={{ expanded: picking }}
                   onPress={() => setPicking(!picking)}
                   style={({ pressed }) => ({
-                    width: 38,
-                    height: 38,
+                    width: denseUi ? 32 : 38,
+                    height: denseUi ? 32 : 38,
                     alignItems: "center",
                     justifyContent: "center",
-                    borderRadius: 19,
+                    borderRadius: denseUi ? 16 : 19,
                     backgroundColor: picking || pressed ? colors.primarySoft : "transparent",
                   })}
                 >
-                  <Plus size={24} strokeWidth={1.6} color={colors.text} />
+                  <Plus size={denseUi ? 20 : 24} strokeWidth={1.6} color={colors.text} />
                 </Pressable>
                 <TextInput
                   accessibilityLabel={
@@ -1520,7 +1526,7 @@ export function ChatScreen({
                   }}
                   onContentSizeChange={(event) =>
                     setInputHeight(
-                      Math.max(INPUT_MIN, Math.min(140, event.nativeEvent.contentSize.height)),
+                      Math.max(inputMin, Math.min(140, event.nativeEvent.contentSize.height)),
                     )
                   }
                   placeholder={
@@ -1544,13 +1550,13 @@ export function ChatScreen({
                     flex: 1,
                     color: colors.text,
                     height: inputHeight,
-                    minHeight: INPUT_MIN,
+                    minHeight: inputMin,
                     maxHeight: 140,
-                    fontSize: fontSize.input,
-                    lineHeight: 22,
+                    fontSize: fineInput ? fontSize.body : fontSize.input,
+                    lineHeight: fineInput ? 21 : 22,
                     paddingHorizontal: 2,
-                    paddingTop: 10,
-                    paddingBottom: 10,
+                    paddingTop: denseUi ? 6 : 10,
+                    paddingBottom: denseUi ? 6 : 10,
                     ...noFocusRing,
                   }}
                   multiline
@@ -1606,9 +1612,9 @@ export function ChatScreen({
                   disabled={!replying && (!draft.trim() || !loaded || !isReady)}
                   onPress={replying ? () => void stop() : send}
                   style={({ pressed }) => ({
-                    width: 38,
-                    height: 38,
-                    borderRadius: 19,
+                    width: denseUi ? 32 : 38,
+                    height: denseUi ? 32 : 38,
+                    borderRadius: denseUi ? 16 : 19,
                     backgroundColor: colors.action,
                     alignItems: "center",
                     justifyContent: "center",
@@ -1618,7 +1624,7 @@ export function ChatScreen({
                   {replying ? (
                     <Square size={18} fill={colors.onPrimary} strokeWidth={0} />
                   ) : (
-                    <ArrowUp size={22} strokeWidth={2.4} color={colors.onPrimary} />
+                    <ArrowUp size={denseUi ? 18 : 22} strokeWidth={2.4} color={colors.onPrimary} />
                   )}
                 </Pressable>
               </View>

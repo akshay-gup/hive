@@ -185,7 +185,7 @@ function RailItem({
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ selected: !!active }}
       onPress={onPress}
-      style={{ width: RAIL_WIDTH - 4, alignItems: "center", gap: 5, paddingVertical: 6 }}
+      style={{ width: RAIL_WIDTH - 4, alignItems: "center", gap: 3, paddingVertical: 4 }}
     >
       {(state) => {
         const { pressed, hovered } = state as WebPressState;
@@ -207,8 +207,8 @@ function RailItem({
             )}
             <View
               style={{
-                width: 46,
-                height: 36,
+                width: 44,
+                height: 32,
                 borderRadius: radius.md,
                 alignItems: "center",
                 justifyContent: "center",
@@ -216,7 +216,7 @@ function RailItem({
                   !active && (pressed || hovered) ? colors.surfaceMuted : "transparent",
               }}
             >
-              <Icon size={20} strokeWidth={1.8} color={active ? colors.text : colors.muted} />
+              <Icon size={19} strokeWidth={1.8} color={active ? colors.text : colors.muted} />
             </View>
             <Text
               style={{
@@ -583,7 +583,7 @@ export function Sidebar({
           <ScrollView
             style={{ flex: 1, width: "100%" }}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ alignItems: "center", paddingTop: 8, gap: 10 }}
+            contentContainerStyle={{ alignItems: "center", paddingTop: 6, gap: 4 }}
           >
             {reachable.map((item) => (
               <RailItem
@@ -595,7 +595,7 @@ export function Sidebar({
               />
             ))}
           </ScrollView>
-          <View style={{ alignItems: "center", gap: 10, paddingBottom: 12 }}>
+          <View style={{ alignItems: "center", gap: 4, paddingBottom: 12 }}>
             {!guest && (
               <>
                 <RailItem
