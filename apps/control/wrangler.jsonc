@@ -53,7 +53,7 @@
     // the flat plan and switched; if that is refused it keeps the flat one and the log says so.
     "DO_BACKUPS": "custom_daily",
     "DO_BACKUP_HOUR": "8",
-    "DO_IMAGE": "250800116",
+    "DO_IMAGE": "250943924",
     // The model every new workspace runs on, through the gateway; the provider's key is the secret GATEWAY_PROVIDERS.
     "GATEWAY_MODEL": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash-1017",
     // This one is newer than the agent's own list, so it is described to it: it reasons, calls tools,
