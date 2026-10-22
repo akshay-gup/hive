@@ -59,14 +59,18 @@ export function ChannelFileView({ file }: { file: ChannelFile }) {
   return (
     <View style={{ gap: 16 }}>
       <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-        <Button
-          small
-          icon={ExternalLink}
-          disabled={!file.url}
-          onPress={() => file.url && void openFile(file.url)}
-        >
-          Open
-        </Button>
+        {/* A browser can show these as they are; for an Office file or an archive it would only download it. */}
+        {(Platform.OS !== "web" ||
+          !["office", "archive", "other"].includes(file.kind ?? "other")) && (
+          <Button
+            small
+            icon={ExternalLink}
+            disabled={!file.url}
+            onPress={() => file.url && void openFile(file.url)}
+          >
+            Open
+          </Button>
+        )}
         <Button
           small
           icon={Download}
