@@ -211,7 +211,10 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
             {view.people.map((person) => {
               const yours = person.email === me;
               const label = person.name || person.email;
-              const canManage = you?.manager && person.role !== "guest";
+              // The owner and the admins manage every channel they can open, so there is nothing to
+              // give or take from them here, and they show as managers.
+              const runsWorkspace = person.role === "owner" || person.role === "admin";
+              const canManage = you?.manager && person.role !== "guest" && !runsWorkspace;
               const canRemove = !!you?.remove && !yours;
               return (
                 <View key={person.email} style={{ gap: 8 }}>
@@ -229,7 +232,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
                       )}
                     </View>
                     <View style={[s.row, { gap: 6, flexShrink: 0 }]}>
-                      {person.manager && <Chip>Manager</Chip>}
+                      {(person.manager || runsWorkspace) && <Chip>Manager</Chip>}
                       {(person.role === "guest" ||
                         person.role === "owner" ||
                         person.role === "admin") && <Chip>{roleLabel[person.role]}</Chip>}
