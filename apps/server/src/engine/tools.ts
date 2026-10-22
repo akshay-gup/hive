@@ -3,6 +3,7 @@ import type { RunAgentInput } from "@ag-ui/core";
 import { defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
 import {
+  type AgentTask,
   createTaskSchema,
   goalInputSchema,
   monitorInputSchema,
@@ -16,6 +17,7 @@ import {
   type UploadRequest,
   uploadRequestLimits,
 } from "../../../../packages/domain/src/workspace-files.ts";
+import { canSeeTask } from "../access.ts";
 import { AppError } from "../errors.ts";
 import type { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
@@ -59,6 +61,23 @@ export function conversationTools(
     channelId ??
     (await service.channelOfThread(owner, input.threadId))?.channelId ??
     ORCHESTRATOR_CHANNEL_ID;
+  /**
+   * The channel this conversation is in, when it is a private one: what the agent makes here that
+   * the whole workspace would see (a goal, a project, a monitor, a memory) is kept in the channel.
+   */
+  const privateChannel = async () => {
+    const channel = await workspaceChannel();
+    if (channel === ORCHESTRATOR_CHANNEL_ID) return undefined;
+    return (await service.getChannel(owner, channel))?.visibility === "private"
+      ? channel
+      : undefined;
+  };
+  /** A task in a private channel is not there to someone who is not in the channel, nor to the agent working for them. */
+  const mayReach = async (taskId: string) => {
+    const task = await service.db.get<AgentTask>(owner, "tasks", taskId);
+    if (task && !canSeeTask(await service.access.scope(owner), task))
+      throw new AppError("Task not found", 404);
+  };
   const tools = [
     ...(jev
       ? [
@@ -245,14 +264,20 @@ export function conversationTools(
         goalId: z.string().nullable().optional(),
         projectId: z.string().nullable().optional(),
       }),
-      execute: async ({ taskId, ...patch }) => service.updateTask(owner, taskId, patch, "agent"),
+      execute: async ({ taskId, ...patch }) => {
+        await mayReach(taskId);
+        return service.updateTask(owner, taskId, patch, "agent");
+      },
     }),
     defineTool({
       name: "delete_task",
       description:
         "Delete a task or issue from the board. Cannot delete a task the worker is currently running — stop it first.",
       parameters: z.object({ taskId: z.string().min(1) }),
-      execute: async (args) => service.deleteTask(owner, args.taskId),
+      execute: async (args) => {
+        await mayReach(args.taskId);
+        return service.deleteTask(owner, args.taskId);
+      },
     }),
     defineTool({
       name: "create_project",
@@ -262,7 +287,7 @@ export function conversationTools(
         name: z.string().trim().min(1).max(80),
         description: z.string().trim().max(500).optional(),
       }),
-      execute: async (args) => service.createProject(owner, args),
+      execute: async (args) => service.createProject(owner, args, await privateChannel()),
     }),
     defineTool({
       name: "update_project",
@@ -395,6 +420,7 @@ export function conversationTools(
           owner,
           args,
           createHash("sha256").update(key("goal", args)).digest("hex"),
+          await privateChannel(),
         ),
     }),
     defineTool({
@@ -402,18 +428,22 @@ export function conversationTools(
       description:
         "Schedule a public-page condition check requested by the user. The worker records observations and notifies on meaningful changes. Price checks detect explicit USD or dollar prices; no booking is performed.",
       parameters: monitorInputSchema,
-      execute: async (args) => service.createMonitor(owner, args, key("watch", args)),
+      execute: async (args) =>
+        service.createMonitor(owner, args, key("watch", args), await privateChannel()),
     }),
     defineTool({
       name: "remember_fact",
       description: "Remember a preference explicitly supplied or confirmed by the user",
       parameters: z.object({ text: z.string().min(1).max(2000) }),
       execute: async ({ text }) => {
+        // What is learned in a private channel stays in it, as the channel's own conversation does.
+        const channelId = await privateChannel();
         const value = {
           id: createHash("sha256").update(key("memory", text)).digest("hex"),
           text,
           source: "User confirmed in chat",
           createdAt: new Date().toISOString(),
+          ...(channelId ? { channelId } : {}),
         };
         await service.db.insertIfAbsent(owner, "memories", value);
         return value;

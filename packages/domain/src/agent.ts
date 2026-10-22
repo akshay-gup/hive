@@ -200,6 +200,8 @@ export interface Goal {
   milestones: { id: string; title: string; done: boolean }[];
   createdAt: string;
   createdBy?: string;
+  /** The private channel it came out of, which keeps it from the people who are not in that channel. */
+  channelId?: string;
 }
 /** A project groups tasks on the board. Tasks without one sit in "No project". */
 export interface Project {
@@ -208,6 +210,8 @@ export interface Project {
   description?: string;
   createdAt: string;
   updatedAt: string;
+  /** The private channel it came out of, which keeps it from the people who are not in that channel. */
+  channelId?: string;
 }
 export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -252,6 +256,8 @@ export interface AgentMemory {
   text: string;
   source: string;
   createdAt: string;
+  /** The channel it was learned in, when only some of the team can open that channel: it stays there. */
+  channelId?: string;
 }
 export interface AgentArtifact {
   id: string;
@@ -360,23 +366,85 @@ export interface Channel {
   workerPid?: number | null;
   lastActiveAt?: string | null;
   /**
-   * The guests added to this channel, by email address (lowercase). Everyone else in the workspace
-   * can open every channel; a guest can open only the channels that name them.
+   * Who can find the channel: anyone in the workspace but a guest (public), or only the people in
+   * it (private). Missing means public.
+   */
+  visibility?: ChannelVisibility;
+  /**
+   * Whether everyone in the workspace, guests aside, is in the channel without being named, as in
+   * a default channel. Missing means they are: every channel made before people could join
+   * channels is open to the whole team, and stays so. A channel made now starts with the person
+   * who made it.
+   */
+  everyone?: boolean;
+  /**
+   * The people named in the channel, by email address (lowercase): the guests, and whoever joined
+   * or was added. A guest can open only the channels that name them, and so can anyone else in a
+   * private channel.
    */
   members?: string[];
+  /**
+   * The people who manage the channel, by email address (lowercase), a subset of its members.
+   * Owners and admins manage every channel they can open.
+   */
+  managers?: string[];
 }
-export const channelMembersSchema = z.object({
-  members: z
-    .array(
-      z
-        .string()
-        .trim()
-        .toLowerCase()
-        .max(320)
-        .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "That is not an email address"),
-    )
-    .max(200),
+export type ChannelVisibility = "public" | "private";
+/** A channel as one person is shown it: what the list says of them and the channel. */
+export interface ChannelView extends Channel {
+  /** Whether this person is in the channel. Missing where the workspace keeps no list of people. */
+  joined?: boolean;
+  /** Whether this person manages the channel: its managers, the owner and the admins. */
+  manager?: boolean;
+  /** How many people are named in it. */
+  count?: number;
+}
+/** The people in a channel, and what the person asking may do about them. */
+export interface ChannelPeopleView {
+  id: string;
+  name: string;
+  visibility: ChannelVisibility;
+  archived: boolean;
+  /** Everyone in the workspace but guests is in the channel, named or not. */
+  everyone: boolean;
+  /** The people named in it: its managers first. `role` is null for an address that has not signed in here yet. */
+  people: {
+    email: string;
+    name: string;
+    role: "owner" | "admin" | "member" | "guest" | null;
+    manager: boolean;
+  }[];
+  /** People this workspace knows who are not in the channel, and whom the asker may add. */
+  candidates: { email: string; name: string; role: "owner" | "admin" | "member" | "guest" }[];
+  you: {
+    in: boolean;
+    manager: boolean;
+    join: boolean;
+    leave: boolean;
+    add: boolean;
+    remove: boolean;
+    makePrivate: boolean;
+    makePublic: boolean;
+    setEveryone: boolean;
+  };
+}
+const emailAddress = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(320)
+  .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "That is not an email address");
+/** People to put in a channel and people to take out, by email address. */
+export const channelPeopleSchema = z.object({
+  add: z.array(emailAddress).max(200).optional(),
+  remove: z.array(emailAddress).max(200).optional(),
 });
+export type ChannelPeopleInput = z.infer<typeof channelPeopleSchema>;
+export const channelSettingsSchema = z.object({
+  visibility: z.enum(["public", "private"]).optional(),
+  everyone: z.boolean().optional(),
+});
+export type ChannelSettingsInput = z.infer<typeof channelSettingsSchema>;
 export const createChannelSchema = z.object({
   name: z.string().trim().min(1).max(80),
   id: z
@@ -386,6 +454,7 @@ export const createChannelSchema = z.object({
     .max(80)
     .regex(/^[a-z0-9-]+$/, "lowercase letters, numbers, and hyphens only")
     .optional(),
+  visibility: z.enum(["public", "private"]).optional(),
 });
 export type CreateChannelInput = z.infer<typeof createChannelSchema>;
 /**

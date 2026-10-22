@@ -464,7 +464,10 @@ describe("opencodeShimRoutes", () => {
   const stubDeps = (service: Record<string, unknown>) =>
     ({
       // Nobody in these tests is a guest.
-      service: { access: { isGuest: async () => false }, ...service },
+      service: {
+        access: { isGuest: async () => false, assertChannel: async () => undefined },
+        ...service,
+      },
       bus: new OpencodeEventBus(testConnection),
       pool: {},
       config: { model: "openai/gpt-4o" },

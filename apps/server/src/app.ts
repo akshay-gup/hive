@@ -11,6 +11,7 @@ import { ActionService } from "./actions.ts";
 import { makeRuntime } from "./agent.ts";
 import { createAuth } from "./auth.ts";
 import { BrowserService } from "./browser.ts";
+import { channelGate } from "./channel-gate.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { agentRoutes } from "./engine/routes.ts";
@@ -24,7 +25,6 @@ import { LocalDiskThreadStore, type ThreadBindingStore } from "./engine/threads.
 import { AppError } from "./errors.ts";
 import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
-import { guestGate } from "./guest-gate.ts";
 import type { JevAdapter } from "./jev/adapter.ts";
 import { createJevService } from "./jev/service.ts";
 import { ManagedSignIn } from "./managed.ts";
@@ -275,8 +275,9 @@ export async function createApp(
         ? auth.verify(new URL(c.req.url))
         : await auth.owner(c.req.header("authorization"));
     c.set("owner", owner);
-    // A guest is let through only to what the channels they were added to hold.
-    if (config.managed && (await agent.access.isGuest(owner))) await guestGate(c, owner, agent);
+    // A guest is let through only to what the channels they were added to hold, and anyone else
+    // not to the private channels that are not theirs.
+    if (config.managed) await channelGate(c, owner, agent);
     await next();
   });
   app.get("/api/auth/session", (c) => c.json({ authenticated: true }));
@@ -292,7 +293,13 @@ export async function createApp(
       workspace.snapshot(c.get("owner"), c.req.query("q")),
       browser.reachable(),
     ]);
-    snapshot.browsers = snapshot.browsers.map((s) => browser.decorate(c.get("owner"), s));
+    snapshot.browsers = (await agent.visibleBrowsers(c.get("owner"), snapshot.browsers)).map((s) =>
+      browser.decorate(c.get("owner"), s),
+    );
+    // What the agent prepared for a private channel's task is for the people in that channel.
+    const shown = await agent.visibleReviews(c.get("owner"), snapshot.actions, snapshot.activity);
+    snapshot.actions = shown.reviews;
+    snapshot.activity = shown.receipts;
     // A configured worker that does not answer is offline, not ready.
     snapshot.connections = snapshot.connections.map((connection) =>
       connection.id === "browser" && connection.status === "connected" && !reachable

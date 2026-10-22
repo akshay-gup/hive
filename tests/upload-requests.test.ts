@@ -153,7 +153,7 @@ test("a request that cannot be made says why, in words the agent can act on", as
       accept: Array.from({ length: 13 }, (_, i) => `e${i}`),
     }),
   );
-  await server.agent.archiveChannel(channel.id);
+  await server.agent.archiveChannel("alice", channel.id);
   assert.match(String((await call("request_upload", { prompt: "A file" })).error), /archived/i);
   const gone = toolsFor("nowhere");
   assert.equal((await gone.call("request_upload", { prompt: "A file" })).requested, false);

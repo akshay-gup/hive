@@ -60,6 +60,12 @@ export function opencodePermissionRoutes(deps: OpencodeShimDeps) {
     const requestId = c.req.param("requestId");
     const pending = deps.tracker.get(requestId);
     if (!pending) return c.json({ error: "Permission request is not pending" }, 404);
+    // What a private channel's agent asks to do is for the people in that channel to allow.
+    try {
+      await deps.service.access.assertChannel(c.get("owner"), pending.channelId);
+    } catch {
+      return c.json({ error: "Permission request is not pending" }, 404);
+    }
     try {
       const answered = await deps.tracker.reply(
         deps,

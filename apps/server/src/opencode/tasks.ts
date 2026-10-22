@@ -328,7 +328,10 @@ export async function runOpencodeTask(
     "agent-settings",
     "identity",
   );
-  const memories = await service.db.list<{ text: string; source: string }>(owner, "memories");
+  // What the agent learned in a private channel is for runs in that channel, not for the others.
+  const memories = (
+    await service.db.list<{ text: string; source: string; channelId?: string }>(owner, "memories")
+  ).filter((memory) => !memory.channelId || memory.channelId === task.channelId);
 
   let originNote = "";
   if (task.threadId || task.originChannelId) {

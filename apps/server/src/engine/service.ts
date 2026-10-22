@@ -11,7 +11,6 @@ import {
   addNoteSchema,
   type Channel,
   type ChannelThread,
-  channelMembersSchema,
   createChannelSchema,
   createProjectSchema,
   createTaskSchema,
@@ -38,9 +37,10 @@ import type {
   Mail,
   ProposalInput,
 } from "../../../../packages/domain/src/index.ts";
-import { Access } from "../access.ts";
+import { Access, canSeeTask, type Scope } from "../access.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
+import { ChannelPeople } from "../channel-people.ts";
 import type { Config } from "../config.ts";
 import type { Store } from "../db.ts";
 import { AppError } from "../errors.ts";
@@ -76,6 +76,8 @@ export class AgentService {
   private channels?: ChannelManager;
   /** threadId → binding, keyed `${owner}/${threadId}`. Invalidated on write. */
   private readonly threadChannelCache = new Map<string, ChannelThread>();
+  /** threadId → until when it is known to be bound to no channel, keyed `${owner}/${threadId}`. */
+  private readonly unboundThreads = new Map<string, number>();
   /**
    * Set by createApp. Task-worker execution runs as OpenCode sessions through it, and a renamed
    * thread's session title follows.
@@ -89,8 +91,10 @@ export class AgentService {
   readonly uploadRequests: UploadRequests;
   /** The choice cards an agent can show (`present_choices`), or null when JEV_MODE is off. */
   readonly jev: JevService | null;
-  /** What each person may open: everything, but for a guest, who has only the channels they were added to. */
+  /** What each person may open: everything, but for a guest, who has only the channels they were added to, and a private channel, which is its members'. */
   readonly access: Access;
+  /** Who is in each channel, who manages it, and who may change either. */
+  readonly people: ChannelPeople;
   constructor(
     readonly db: Store,
     readonly config: Config,
@@ -103,6 +107,7 @@ export class AgentService {
   ) {
     this.jev = jev;
     this.access = new Access(db, Boolean(config.managed));
+    this.people = new ChannelPeople(db, this.access);
     this.taskFiles = new TaskFiles(config.dataDir);
     this.channelFiles = new ChannelFiles(config, files, (owner, id) => this.getChannel(owner, id));
     this.uploadRequests = new UploadRequests(db);
@@ -222,24 +227,37 @@ export class AgentService {
   async getChannel(owner: string, channelId: string): Promise<Channel | null> {
     return this.db.get<Channel>(this.channelOwner(channelId, owner), "channels", channelId);
   }
-  /** Persist a channel under its owner (shared, or the user's own orchestrator). */
-  private async putChannel(owner: string, channel: Channel): Promise<void> {
-    await this.db.put(this.channelOwner(channel.id, owner), "channels", channel);
+  /**
+   * Record on a channel that it has work. Only these fields are written, so this cannot undo a
+   * change made to the channel at the same moment, such as someone being taken out of it.
+   */
+  private async touchChannel(owner: string, channelId: string, patch: Partial<Channel>) {
+    await this.db.compareAndSwap(
+      this.channelOwner(channelId, owner),
+      "channels",
+      channelId,
+      {},
+      patch,
+    );
   }
   async listChannels(owner: string): Promise<Channel[]> {
-    // A guest has no orchestrator chat, and is shown only the channels they were added to.
-    if (await this.access.isGuest(owner))
-      return this.access.visibleChannels(
-        owner,
-        await this.db.list<Channel>(SHARED_OWNER, "channels"),
-      );
+    // Only the channels this person may open: a guest has no orchestrator chat, and a private
+    // channel is not listed to anyone who is not in it.
+    const visible = await this.access.visibleChannels(
+      owner,
+      await this.db.list<Channel>(SHARED_OWNER, "channels"),
+    );
+    if (await this.access.isGuest(owner)) return visible;
     await this.ensureOrchestratorChannel(owner);
-    const shared = await this.db.list<Channel>(SHARED_OWNER, "channels");
     const orchestrator = await this.db.get<Channel>(owner, "channels", ORCHESTRATOR_CHANNEL_ID);
-    return orchestrator ? [...shared, orchestrator] : shared;
+    return orchestrator ? [...visible, orchestrator] : visible;
   }
   async createChannel(owner: string, raw: unknown): Promise<Channel> {
     const input = createChannelSchema.parse(raw);
+    const person = await this.access.person(owner);
+    if (person?.role === "guest") throw new AppError("A guest can't create a channel", 403);
+    if (input.visibility === "private" && !person?.email)
+      throw new AppError("Private channels need a workspace that knows its people", 409);
     await this.ensureOrchestratorChannel(owner);
     if (input.id === ORCHESTRATOR_CHANNEL_ID) throw new AppError("Channel id is reserved", 409);
     const slug =
@@ -260,6 +278,15 @@ export class AgentService {
       updatedAt: now,
       workerPid: null,
       lastActiveAt: now,
+      // Where people are known, a channel starts as just the person who made it, who manages it.
+      ...(person?.email
+        ? {
+            visibility: input.visibility ?? "public",
+            everyone: false,
+            members: [person.email],
+            managers: [person.email],
+          }
+        : {}),
     };
     await this.db.put(SHARED_OWNER, "channels", channel);
     // Best-effort: give the channel its own directory on local disk.
@@ -273,42 +300,20 @@ export class AgentService {
     }
     return channel;
   }
-  /** Who was added to a channel, and the guests this workspace knows, to choose from. */
-  async channelAccess(owner: string, channelId: string) {
-    if (!(await this.access.manages(owner)))
-      throw new AppError("Only an owner or admin can see who can open a channel", 403);
-    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
-    if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID)
-      throw new AppError("Channel not found", 404);
-    return { members: channel.members ?? [], guests: await this.access.knownGuests() };
-  }
-  /** Replace the guests added to a channel. */
-  async setChannelMembers(owner: string, channelId: string, raw: unknown) {
-    if (!(await this.access.manages(owner)))
-      throw new AppError("Only an owner or admin can change who can open a channel", 403);
-    const { members } = channelMembersSchema.parse(raw);
-    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
-    if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID)
-      throw new AppError("Channel not found", 404);
-    const updated: Channel = {
-      ...channel,
-      members: [...new Set(members)].sort(),
-      updatedAt: new Date().toISOString(),
-    };
-    await this.db.put(SHARED_OWNER, "channels", updated);
-    return { members: updated.members ?? [], guests: await this.access.knownGuests() };
-  }
-  async archiveChannel(id: string): Promise<Channel> {
+  async archiveChannel(owner: string, id: string): Promise<Channel> {
     if (id === ORCHESTRATOR_CHANNEL_ID)
       throw new AppError("The orchestrator channel cannot be archived", 409);
-    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", id);
-    if (!channel) throw new AppError("Channel not found", 404);
-    const updated: Channel = {
-      ...channel,
-      status: "archived",
-      updatedAt: new Date().toISOString(),
-    };
-    await this.db.put(SHARED_OWNER, "channels", updated);
+    const scope = await this.access.scope(owner);
+    if (scope.person?.role === "guest") throw new AppError("A guest can't archive a channel", 403);
+    if (!scope.allows(id)) throw new AppError("Channel not found", 404);
+    const updated = await this.db.compareAndSwap<Channel>(
+      SHARED_OWNER,
+      "channels",
+      id,
+      {},
+      { status: "archived", updatedAt: new Date().toISOString() },
+    );
+    if (!updated) throw new AppError("Channel not found", 404);
     return updated;
   }
   /**
@@ -334,8 +339,7 @@ export class AgentService {
     };
     await this.threads.write(owner, binding);
     this.threadChannelCache.set(`${owner}/${binding.threadId}`, binding);
-    await this.putChannel(owner, {
-      ...channel,
+    await this.touchChannel(owner, channelId, {
       status: "active",
       lastActiveAt: binding.createdAt,
       updatedAt: binding.createdAt,
@@ -395,15 +399,23 @@ export class AgentService {
     if (!channel) throw new AppError("Channel not found", 404);
     return this.threads.list(owner, channelId);
   }
-  /** Reverse lookup: which channel does this thread belong to? Cached. */
+  /** Reverse lookup: which channel does this thread belong to? Cached, and a thread with none is remembered for a moment. */
   async channelOfThread(owner: string, threadId: string): Promise<ChannelThread | null> {
     const key = `${owner}/${threadId}`;
     const cached = this.threadChannelCache.get(key);
     if (cached) return cached;
+    // Every request about a thread asks this, and the orchestrator's main chat is bound to no
+    // channel until its first message: do not read every binding from disk for each of them.
+    if ((this.unboundThreads.get(key) ?? 0) > Date.now()) return null;
     const all = await this.threads.scan(owner);
     this.threadChannelCache.clear();
     for (const binding of all) this.threadChannelCache.set(`${owner}/${binding.threadId}`, binding);
-    return this.threadChannelCache.get(key) ?? null;
+    const found = this.threadChannelCache.get(key) ?? null;
+    if (!found) {
+      if (this.unboundThreads.size > 500) this.unboundThreads.clear();
+      this.unboundThreads.set(key, Date.now() + 5000);
+    }
+    return found;
   }
   /** A thread's work queue: tasks delegated from it, in creation order. */
   async threadTasks(owner: string, threadId: string): Promise<AgentTask[]> {
@@ -442,7 +454,11 @@ export class AgentService {
       throw new AppError("Task is running; checkpoint it to waiting before delegating", 409);
     if (target !== ORCHESTRATOR_CHANNEL_ID) {
       const channel = await this.getChannel(owner, target);
-      if (!channel || channel.status === "archived")
+      if (
+        !channel ||
+        channel.status === "archived" ||
+        !(await this.access.scope(owner)).allows(target)
+      )
         throw new AppError("Target channel not found", 404);
     }
     const updated: AgentTask = {
@@ -459,24 +475,19 @@ export class AgentService {
       updatedAt: new Date().toISOString(),
     };
     await this.db.put(owner, "tasks", updated);
-    const channel = await this.getChannel(owner, target);
-    if (channel)
-      await this.putChannel(owner, {
-        ...channel,
-        status: "active",
-        lastActiveAt: new Date().toISOString(),
-      });
+    await this.touchChannel(owner, target, {
+      status: "active",
+      lastActiveAt: new Date().toISOString(),
+    });
     return updated;
   }
   /**
    * What a guest is shown of the work: the tasks of the channels they were added to, and what came
    * of them. The goals, ideas, memories and notifications belong to the whole workspace.
    */
-  private async guestSnapshot(owner: string): Promise<AgentWorkspace> {
-    const open = await this.access.guestChannelIds(owner);
-    const inChannel = (id?: string) => open.has(id ?? ORCHESTRATOR_CHANNEL_ID);
-    const tasks = (await this.db.list<AgentTask>(owner, "tasks")).filter(
-      (task) => inChannel(task.channelId) || inChannel(task.originChannelId),
+  private async guestSnapshot(owner: string, scope: Scope): Promise<AgentWorkspace> {
+    const tasks = (await this.db.list<AgentTask>(owner, "tasks")).filter((task) =>
+      canSeeTask(scope, task),
     );
     const ids = new Set(tasks.map((task) => task.id));
     const [artifacts, identity] = await Promise.all([
@@ -496,8 +507,53 @@ export class AgentService {
       worker: { running: this.worker.running, lastTickAt: this.worker.lastTickAt },
     };
   }
+  /**
+   * The browser windows this person may be shown. The ones the agent opened in a private channel's
+   * threads belong to the people in that channel.
+   */
+  async visibleBrowsers<T extends { id: string }>(owner: string, sessions: T[]): Promise<T[]> {
+    const scope = await this.access.scope(owner);
+    if (!scope.person || sessions.length === 0) return sessions;
+    const hidden = new Set<string>();
+    for (const link of await this.db.list<{ id: string; sessionId: string }>(
+      owner,
+      "chat-browsers",
+    )) {
+      const channelId = link.id.startsWith("channel:")
+        ? link.id.slice("channel:".length)
+        : (await this.channelOfThread(owner, link.id))?.channelId;
+      if (channelId && !scope.allows(channelId)) hidden.add(link.sessionId);
+    }
+    return sessions.filter((session) => !hidden.has(session.id));
+  }
+  /**
+   * The reviews (and the receipts of what came of them) this person may be shown: the ones the agent
+   * prepared for a task of a private channel they are not in are not.
+   */
+  async visibleReviews<A extends { id: string; taskId?: string }, E extends { actionId?: string }>(
+    owner: string,
+    reviews: A[],
+    receipts: E[],
+  ): Promise<{ reviews: A[]; receipts: E[] }> {
+    const scope = await this.access.scope(owner);
+    if (!scope.person) return { reviews, receipts };
+    const tasks = new Map((await this.db.list<AgentTask>(owner, "tasks")).map((t) => [t.id, t]));
+    const hidden = new Set(
+      reviews
+        .filter((review) => {
+          const task = review.taskId ? tasks.get(review.taskId) : undefined;
+          return task && !canSeeTask(scope, task);
+        })
+        .map((review) => review.id),
+    );
+    return {
+      reviews: reviews.filter((review) => !hidden.has(review.id)),
+      receipts: receipts.filter((receipt) => !receipt.actionId || !hidden.has(receipt.actionId)),
+    };
+  }
   async snapshot(owner: string): Promise<AgentWorkspace> {
-    if (await this.access.isGuest(owner)) return this.guestSnapshot(owner);
+    const scope = await this.access.scope(owner);
+    if (scope.person?.role === "guest") return this.guestSnapshot(owner, scope);
     await this.ensure(owner);
     const [tasks, goals, projects, monitors, ideas, memories, artifacts, notifications, identity] =
       await Promise.all([
@@ -518,15 +574,21 @@ export class AgentService {
         "worker-status",
         `tasks:${ORCHESTRATOR_CHANNEL_ID}`,
       ));
+    // What belongs to a private channel is shown to the people in it: its tasks, and what came of
+    // them, and what the agent learned there.
+    const hidden = new Set(tasks.filter((task) => !canSeeTask(scope, task)).map((task) => task.id));
     return {
-      tasks: await this.present(owner, tasks),
-      goals,
-      projects,
-      monitors,
+      tasks: await this.present(
+        owner,
+        tasks.filter((task) => !hidden.has(task.id)),
+      ),
+      goals: goals.filter((goal) => !goal.channelId || scope.allows(goal.channelId)),
+      projects: projects.filter((project) => !project.channelId || scope.allows(project.channelId)),
+      monitors: monitors.filter((monitor) => !monitor.taskId || !hidden.has(monitor.taskId)),
       ideas,
-      memories,
-      artifacts,
-      notifications,
+      memories: memories.filter((memory) => !memory.channelId || scope.allows(memory.channelId)),
+      artifacts: artifacts.filter((artifact) => !artifact.taskId || !hidden.has(artifact.taskId)),
+      notifications: notifications.filter((note) => !note.taskId || !hidden.has(note.taskId)),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: {
         running:
@@ -672,13 +734,10 @@ export class AgentService {
     };
     await this.ensure(owner);
     await this.db.insertIfAbsent(owner, "tasks", task);
-    const channel = await this.getChannel(owner, channelId);
-    if (channel)
-      await this.putChannel(owner, {
-        ...channel,
-        status: "active",
-        lastActiveAt: new Date().toISOString(),
-      });
+    await this.touchChannel(owner, channelId, {
+      status: "active",
+      lastActiveAt: new Date().toISOString(),
+    });
     return (await this.db.get<AgentTask>(owner, "tasks", id)) ?? task;
   }
   async control(owner: string, id: string, action: "pause" | "resume" | "cancel" | "retry") {
@@ -1333,7 +1392,7 @@ export class AgentService {
     );
     return (await this.present(owner, [updated]))[0];
   }
-  async createGoal(owner: string, raw: unknown, id?: string) {
+  async createGoal(owner: string, raw: unknown, id?: string, channelId?: string) {
     const input = goalInputSchema.parse(raw);
     const goal: Goal = {
       id: id ?? randomUUID(),
@@ -1344,6 +1403,7 @@ export class AgentService {
       milestones: input.milestones.map((title) => ({ id: randomUUID(), title, done: false })),
       createdAt: date(),
       createdBy: owner,
+      ...(channelId ? { channelId } : {}),
     };
     await this.db.insertIfAbsent(owner, "goals", goal);
     return (await this.db.get<Goal>(owner, "goals", goal.id)) ?? goal;
@@ -1362,7 +1422,7 @@ export class AgentService {
           await this.control(owner, task.id, "pause");
     return saved;
   }
-  async createProject(owner: string, raw: unknown): Promise<Project> {
+  async createProject(owner: string, raw: unknown, channelId?: string): Promise<Project> {
     const input = createProjectSchema.parse(raw);
     const project: Project = {
       id: randomUUID(),
@@ -1370,6 +1430,7 @@ export class AgentService {
       description: input.description,
       createdAt: date(),
       updatedAt: date(),
+      ...(channelId ? { channelId } : {}),
     };
     return this.db.put(owner, "projects", project);
   }
@@ -1403,7 +1464,13 @@ export class AgentService {
     if (!(await this.db.get<Project>(owner, "projects", projectId)))
       throw new AppError("Project not found", 404);
   }
-  async createMonitor(owner: string, raw: unknown, idempotencyKey?: string) {
+  async createMonitor(
+    owner: string,
+    raw: unknown,
+    idempotencyKey?: string,
+    /** The private channel it is asked for in, which keeps it from the people who are not in it. */
+    channelId?: string,
+  ) {
     const input = monitorInputSchema.parse(raw);
     const url = new URL(input.url);
     if (url.protocol === "sample:" && this.config.mode !== "sample")
@@ -1425,6 +1492,7 @@ export class AgentService {
         title: input.title,
         prompt: `Watch ${input.url} for ${input.condition}${input.value ? `: ${input.value}` : ""}`,
         input: { monitorId: id },
+        ...(channelId ? { channelId } : {}),
       },
       `monitor:${id}`,
       true,

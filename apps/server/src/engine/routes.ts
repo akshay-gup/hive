@@ -120,19 +120,38 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
       await service.answer(c.get("owner"), c.req.param("id"), body.answer, body.fields),
     );
   });
-  app.get("/channels", async (c) => c.json(await service.listChannels(c.get("owner"))));
+  app.get("/channels", async (c) => {
+    const owner = c.get("owner");
+    const [channels, person] = await Promise.all([
+      service.listChannels(owner),
+      service.access.person(owner),
+    ]);
+    return c.json(channels.map((channel) => service.access.view(person, channel)));
+  });
   app.post("/channels", async (c) =>
     c.json(await service.createChannel(c.get("owner"), await c.req.json()), 201),
   );
-  /** Who was added to a channel. Only an owner or admin sees or changes it. */
+  /** Who is in a channel, and what the person asking may do about it. */
   app.get("/channels/:id/members", async (c) =>
-    c.json(await service.channelAccess(c.get("owner"), c.req.param("id"))),
+    c.json(await service.people.get(c.get("owner"), c.req.param("id"))),
   );
-  app.put("/channels/:id/members", async (c) =>
-    c.json(await service.setChannelMembers(c.get("owner"), c.req.param("id"), await c.req.json())),
+  /** Put people in a channel and take people out: joining and leaving are doing it to yourself. */
+  app.post("/channels/:id/members", async (c) =>
+    c.json(
+      (await service.people.change(c.get("owner"), c.req.param("id"), await c.req.json())) ?? {
+        left: true,
+      },
+    ),
+  );
+  app.post("/channels/:id/managers", async (c) =>
+    c.json(await service.people.managers(c.get("owner"), c.req.param("id"), await c.req.json())),
+  );
+  /** Make a channel private or public, or choose whether everyone in the workspace is in it. */
+  app.patch("/channels/:id", async (c) =>
+    c.json(await service.people.settings(c.get("owner"), c.req.param("id"), await c.req.json())),
   );
   app.post("/channels/:id/archive", async (c) =>
-    c.json(await service.archiveChannel(c.req.param("id"))),
+    c.json(await service.archiveChannel(c.get("owner"), c.req.param("id"))),
   );
   app.get("/channels/:id/files", async (c) => {
     const query = z
@@ -396,7 +415,8 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   // Notifications belong to the workspace, as reading one does: dismissing removes it for everyone.
   app.post("/notifications/dismiss-all", async (c) => {
     const owner = c.get("owner");
-    const all = await service.db.list<AgentNotification>(owner, "notifications");
+    // Only what this person is shown: the notices of a private channel's work are not theirs to clear.
+    const all = (await service.snapshot(owner)).notifications;
     for (const notification of all)
       await service.db.remove(owner, "notifications", notification.id);
     return c.json({ removed: all.length });

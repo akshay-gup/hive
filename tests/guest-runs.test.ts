@@ -26,7 +26,7 @@ async function workspace(t: TestContext) {
   await user("acct:gus", "guest");
   const acme = await f.agent.createChannel("acct:olive", { name: "Acme" });
   const hr = await f.agent.createChannel("acct:olive", { name: "HR" });
-  await f.agent.setChannelMembers("acct:olive", acme.id, { members: ["gus@example.com"] });
+  await f.agent.people.change("acct:olive", acme.id, { add: ["gus@example.com"] });
   const acmeThread = await f.agent.registerThread("acct:olive", acme.id, "Kickoff");
   const hrThread = await f.agent.registerThread("acct:olive", hr.id, "Payroll");
   const rules = new PermissionRulesStore(f.config.dataDir);

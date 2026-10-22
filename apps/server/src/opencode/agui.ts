@@ -570,6 +570,21 @@ async function guestRefusal(
   return undefined;
 }
 
+/** A private channel is its members': a run in it is refused to anyone else, whatever got it this far. */
+async function closedChannel(
+  deps: OpencodeShimDeps,
+  owner: string,
+  binding: ChannelThread | null,
+): Promise<string | undefined> {
+  if (!binding) return undefined;
+  try {
+    await deps.service.access.assertChannel(owner, binding.channelId);
+  } catch {
+    return "Channel not found";
+  }
+  return undefined;
+}
+
 async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   const { deps, owner, input, send, signal } = ctx;
   const mention = normalizeMention(deps.config.agentMention);
@@ -599,7 +614,9 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
         ORCHESTRATOR_CHANNEL_ID,
         "Main chat",
       );
-  const refusal = guest ? await guestRefusal(deps, owner, binding) : undefined;
+  const refusal = guest
+    ? await guestRefusal(deps, owner, binding)
+    : await closedChannel(deps, owner, binding);
   if (!binding || refusal) {
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
     send({

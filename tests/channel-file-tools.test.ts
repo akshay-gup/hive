@@ -194,7 +194,7 @@ test("a file is shared from the workspace the agent is working in", async () => 
     false,
   );
   // Nothing can be written into an archived channel.
-  await server.agent.archiveChannel(channel.id);
+  await server.agent.archiveChannel("alice", channel.id);
   assert.match(
     String((await toolsFor(channel.id).call("send_file", { path: "new.md", content: "x" })).error),
     /archived/i,

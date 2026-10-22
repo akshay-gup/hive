@@ -104,8 +104,8 @@ async function setUp() {
   world.acme = await server.agent.createChannel(owner("olive"), { name: "Acme" });
   world.hr = await server.agent.createChannel(owner("olive"), { name: "HR" });
   // Whoever named the guest by email address, in whatever case, adds them.
-  const added = await call("ada", "PUT", `/api/agent/channels/${world.acme.id}/members`, {
-    members: ["GUS@example.com"],
+  const added = await call("ada", "POST", `/api/agent/channels/${world.acme.id}/members`, {
+    add: ["GUS@example.com"],
   });
   assert.equal(added.status, 200);
   world.acmeThread = await server.agent.registerThread(owner("olive"), world.acme.id, "Kickoff");
@@ -129,10 +129,9 @@ test("everyone but a guest sees every channel, and a guest only the ones they we
       .sort();
   assert.deepEqual(await names("max"), ["Acme", "HR", "Orchestrator"].sort());
   assert.deepEqual(await names("gus"), ["Acme"]);
-  // Added by email address, whatever the case, and kept in lower case.
-  assert.deepEqual(w.acme.members, undefined);
+  // Added by email address, whatever the case, and kept in lower case, beside the person who made it.
   const stored = await db.get<Channel>("shared", "channels", w.acme.id);
-  assert.deepEqual(stored?.members, ["gus@example.com"]);
+  assert.deepEqual(stored?.members, ["gus@example.com", "olive@example.com"]);
   // Signing in as a guest did not make them an orchestrator chat.
   assert.equal(await db.get(owner("gus"), "channels", "orchestrator"), null);
 });
@@ -409,34 +408,34 @@ test("a guest can see what the agent is waiting to be allowed to do, and cannot 
   );
 });
 
-test("only an owner or admin chooses who is in a channel, and the guests they can choose from are the ones who have come in", async () => {
+test("a guest is added to a public channel by an owner or admin, and to a private one by anyone in it", async () => {
   const w = await setUp();
-  // A member, and the guest, are told no.
-  assert.equal((await call("max", "GET", `/api/agent/channels/${w.hr.id}/members`)).status, 403);
+  const members = (id: string) => `/api/agent/channels/${id}/members`;
+  // A member can put the team in a public channel but not a guest, and a guest can put no one anywhere.
   assert.equal(
-    (await call("max", "PUT", `/api/agent/channels/${w.hr.id}/members`, { members: [] })).status,
+    (await call("max", "POST", members(w.hr.id), { add: ["gus@example.com"] })).status,
     403,
   );
   assert.equal(
-    (await call("gus", "PUT", `/api/agent/channels/${w.acme.id}/members`, { members: [] })).status,
+    (await call("gus", "POST", members(w.acme.id), { add: ["max@example.com"] })).status,
     403,
   );
-  const listed = await json(await call("olive", "GET", `/api/agent/channels/${w.acme.id}/members`));
-  assert.deepEqual(listed, {
-    members: ["gus@example.com"],
-    guests: [{ email: "gus@example.com", name: "Gus" }],
+  assert.equal(
+    (await call("gus", "POST", members(w.acme.id), { add: ["gus@example.com", "x@example.com"] }))
+      .status,
+    403,
+  );
+  // Whoever is added opens the channel at once, and whoever is taken out closes it.
+  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 404);
+  assert.equal(
+    (await call("max", "POST", members(w.hr.id), { add: ["zed@example.com"] })).status,
+    403,
+    "someone who has not opened this workspace is for an owner or admin to add",
+  );
+  const added = await call("olive", "POST", members(w.hr.id), {
+    add: ["Zed@example.com", " gus@example.com ", "gus@example.com"],
   });
-  // What is saved is lower case, without repeats, and in order.
-  const saved = await call("olive", "PUT", `/api/agent/channels/${w.hr.id}/members`, {
-    members: ["Zed@example.com", " gus@example.com ", "gus@example.com", "amy@example.com"],
-  });
-  assert.equal(saved.status, 200);
-  assert.deepEqual((await json(saved)).members, [
-    "amy@example.com",
-    "gus@example.com",
-    "zed@example.com",
-  ]);
-  // Adding someone opens the channel to them at once, and taking them out closes it.
+  assert.equal(added.status, 200);
   assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 200);
   assert.deepEqual(
     ((await json(await call("gus", "GET", "/api/agent/channels"))) as Channel[])
@@ -444,23 +443,35 @@ test("only an owner or admin chooses who is in a channel, and the guests they ca
       .sort(),
     ["Acme", "HR"],
   );
-  await call("olive", "PUT", `/api/agent/channels/${w.hr.id}/members`, { members: [] });
-  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 404);
-  // Not an address, and not the orchestrator.
+  // A guest sees who else is in a channel they were added to, and can take themselves out of a
+  // private channel but not a public one.
+  const seen = await json(await call("gus", "GET", members(w.hr.id)));
+  assert.deepEqual(
+    seen.people.map((p: { email: string; role: string | null }) => [p.email, p.role]),
+    [
+      ["olive@example.com", "owner"],
+      ["gus@example.com", "guest"],
+      ["zed@example.com", null],
+    ],
+  );
+  assert.equal(seen.you.leave, false);
   assert.equal(
-    (await call("olive", "PUT", `/api/agent/channels/${w.hr.id}/members`, { members: ["nobody"] }))
-      .status,
-    422,
+    (await call("gus", "POST", members(w.hr.id), { remove: ["gus@example.com"] })).status,
+    403,
   );
   assert.equal(
-    (await call("olive", "PUT", "/api/agent/channels/orchestrator/members", { members: [] }))
-      .status,
+    (await call("olive", "POST", members(w.hr.id), { remove: ["gus@example.com"] })).status,
+    200,
+  );
+  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 404);
+  // Not an address, and not the orchestrator.
+  assert.equal((await call("olive", "POST", members(w.hr.id), { add: ["nobody"] })).status, 422);
+  assert.equal(
+    (await call("olive", "POST", members("orchestrator"), { add: ["max@example.com"] })).status,
     404,
   );
   // A channel that is archived is not one a guest is told about.
-  await call("olive", "PUT", `/api/agent/channels/${w.hr.id}/members`, {
-    members: ["gus@example.com"],
-  });
+  await call("olive", "POST", members(w.hr.id), { add: ["gus@example.com"] });
   await call("olive", "POST", `/api/agent/channels/${w.hr.id}/archive`, {});
   assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 404);
 });
