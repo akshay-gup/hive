@@ -70,6 +70,8 @@ export async function managedWorkspace<P extends Record<string, TestPerson>>(
     /** The id this workspace knows a person by. */
     owner: (who: Who) => `acct:${people[who].id}`,
     signIn,
+    /** The session token a person is signed in with. */
+    session: (who: Who) => sessions.get(who),
     call: (who: Who, method: string, path: string, body?: unknown) =>
       server.app.request(path, {
         method,

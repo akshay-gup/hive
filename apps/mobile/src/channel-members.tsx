@@ -158,6 +158,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
                 <>
                   <Field
                     label="What this channel is for"
+                    compact
                     value={topic ?? ""}
                     onChangeText={setTopic}
                     placeholder="Add a line on what this channel is for"
