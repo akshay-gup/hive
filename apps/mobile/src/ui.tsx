@@ -695,7 +695,7 @@ export function SearchField({
           backgroundColor: colors.surface,
           borderWidth: 1,
           borderColor: focused ? colors.primary : colors.lineStrong,
-          borderRadius: slim ? radius.sm : radius.md,
+          borderRadius: slim ? radius.pill : radius.md,
           paddingHorizontal: slim ? 10 : 14,
           ...(focused ? { boxShadow: shadow.focus } : null),
         },
