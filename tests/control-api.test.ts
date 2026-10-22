@@ -939,3 +939,30 @@ test("sweeping clears expired sessions, sign-in codes and Google sign-ins, and n
   assert.equal((await ada.get("/v1/me")).status, 200);
   assert.equal(await control.accounts.sweep(now), 0);
 });
+
+test("an invite link opens the web app, which is a site of its own, and an older link on the control plane goes on to it", async () => {
+  const split = createControlApp(db, config({ appUrl: "https://app.example.test" }), {
+    provisioner,
+    keys,
+    mailer: { async sendInvite() {} },
+  });
+  const owner = await signIn("apphost@example.com");
+  const id = await readyWorkspace(owner);
+  const call = (method: string, path: string, body?: unknown) =>
+    split.app.request(path, {
+      method,
+      headers: { Authorization: `Bearer ${owner.token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  const made = (await (await call("POST", `/v1/workspaces/${id}/invites`, {})).json()) as {
+    link: string;
+  };
+  const token = made.link.split("/").pop() as string;
+  assert.equal(made.link, `https://app.example.test/join/${token}`);
+  // A link made before this, on the control plane's own address, is sent on to the app.
+  const old = await split.app.request(`/join/${token}`);
+  assert.equal(old.status, 302);
+  assert.equal(old.headers.get("location"), `https://app.example.test/join/${token}`);
+  // Where the control plane is the web app itself, links stay on it and nothing is redirected.
+  assert.equal((await control.app.request(`/join/${token}`)).status, 404);
+});

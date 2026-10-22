@@ -120,8 +120,10 @@ export interface WorkspaceServiceOptions {
   provisioner: Provisioner;
   mailer: Mailer;
   keys: SigningKeys;
-  /** The control plane's address, which invite links are made from and workspaces allow. */
+  /** The control plane's address, which workspaces allow. */
   publicUrl: string;
+  /** Where the web app is opened, which invite links are made from. The control plane's own address when it serves the app. */
+  appUrl?: string;
   allowedOrigins: string[];
   maxWorkspacesPerAccount: number;
   /** The model settings a new workspace is given: its model, and the address and key to reach it by. */
@@ -562,7 +564,7 @@ export class WorkspaceService {
       uses: 0,
     };
     await this.db.put(HOME, "invites", stored);
-    const link = `${this.options.publicUrl}/join/${token}`;
+    const link = `${this.options.appUrl ?? this.options.publicUrl}/join/${token}`;
     if (email)
       await this.options.mailer
         .sendInvite({ to: email, workspaceName: record.name, inviterName: account.name, link })

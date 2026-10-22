@@ -5,8 +5,13 @@ export interface ControlConfig {
   mode: "sample" | "live";
   port: number;
   host: string;
-  /** Where people reach the control plane and its web app: the base of invite links, and the origin workspaces allow. */
+  /** Where people reach the control plane, and the origin workspaces allow. */
   publicUrl: string;
+  /**
+   * Where people open the web app, which is the base of invite links: the control plane's own
+   * address when it serves the app, and the website's when the app is a site of its own.
+   */
+  appUrl?: string;
   dataDir: string;
   /** A Postgres to keep accounts and workspaces in; without one, an embedded database in `dataDir`. */
   databaseUrl?: string;
@@ -50,6 +55,7 @@ export function readControlConfig(env: Env = process.env): ControlConfig {
     /\/+$/,
     "",
   );
+  const appUrl = (env.CONTROL_APP_URL?.trim() || publicUrl).replace(/\/+$/, "");
   const maxWorkspaces = Number(env.CONTROL_MAX_WORKSPACES ?? 3);
   if (!Number.isInteger(maxWorkspaces) || maxWorkspaces < 1)
     throw new Error("CONTROL_MAX_WORKSPACES must be a whole number of at least 1");
@@ -58,6 +64,7 @@ export function readControlConfig(env: Env = process.env): ControlConfig {
     port,
     host,
     publicUrl,
+    appUrl,
     dataDir: resolve(env.CONTROL_DATA_DIR ?? ".hive-control"),
     databaseUrl: env.CONTROL_DATABASE_URL?.trim() || undefined,
     webDir: env.CONTROL_WEB_DIR?.trim() || undefined,
@@ -92,6 +99,8 @@ export function readControlConfig(env: Env = process.env): ControlConfig {
       );
     if (!publicUrl.startsWith("https://"))
       throw new Error("Live mode needs CONTROL_PUBLIC_URL to be an https address");
+    if (!appUrl.startsWith("https://"))
+      throw new Error("Live mode needs CONTROL_APP_URL to be an https address");
   }
   return config;
 }

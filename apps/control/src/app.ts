@@ -54,6 +54,8 @@ const sameSecret = (given: string | undefined, expected: string) =>
 
 export function createControlApp(db: ControlStore, config: ControlConfig, deps: ControlDeps) {
   const accounts = new Accounts(db);
+  // Where invite links open: the web app, which is a site of its own on Cloudflare.
+  const appUrl = config.appUrl ?? config.publicUrl;
   const releases = new Releases(db);
   const gateway = deps.gateway
     ? new ModelGateway(
@@ -71,6 +73,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     mailer: deps.mailer ?? consoleMailer,
     keys: deps.keys,
     publicUrl: config.publicUrl,
+    appUrl,
     allowedOrigins: config.allowedOrigins,
     maxWorkspacesPerAccount: config.maxWorkspacesPerAccount,
     modelEnvironment: gateway ? (id) => gateway.environmentFor(id) : undefined,
@@ -79,6 +82,12 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
   const origins = new Set([new URL(config.publicUrl).origin, ...config.allowedOrigins]);
 
   const app = new Hono<{ Variables: { account: Account } }>();
+  // An invite link made before links pointed at the web app points here. Where the web app is a
+  // site of its own, the link goes on to it; where this server is the web app, it is served as a page.
+  if (appUrl !== config.publicUrl)
+    app.get("/join/:token", (c) =>
+      c.redirect(`${appUrl}/join/${encodeURIComponent(c.req.param("token"))}`, 302),
+    );
   app.use("*", async (c, next) => {
     const origin = c.req.header("origin");
     if (origin && !origins.has(origin)) return c.json({ error: "Origin is not allowed" }, 403);

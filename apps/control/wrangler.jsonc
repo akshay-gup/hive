@@ -32,6 +32,8 @@
   "vars": {
     "CONTROL_MODE": "live",
     "CONTROL_PUBLIC_URL": "https://api.vi-ak.com",
+    // The web app is a site of its own: invite links open there.
+    "CONTROL_APP_URL": "https://app.vi-ak.com",
     "CONTROL_ALLOWED_ORIGINS": "https://app.vi-ak.com",
     // One workspace each, made or joined.
     "CONTROL_MAX_WORKSPACES": "1",

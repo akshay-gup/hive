@@ -302,7 +302,8 @@ The Worker answers with an error until the signing key is set. Add `<CONTROL_PUB
 | Variable | Meaning |
 | --- | --- |
 | `CONTROL_MODE` | `sample` (default): anyone signs in by email, loopback only. `live`: Google sign-in, an https address, and a host that people can reach. |
-| `CONTROL_PUBLIC_URL` | Where people reach it. Invitation links are made from it and every workspace allows its origin. Must be https in live mode. Default `http://localhost:<port>`. |
+| `CONTROL_PUBLIC_URL` | Where people reach it. Every workspace allows its origin. Must be https in live mode. Default `http://localhost:<port>`. |
+| `CONTROL_APP_URL` | Where people open the web app, which invitation links are made from. Leave it out when the control plane serves the app itself (the Node server); set it when the app is a site of its own, as on Cloudflare (`https://app.example.com`). The control plane sends `/join/<token>` on to it, so a link made on the control plane's own address still works. Must be https in live mode. |
 | `CONTROL_PORT` / `CONTROL_HOST` | Default 8800 and 127.0.0.1 (use 0.0.0.0 in a container). |
 | `CONTROL_DATA_DIR` | Its database and signing key (default `.hive-control`). |
 | `CONTROL_DATABASE_URL` | A Postgres to use instead of the embedded database in the data directory. |
