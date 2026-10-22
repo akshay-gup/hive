@@ -675,12 +675,15 @@ export function SearchField({
   value,
   onChangeText,
   style,
+  slim,
 }: {
   label: string;
   placeholder: string;
   value: string;
   onChangeText: (value: string) => void;
   style?: ViewStyle;
+  /** A thinner box for a list's head, as in a sidebar. */
+  slim?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -692,14 +695,16 @@ export function SearchField({
           backgroundColor: colors.surface,
           borderWidth: 1,
           borderColor: focused ? colors.primary : colors.lineStrong,
-          borderRadius: radius.md,
-          paddingHorizontal: 14,
+          borderRadius: slim ? radius.sm : radius.md,
+          paddingHorizontal: slim ? 10 : 14,
           ...(focused ? { boxShadow: shadow.focus } : null),
         },
         style,
       ]}
     >
-      <Search size={16} color={colors.muted} />
+      <View style={{ flexShrink: 0 }}>
+        <Search size={16} color={colors.muted} />
+      </View>
       <TextInput
         accessibilityLabel={label}
         placeholder={placeholder}
@@ -711,7 +716,12 @@ export function SearchField({
         returnKeyType="search"
         autoCorrect={false}
         style={[
-          { flex: 1, paddingVertical: 12, fontSize: fontSize.body, color: colors.text },
+          {
+            flex: 1,
+            paddingVertical: slim ? 6 : 12,
+            fontSize: slim ? fontSize.ui : fontSize.body,
+            color: colors.text,
+          },
           noOutline,
         ]}
       />

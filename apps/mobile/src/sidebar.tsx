@@ -32,6 +32,7 @@ import {
   Mascot,
   panelStyle,
   radius,
+  SearchField,
   s,
   useHoverTip,
   type WebPressState,
@@ -39,14 +40,14 @@ import {
 import { useWorkspace } from "./workspace";
 
 /**
- * How a row is laid out. On a wide window a row is 36 px, which leaves the list room to breathe;
- * where it is touched it is 40 px. The icon starts 20 px in on a wide window (the list's 12 plus the
- * row's 8), in line with the header above.
+ * How a row is laid out, thin as Slack's are so a long list of channels stays in view. On a wide
+ * window a row is 30 px; where it is touched it is 38 px. The icon starts 20 px in on a wide window
+ * (the list's 12 plus the row's 8), in line with the header above.
  */
 const rowMetrics = (dense: boolean) =>
   dense
-    ? { padX: 8, padY: 8, gap: 12, icon: 17, radius: 8 }
-    : { padX: 8, padY: 10, gap: 12, icon: 17, radius: 10 };
+    ? { padX: 8, padY: 5, gap: 10, icon: 16, radius: 6 }
+    : { padX: 8, padY: 9, gap: 12, icon: 17, radius: 8 };
 
 function SidebarRow({
   icon: Icon,
@@ -83,12 +84,12 @@ function SidebarRow({
             : "transparent",
       })}
     >
-      <Icon size={m.icon} color={active ? colors.primaryText : colors.muted} />
+      <Icon size={m.icon} strokeWidth={1.75} color={active ? colors.primaryText : colors.muted} />
       <Text
         style={[
           s.text,
           dense && { fontSize: fontSize.ui, lineHeight: 20 },
-          { flex: 1, fontWeight: active ? "500" : "400" },
+          { flex: 1, fontWeight: "400" },
         ]}
         numberOfLines={1}
       >
@@ -262,6 +263,7 @@ export function Sidebar({
   const [loading, setLoading] = useState(true);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [find, setFind] = useState("");
 
   const load = useCallback(
     async (quiet = false) => {
@@ -333,8 +335,13 @@ export function Sidebar({
     select(next);
     onNavigate?.();
   }
+  // "Find a conversation" narrows the list to the names that hold what was typed.
+  const needle = find.trim().toLowerCase();
+  const agentName = data?.identity.name || "Hive";
+  const showAgent = !guest && (!needle || agentName.toLowerCase().includes(needle));
   const userChannels = (channels ?? [])
     .filter(isListed)
+    .filter((channel) => !needle || channel.name.toLowerCase().includes(needle))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const newChannelTip = useHoverTip("New channel");
@@ -397,20 +404,43 @@ export function Sidebar({
     </>
   );
 
+  // Above the list, where Slack has it, so finding a conversation is the first thing to hand.
+  const search = (
+    <SearchField
+      slim
+      label="Find a conversation"
+      placeholder="Find a conversation…"
+      value={find}
+      onChangeText={setFind}
+    />
+  );
+
   // The conversations: the agent, then the channels with a plus to add one.
   const conversations = (
     <>
-      {!guest && (
+      {showAgent && (
         <SidebarRow
           dense={dense}
           icon={Bot}
-          label={data?.identity.name || "Hive"}
+          label={agentName}
           active={section === "chat" && isMainActive}
           onPress={() => conversation(mainSelection)}
         />
       )}
-      <View style={[s.row, { marginTop: guest ? 0 : 24, marginBottom: 4, paddingLeft: 8 }]}>
-        <Text style={[s.label, { flex: 1 }]}>Channels</Text>
+      <View
+        style={[
+          s.row,
+          { marginTop: guest || !showAgent ? 0 : 16, marginBottom: 2, paddingLeft: 8 },
+        ]}
+      >
+        <Text
+          style={[
+            s.text,
+            { flex: 1, fontSize: fontSize.ui, fontWeight: "500", color: colors.muted },
+          ]}
+        >
+          Channels
+        </Text>
         {!guest && (
           <Pressable
             accessibilityRole="button"
@@ -427,7 +457,7 @@ export function Sidebar({
               backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
             })}
           >
-            <Plus size={16} color={colors.muted} />
+            <Plus size={16} strokeWidth={1.75} color={colors.muted} />
             {newChannelTip.tip}
           </Pressable>
         )}
@@ -457,6 +487,11 @@ export function Sidebar({
             onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
           />
         ))
+      )}
+      {!!needle && !loading && userChannels.length === 0 && !showAgent && (
+        <Text style={[s.small, { paddingHorizontal: 8, paddingVertical: 6 }]}>
+          No conversation by that name.
+        </Text>
       )}
       {hosted && !guest && !creating && (
         <SidebarRow
@@ -598,9 +633,10 @@ export function Sidebar({
           >
             {title}
           </View>
+          <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}>{search}</View>
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 12, gap: 2 }}
+            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 1 }}
           >
             {conversations}
           </ScrollView>
@@ -666,9 +702,10 @@ export function Sidebar({
         )}
         <IconButton icon={X} label="Close navigation" onPress={() => onNavigate?.()} />
       </View>
+      <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}>{search}</View>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8, gap: 2 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8, gap: 1 }}
       >
         {conversations}
         {!guest && (
