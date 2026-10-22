@@ -230,14 +230,14 @@ export const financeArt = {
 
 /** Text sizes. Use these rather than numbers. */
 export const fontSize = {
-  micro: 11,
-  caption: 11.5,
-  small: 12.5,
-  ui: 13.5,
-  body: 14.5,
-  heading: 15.5,
-  title: 19,
-  display: 25,
+  micro: 10.5,
+  caption: 11,
+  small: 12,
+  ui: 13,
+  body: 14,
+  heading: 15,
+  title: 18,
+  display: 24,
   /**
    * What text typed into a box is set in. Not smaller than 16: a phone's browser zooms the page in
    * when a box with smaller text is tapped, and does not zoom back.
@@ -247,14 +247,14 @@ export const fontSize = {
 
 /** Sizes with their line heights and weights, for spreading into a style. */
 export const type = {
-  display: { fontSize: fontSize.display, lineHeight: 32, fontWeight: "600", letterSpacing: -0.4 },
-  title: { fontSize: fontSize.title, lineHeight: 26, fontWeight: "600", letterSpacing: -0.2 },
-  heading: { fontSize: fontSize.heading, lineHeight: 22, fontWeight: "600", letterSpacing: -0.1 },
-  body: { fontSize: fontSize.body, lineHeight: 21 },
-  ui: { fontSize: fontSize.ui, lineHeight: 19 },
-  small: { fontSize: fontSize.small, lineHeight: 18 },
-  caption: { fontSize: fontSize.caption, lineHeight: 16 },
-  micro: { fontSize: fontSize.micro, lineHeight: 15 },
+  display: { fontSize: fontSize.display, lineHeight: 30, fontWeight: "600", letterSpacing: -0.4 },
+  title: { fontSize: fontSize.title, lineHeight: 24, fontWeight: "600", letterSpacing: -0.2 },
+  heading: { fontSize: fontSize.heading, lineHeight: 21, fontWeight: "600", letterSpacing: -0.1 },
+  body: { fontSize: fontSize.body, lineHeight: 20 },
+  ui: { fontSize: fontSize.ui, lineHeight: 18 },
+  small: { fontSize: fontSize.small, lineHeight: 17 },
+  caption: { fontSize: fontSize.caption, lineHeight: 15 },
+  micro: { fontSize: fontSize.micro, lineHeight: 14 },
   label: {
     fontSize: fontSize.micro,
     lineHeight: 16,

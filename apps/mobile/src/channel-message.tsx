@@ -203,7 +203,7 @@ export function ChannelMessage({
             <AssistantResponse content={text} />
           ) : (
             // Flat, as in a team chat: everyone's words sit on the page, on the left, under their name.
-            <MentionText text={text} handles={mentions} style={[s.text, { lineHeight: 21 }]} />
+            <MentionText text={text} handles={mentions} style={[s.text, { lineHeight: 20 }]} />
           )}
           {onReply && hasThread && (
             <Pressable

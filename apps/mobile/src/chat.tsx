@@ -107,7 +107,7 @@ import { useWorkspace } from "./workspace";
 
 const displayParameters = z.record(z.string(), z.unknown());
 /** Smallest height of the message box; it grows with the text. */
-const INPUT_MIN = 40;
+const INPUT_MIN = 36;
 
 /** Client mirror of the server's mention gate (AGENT_MENTION, default @hive). */
 const AGENT_MENTION = "@hive";
@@ -1441,7 +1441,7 @@ export function ChatScreen({
                 borderWidth: 1,
                 borderColor: focused ? colors.primary : colors.lineStrong,
                 backgroundColor: colors.paper,
-                padding: denseUi ? 4 : 6,
+                padding: 4,
                 ...(focused ? { boxShadow: shadow.focus } : null),
               }}
             >
@@ -1486,11 +1486,11 @@ export function ChatScreen({
                   accessibilityState={{ expanded: picking }}
                   onPress={() => setPicking(!picking)}
                   style={({ pressed }) => ({
-                    width: denseUi ? 32 : 38,
-                    height: denseUi ? 32 : 38,
+                    width: denseUi ? 32 : 34,
+                    height: denseUi ? 32 : 34,
                     alignItems: "center",
                     justifyContent: "center",
-                    borderRadius: denseUi ? 16 : 19,
+                    borderRadius: denseUi ? 16 : 17,
                     backgroundColor: picking || pressed ? colors.primarySoft : "transparent",
                   })}
                 >
@@ -1553,10 +1553,10 @@ export function ChatScreen({
                     minHeight: inputMin,
                     maxHeight: 140,
                     fontSize: fineInput ? fontSize.body : fontSize.input,
-                    lineHeight: fineInput ? 21 : 22,
+                    lineHeight: fineInput ? 20 : 22,
                     paddingHorizontal: 2,
-                    paddingTop: denseUi ? 6 : 10,
-                    paddingBottom: denseUi ? 6 : 10,
+                    paddingTop: denseUi ? 6 : 8,
+                    paddingBottom: denseUi ? 6 : 8,
                     ...noFocusRing,
                   }}
                   multiline
@@ -1612,9 +1612,9 @@ export function ChatScreen({
                   disabled={!replying && (!draft.trim() || !loaded || !isReady)}
                   onPress={replying ? () => void stop() : send}
                   style={({ pressed }) => ({
-                    width: denseUi ? 32 : 38,
-                    height: denseUi ? 32 : 38,
-                    borderRadius: denseUi ? 16 : 19,
+                    width: denseUi ? 32 : 34,
+                    height: denseUi ? 32 : 34,
+                    borderRadius: denseUi ? 16 : 17,
                     backgroundColor: colors.action,
                     alignItems: "center",
                     justifyContent: "center",
