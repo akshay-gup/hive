@@ -9,6 +9,7 @@ import { useMuseThread } from "./threads";
 import { colors, fontSize, GlassBar, IconButton, layout, Mascot, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
+const IDLE = "Here when you need me";
 const titles: Partial<Record<Section, { title: string; subtitle: string }>> = {
   activity: { title: "Activity", subtitle: "Plans, progress, decisions and results." },
   inbox: { title: "Inbox", subtitle: "Results, decisions and mentions for you." },
@@ -60,14 +61,14 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
           : activeTask.plan.find((step) => step.status === "running")?.title || activeTask.title
     : data?.tasks.some((task) => task.status === "queued")
       ? "Picking up your next task…"
-      : "Here when you need me";
+      : IDLE;
   const title = titles[section] || titles.apps;
   return (
     <GlassBar
       kind="bar"
       glass={!desktop}
       style={{
-        height: layout.headerHeight,
+        height: desktop ? layout.headerHeight : layout.phoneHeaderHeight,
         flexDirection: "row",
         alignItems: "center",
         gap: 12,
@@ -89,14 +90,17 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
             onPress={() => navigate("activity")}
             style={[s.row, { gap: 10 }]}
           >
-            <Mascot size={32} variant={data?.identity.avatar} />
+            <Mascot size={desktop ? 32 : 30} variant={data?.identity.avatar} />
             <View style={{ flex: 1 }}>
               <Text style={[s.heading, { fontSize: fontSize.heading, lineHeight: 20 }]}>
                 {agentName}
               </Text>
-              <Text style={s.small} numberOfLines={1}>
-                {status}
-              </Text>
+              {/* On a phone the line says something only when the agent is doing something. */}
+              {(desktop || status !== IDLE) && (
+                <Text style={s.small} numberOfLines={1}>
+                  {status}
+                </Text>
+              )}
             </View>
           </Pressable>
         ) : (
@@ -104,9 +108,11 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
             <Text style={[s.heading, { fontSize: fontSize.heading, lineHeight: 22 }]}>
               {title?.title}
             </Text>
-            <Text style={s.small} numberOfLines={1}>
-              {title?.subtitle}
-            </Text>
+            {desktop && (
+              <Text style={s.small} numberOfLines={1}>
+                {title?.subtitle}
+              </Text>
+            )}
           </View>
         )}
       </View>

@@ -344,9 +344,9 @@ function WorkspaceShell({
             <View
               style={{
                 display: desktop ? "none" : "flex",
-                paddingHorizontal: 22,
-                paddingTop: 6,
-                paddingBottom: desktop ? 22 : 7,
+                paddingHorizontal: 14,
+                paddingTop: 4,
+                paddingBottom: desktop ? 22 : 6,
                 alignItems: "center",
               }}
             >
@@ -356,8 +356,8 @@ function WorkspaceShell({
                 style={{
                   flexDirection: "row",
                   width: "100%",
-                  maxWidth: 370,
-                  padding: 5,
+                  maxWidth: 400,
+                  padding: 4,
                   borderRadius: radius.pill,
                 }}
               >
@@ -372,8 +372,8 @@ function WorkspaceShell({
                       onPress={() => navigate(item.id)}
                       style={{
                         flex: 1,
-                        height: 54,
-                        gap: 3,
+                        height: 46,
+                        gap: 2,
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor: active ? colors.primarySoft : "transparent",
@@ -381,7 +381,7 @@ function WorkspaceShell({
                       }}
                     >
                       <item.icon
-                        size={21}
+                        size={20}
                         strokeWidth={active ? 2 : 1.8}
                         color={active ? colors.primary : colors.muted}
                       />
@@ -410,7 +410,7 @@ function WorkspaceShell({
             accessibilityRole="alert"
             style={{
               position: "absolute",
-              bottom: desktop ? 28 : 94,
+              bottom: desktop ? 28 : 80,
               left: 20,
               right: 20,
               alignItems: "center",

@@ -138,7 +138,7 @@ export function NewChannelSheet() {
                   flex: 1,
                   minWidth: 0,
                   paddingVertical: 12,
-                  fontSize: fontSize.body,
+                  fontSize: fontSize.input,
                   color: colors.text,
                 },
                 Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null,

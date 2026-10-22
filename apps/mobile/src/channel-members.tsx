@@ -138,7 +138,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
           <Pending height={120} />
         )
       ) : (
-        <View style={{ gap: 28 }}>
+        <View style={{ gap: 22 }}>
           {you?.join && (
             <View style={s.row}>
               <Button

@@ -231,25 +231,30 @@ export const financeArt = {
 /** Text sizes. Use these rather than numbers. */
 export const fontSize = {
   micro: 11,
-  caption: 12,
-  small: 13,
-  ui: 14,
-  body: 15,
-  heading: 16,
-  title: 20,
-  display: 28,
+  caption: 11.5,
+  small: 12.5,
+  ui: 13.5,
+  body: 14.5,
+  heading: 15.5,
+  title: 19,
+  display: 25,
+  /**
+   * What text typed into a box is set in. Not smaller than 16: a phone's browser zooms the page in
+   * when a box with smaller text is tapped, and does not zoom back.
+   */
+  input: 16,
 } as const;
 
 /** Sizes with their line heights and weights, for spreading into a style. */
 export const type = {
-  display: { fontSize: fontSize.display, lineHeight: 36, fontWeight: "600", letterSpacing: -0.4 },
-  title: { fontSize: fontSize.title, lineHeight: 28, fontWeight: "600", letterSpacing: -0.2 },
-  heading: { fontSize: fontSize.heading, lineHeight: 24, fontWeight: "600", letterSpacing: -0.1 },
-  body: { fontSize: fontSize.body, lineHeight: 23 },
-  ui: { fontSize: fontSize.ui, lineHeight: 21 },
-  small: { fontSize: fontSize.small, lineHeight: 19 },
-  caption: { fontSize: fontSize.caption, lineHeight: 18 },
-  micro: { fontSize: fontSize.micro, lineHeight: 16 },
+  display: { fontSize: fontSize.display, lineHeight: 32, fontWeight: "600", letterSpacing: -0.4 },
+  title: { fontSize: fontSize.title, lineHeight: 26, fontWeight: "600", letterSpacing: -0.2 },
+  heading: { fontSize: fontSize.heading, lineHeight: 22, fontWeight: "600", letterSpacing: -0.1 },
+  body: { fontSize: fontSize.body, lineHeight: 21 },
+  ui: { fontSize: fontSize.ui, lineHeight: 19 },
+  small: { fontSize: fontSize.small, lineHeight: 18 },
+  caption: { fontSize: fontSize.caption, lineHeight: 16 },
+  micro: { fontSize: fontSize.micro, lineHeight: 15 },
   label: {
     fontSize: fontSize.micro,
     lineHeight: 16,
@@ -292,4 +297,4 @@ export const fontFamily = {
 } as const;
 
 /** Shared chrome sizes, so the sidebar header and the main header always line up. */
-export const layout = { headerHeight: 56 } as const;
+export const layout = { headerHeight: 56, phoneHeaderHeight: 50 } as const;

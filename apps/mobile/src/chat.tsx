@@ -1546,7 +1546,7 @@ export function ChatScreen({
                     height: inputHeight,
                     minHeight: INPUT_MIN,
                     maxHeight: 140,
-                    fontSize: fontSize.heading,
+                    fontSize: fontSize.input,
                     lineHeight: 22,
                     paddingHorizontal: 2,
                     paddingTop: 10,

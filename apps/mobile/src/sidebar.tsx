@@ -45,7 +45,7 @@ import { useWorkspace } from "./workspace";
 const rowMetrics = (dense: boolean) =>
   dense
     ? { padX: 8, padY: 5, gap: 10, icon: 16, radius: 6 }
-    : { padX: 8, padY: 9, gap: 12, icon: 17, radius: 8 };
+    : { padX: 8, padY: 8, gap: 12, icon: 17, radius: 8 };
 
 function SidebarRow({
   icon: Icon,
@@ -79,6 +79,7 @@ function SidebarRow({
         alignItems: "center",
         paddingVertical: m.padY,
         paddingHorizontal: m.padX,
+        minHeight: dense ? undefined : 38,
         borderRadius: m.radius,
         backgroundColor: active
           ? colors.primarySoft

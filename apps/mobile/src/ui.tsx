@@ -153,9 +153,9 @@ export const s = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     color: colors.text,
-    fontSize: fontSize.heading,
+    fontSize: fontSize.input,
     backgroundColor: colors.surface,
-    minHeight: 44,
+    minHeight: 40,
   },
   field: { gap: sp.sm, marginBottom: sp.xl },
   button: {
@@ -163,9 +163,9 @@ export const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: sp.sm,
-    paddingHorizontal: 16,
-    minHeight: 44,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    minHeight: 40,
+    paddingVertical: 8,
     borderRadius: radius.md,
   },
   primary: { backgroundColor: colors.action },
@@ -251,6 +251,8 @@ export function Button({
       disabled={disabled || busy}
       accessibilityState={{ disabled: !!(disabled || busy), busy: !!busy }}
       onPress={onPress}
+      // A small button is under the size of a thumb: the touch reaches a little beyond it.
+      hitSlop={small && !dense ? { top: 3, bottom: 3 } : undefined}
       style={({ pressed, hovered }: WebPressState) => [
         s.button,
         primary ? s.primary : s.secondary,
@@ -259,9 +261,9 @@ export function Button({
         },
         dense && { minHeight: 40, paddingVertical: 8 },
         small && {
-          minHeight: dense ? 34 : 40,
-          paddingVertical: dense ? 6 : 8,
-          paddingHorizontal: 14,
+          minHeight: dense ? 32 : 36,
+          paddingVertical: dense ? 6 : 6,
+          paddingHorizontal: 12,
         },
         (disabled || busy) && { opacity: 0.5 },
         style,
@@ -505,7 +507,7 @@ export function SegmentedRow<T extends string>({
   disabled,
 }: SegmentedProps<T>) {
   const dense = useDense();
-  const height = dense ? 32 : 38;
+  const height = dense ? 32 : 34;
   // The tabs are as wide as their labels, so each reports its width, and the slab behind them is
   // cut to fit. (Widths, not positions: a layout event comes only when a size changes.) Until they
   // have all reported, the slab is a plain pill.
@@ -719,8 +721,8 @@ export function SearchField({
           {
             flex: 1,
             minWidth: 0,
-            paddingVertical: slim ? 6 : 12,
-            fontSize: slim ? fontSize.ui : fontSize.body,
+            paddingVertical: slim ? 6 : 10,
+            fontSize: fontSize.input,
             color: colors.text,
           },
           noOutline,
@@ -934,7 +936,7 @@ export function SectionHeading({
   onPress?: () => void;
 }) {
   return (
-    <View style={[s.between, { marginBottom: 16 }]}>
+    <View style={[s.between, { marginBottom: 8 }]}>
       <Text style={s.heading}>{title}</Text>
       {action && onPress && (
         <Pressable accessibilityRole="button" onPress={onPress} style={[s.row, { gap: 5 }]}>

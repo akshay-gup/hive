@@ -1,6 +1,6 @@
 import { BellOff, Check, Mail, Trash2 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import type { AgentNotification } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { authorTint } from "./channel-message";
@@ -66,7 +66,8 @@ function Row({
   note: AgentNotification;
   selected: boolean;
   onPress: () => void;
-  onToggle: () => void;
+  /** Without it (on a phone) the row is only the notice; what to do with it is one tap away. */
+  onToggle?: () => void;
 }) {
   return (
     <Pressable
@@ -109,11 +110,13 @@ function Row({
         )}
         <Text style={s.small}>{relativeDate(note.createdAt)}</Text>
       </View>
-      <IconButton
-        icon={note.read ? Mail : Check}
-        label={note.read ? "Mark as unread" : "Mark as read"}
-        onPress={onToggle}
-      />
+      {onToggle && (
+        <IconButton
+          icon={note.read ? Mail : Check}
+          label={note.read ? "Mark as unread" : "Mark as read"}
+          onPress={onToggle}
+        />
+      )}
     </Pressable>
   );
 }
@@ -235,45 +238,72 @@ export function InboxScreen() {
 
   return (
     <View style={{ gap: 16 }}>
-      {/* On a wide window the tabs and the buttons share a line; on a phone they are one above the other. */}
-      <View style={split ? [s.between, { gap: 12 }] : { gap: 12 }}>
-        <Segmented
-          label="Kind of notification"
-          value={tab}
-          onChange={setTab}
-          options={noticeTabs.map((t) => {
-            // A phone has no room for the long names, so "My agents" is "Agents" there.
-            const name = split ? t.label : t.id === "agent" ? "Agents" : t.label;
-            return {
-              id: t.id,
-              label: counts[t.id] ? `${name} ${counts[t.id]}` : name,
-              accessibilityLabel: counts[t.id] ? `${t.label}, ${counts[t.id]} unread` : t.label,
-            };
-          })}
-        />
-        <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-          <Button small primary={unreadOnly} onPress={() => setUnreadOnly((on) => !on)}>
-            Unread only
-          </Button>
-          <Button
-            small
-            icon={Check}
-            disabled={!counts.all}
-            busy={busy === "all"}
-            onPress={() => void run("all", "/notifications/read-all")}
-          >
-            Mark all as read
-          </Button>
-          <Button
-            small
-            icon={Trash2}
-            disabled={!all.length}
-            busy={busy === "clear"}
-            onPress={() => void run("clear", "/notifications/dismiss-all")}
-          >
-            Clear all
-          </Button>
-        </View>
+      {/* On a wide window the tabs and the buttons share a line; on a phone the tabs are one row, the actions another. */}
+      <View style={split ? [s.between, { gap: 12 }] : { gap: 8 }}>
+        {/* The tabs are as wide as their names, so on a phone they slide sideways. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={split ? { flexGrow: 0 } : { alignSelf: "stretch", flexGrow: 0 }}
+        >
+          <Segmented
+            label="Kind of notification"
+            value={tab}
+            onChange={setTab}
+            options={noticeTabs.map((t) => {
+              // A phone has no room for the long names, so "My agents" is "Agents" there.
+              const name = split ? t.label : t.id === "agent" ? "Agents" : t.label;
+              return {
+                id: t.id,
+                label: counts[t.id] ? `${name} ${counts[t.id]}` : name,
+                accessibilityLabel: counts[t.id] ? `${t.label}, ${counts[t.id]} unread` : t.label,
+              };
+            })}
+          />
+        </ScrollView>
+        {split ? (
+          <View style={[s.row, { gap: 8 }]}>
+            <Button small primary={unreadOnly} onPress={() => setUnreadOnly((on) => !on)}>
+              Unread only
+            </Button>
+            <Button
+              small
+              icon={Check}
+              disabled={!counts.all}
+              busy={busy === "all"}
+              onPress={() => void run("all", "/notifications/read-all")}
+            >
+              Mark all as read
+            </Button>
+            <Button
+              small
+              icon={Trash2}
+              disabled={!all.length}
+              busy={busy === "clear"}
+              onPress={() => void run("clear", "/notifications/dismiss-all")}
+            >
+              Clear all
+            </Button>
+          </View>
+        ) : (
+          <View style={[s.between, { gap: 8 }]}>
+            <Button small primary={unreadOnly} onPress={() => setUnreadOnly((on) => !on)}>
+              Unread only
+            </Button>
+            <View style={[s.row, { gap: 4 }]}>
+              <IconButton
+                icon={Check}
+                label="Mark all as read"
+                onPress={() => void run("all", "/notifications/read-all")}
+              />
+              <IconButton
+                icon={Trash2}
+                label="Clear all"
+                onPress={() => void run("clear", "/notifications/dismiss-all")}
+              />
+            </View>
+          </View>
+        )}
       </View>
       <ErrorNotice error={error} />
       {!shown.length ? (
@@ -313,7 +343,7 @@ export function InboxScreen() {
                     key={n.id}
                     note={n}
                     selected={split && note?.id === n.id}
-                    onToggle={() => void toggle(n)}
+                    onToggle={split ? () => void toggle(n) : undefined}
                     onPress={() => (split ? setChosen(n.id) : void go(n))}
                   />
                 ))}
@@ -333,9 +363,11 @@ export function InboxScreen() {
           )}
         </View>
       )}
-      <Text style={[s.small, { fontSize: fontSize.caption }]}>
-        Only what is yours is here: results of agents you started, and mentions of you.
-      </Text>
+      {split && (
+        <Text style={[s.small, { fontSize: fontSize.caption }]}>
+          Only what is yours is here: results of agents you started, and mentions of you.
+        </Text>
+      )}
     </View>
   );
 }
