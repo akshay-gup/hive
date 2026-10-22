@@ -405,12 +405,12 @@ export function Sidebar({
     void logout().catch((e) => setError(String(e)));
   };
 
-  // The workspace's name. A hosted person has workspaces: it is the way to the people in this one
-  // and to another. The drawer has no strip above it, so there it carries the bee too.
+  // The workspace's name. A hosted person has one workspace: it is the way to the people in it.
+  // The drawer has no strip above it, so there it carries the bee too.
   const title = hosted ? (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${hosted.workspace.name}: people and workspaces`}
+      accessibilityLabel={`${hosted.workspace.name}: people`}
       onPress={openPeople}
       style={({ pressed, hovered }: WebPressState) => [
         s.row,
@@ -569,7 +569,7 @@ export function Sidebar({
             {hosted ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`${hosted.workspace.name}: people and workspaces`}
+                accessibilityLabel={`${hosted.workspace.name}: people`}
                 hitSlop={6}
                 onPress={openPeople}
               >

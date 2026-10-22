@@ -436,20 +436,6 @@ export function PeopleSheet() {
       )}
 
       <View style={{ marginTop: 28, gap: 12 }}>
-        <SectionHeading title="Workspace" />
-        <View style={s.row}>
-          <Button
-            onPress={() => {
-              close();
-              hosted.switchWorkspace();
-            }}
-          >
-            Switch workspace
-          </Button>
-        </View>
-      </View>
-
-      <View style={{ marginTop: 28, gap: 12 }}>
         <SectionHeading title="Danger zone" />
         {mine === "owner" ? (
           <>
