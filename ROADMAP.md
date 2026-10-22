@@ -27,7 +27,7 @@ one workspace shared by the team, so what the agent is given once is there for e
   orchestrator creates, reviews, files, drafts, browser sessions, the agent's memory
   and settings, and the one Google connection. `SHARED_KINDS` in
   `apps/server/src/db.ts` lists the record kinds, and a test fails if a kind is added
-  without placing it. Everyone who signs in has the same access (see Roles below).
+  without placing it. What people can open follows their role in a hosted workspace; otherwise everyone who signs in has the same access (see Roles below).
 - **Choice cards** — `present_choices` (Jev, off unless `JEV_MODE` is set) is one of the
   Hive tools OpenCode is offered. Cards are kept with the conversation they were asked
   in: a team thread's belong to the team, an orchestrator chat's to its owner.
@@ -95,14 +95,18 @@ one workspace shared by the team, so what the agent is given once is there for e
       inside a workspace, so it cannot read the server's secrets. Returning from sign-in on
       a phone by a link the app owns rather than a custom scheme, and binding the code to
       the app that asked. Trying all of it on a real Fly or DigitalOcean account (`docs/hosted.md`).
-- [ ] **Roles.** There are none yet, so everyone who can sign in can do everything: connect or
+- [ ] **Roles.** What people can open follows Slack in a hosted workspace: channels are public or
+      private and have managers, and a guest can open only the channels they were added to
+      (`docs/hosted.md`). Beyond that everyone who can sign in can do everything: connect or
       disconnect the workspace's Google account, approve or decline what is sent from it, mark
-      tasks done, change the agent's name, tone and memories, set permission rules, and archive
-      channels. Hive keeps no member list either: whoever your Google OAuth client lets through
+      tasks done, change the agent's name, tone and memories, and set permission rules. A
+      self-hosted Hive keeps no member list: whoever your Google OAuth client lets through
       is a member, and nobody can be removed from inside Hive.
-      - [ ] An owner (or admin) and members, and which actions are owner-only.
-      - [ ] Invites: owner-only or any member? Today Google's consent screen is the only gate.
-      - [ ] Removing a member, and ending their sessions.
+      - [ ] Which actions are owner-only.
+      - [ ] The agent's shell held to its channel's folder: a private channel and a guest are
+            kept from what Hive shows, not from what the agent could be asked to read.
+      - [ ] Slack's single-channel guests, guests that expire, and members asking for a guest.
+      - [ ] Removing a member, and ending their sessions at once rather than within the hour.
 - [ ] Browser access (deferred).
 - [ ] Native mobile against the same API.
 

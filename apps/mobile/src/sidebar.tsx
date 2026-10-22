@@ -1,19 +1,30 @@
-import { Bot, ChevronDown, Hash, LogOut, Monitor, Plus, SquarePen, X } from "lucide-react-native";
+import {
+  Bot,
+  ChevronDown,
+  Hash,
+  Lock,
+  LogOut,
+  Monitor,
+  Plus,
+  Search,
+  SquarePen,
+  X,
+} from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Pressable, ScrollView, Text, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
-import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
+import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
 import { useAgentWorkspace } from "./agent-workspace";
+import { NewChannelForm } from "./channel-create";
+import { useOnChannelsChanged } from "./channel-events";
 import { useHosted } from "./hosted/context";
 import { readLastCount, writeLastCount } from "./last-count";
 import { guestPlaces, places } from "./places";
 import { useMuseThread } from "./threads";
 import {
-  Button,
   colors,
   ErrorNotice,
-  Field,
   fontSize,
   glass,
   IconButton,
@@ -87,9 +98,14 @@ function SidebarRow({
   );
 }
 
-/** The channels the sidebar lists: not the main chat's own, and not archived ones. */
-const isListed = (channel: Channel) =>
-  channel.id !== ORCHESTRATOR_CHANNEL_ID && channel.status !== "archived";
+/**
+ * The channels the sidebar lists: not the main chat's own, not archived ones, and the ones the
+ * person is in. The public channels they are not in are found by browsing.
+ */
+const isListed = (channel: ChannelView) =>
+  channel.id !== ORCHESTRATOR_CHANNEL_ID &&
+  channel.status !== "archived" &&
+  channel.joined !== false;
 
 /**
  * Room for the channels while they load, as many as there were last time, drawn as rows with a
@@ -241,13 +257,11 @@ export function Sidebar({
   const { data } = useAgentWorkspace();
   // Each workspace remembers how many channels it had, to hold room for them while they load.
   const channelsKey = `channels:${hosted?.workspace.id ?? "local"}`;
-  const [channels, setChannels] = useState<Channel[] | null>(null);
+  const [channels, setChannels] = useState<ChannelView[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
 
   const load = useCallback(
     async (quiet = false) => {
@@ -256,7 +270,7 @@ export function Sidebar({
         setLoading(true);
       }
       try {
-        const loaded = await api.request<Channel[]>("/api/agent/channels");
+        const loaded = await api.request<ChannelView[]>("/api/agent/channels");
         setChannels(loaded);
         writeLastCount(channelsKey, loaded.filter(isListed).length);
       } catch (e) {
@@ -271,6 +285,8 @@ export function Sidebar({
   useEffect(() => {
     void load();
   }, [load]);
+  // A channel made, joined or left, or someone put in it, is seen in the list at once.
+  useOnChannelsChanged(() => void load(true));
   // There is no refresh button: the list is fetched again when the person comes back to the app.
   useEffect(() => {
     const listener = AppState.addEventListener("change", (state) => {
@@ -308,26 +324,6 @@ export function Sidebar({
       active = false;
     };
   }, [api, isMainActive, selection.id]);
-
-  async function createChannel() {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setBusy(true);
-    setError("");
-    try {
-      const created = await api.request<Channel>("/api/agent/channels", { name: trimmed });
-      setName("");
-      setCreating(false);
-      await load();
-      // A new channel is usable immediately: open it as a chat.
-      select({ id: `channel:${created.id}`, existing: true });
-      onNavigate?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   function go(destination: Section) {
     navigate(destination);
@@ -419,7 +415,6 @@ export function Sidebar({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="New channel"
-            disabled={busy}
             hitSlop={6}
             onPress={() => setCreating(true)}
             {...newChannelTip.props}
@@ -455,7 +450,7 @@ export function Sidebar({
           <SidebarRow
             dense={dense}
             key={channel.id}
-            icon={Hash}
+            icon={channel.visibility === "private" ? Lock : Hash}
             label={channel.name}
             accessibilityLabel={`Open channel: ${channel.name}`}
             active={section === "chat" && !isMainActive && activeChannelId === channel.id}
@@ -463,37 +458,29 @@ export function Sidebar({
           />
         ))
       )}
+      {hosted && !guest && !creating && (
+        <SidebarRow
+          dense={dense}
+          icon={Search}
+          label="Browse channels"
+          onPress={() => {
+            onNavigate?.();
+            open({ type: "browseChannels" });
+          }}
+        />
+      )}
       {creating && (
-        <View style={{ gap: 12, paddingHorizontal: 8, marginTop: 8 }}>
-          <Field
-            label="Channel name"
-            compact
+        <View style={{ paddingHorizontal: 8, marginTop: 8 }}>
+          <NewChannelForm
             autoFocus
-            value={name}
-            onChangeText={setName}
-            placeholder="e.g. family-trip"
-            returnKeyType="done"
-            onSubmitEditing={() => void createChannel()}
-            onKeyPress={(event) => {
-              if (event.nativeEvent.key === "Escape") {
-                setCreating(false);
-                setName("");
-              }
+            onCancel={() => setCreating(false)}
+            onCreated={(created) => {
+              setCreating(false);
+              // A new channel is usable immediately: open it as a chat.
+              select({ id: `channel:${created.id}`, existing: true });
+              onNavigate?.();
             }}
           />
-          <View style={[s.row, { gap: 8 }]}>
-            <Button
-              primary
-              small
-              disabled={busy || !name.trim()}
-              onPress={() => void createChannel()}
-            >
-              Create
-            </Button>
-            <Button small disabled={busy} onPress={() => setCreating(false)}>
-              Cancel
-            </Button>
-          </View>
         </View>
       )}
     </>

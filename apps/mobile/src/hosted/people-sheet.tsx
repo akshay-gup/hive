@@ -1,9 +1,14 @@
 import { Copy, LogOut, Share2, Trash2, UserMinus } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Platform, Share, Text, View } from "react-native";
+import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent";
+import { channelsChanged } from "../channel-events";
+import { channelsOfGuest, guestChannelsLine } from "../channel-text";
+import { Confirm } from "../confirm";
 import {
   Button,
   Card,
+  CheckRow,
   Chip,
   colors,
   ErrorNotice,
@@ -22,35 +27,69 @@ import { RemoveWorkspaceSheet } from "./remove-workspace";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** A button for something that cannot be undone: the first press asks, and the second does it. */
-function Confirm({
-  label,
-  confirmLabel,
-  icon,
-  busy,
-  onConfirm,
+/** The channels a guest can be put in: the ones that are open, that the person asking can see. */
+const choosable = (channels: ChannelView[]) =>
+  channels
+    .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && channel.status !== "archived")
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+/**
+ * Which channels a guest can open, as a line under their name, and a way to change it: a guest has
+ * only the channels they are added to, so this is where an owner or admin chooses them.
+ */
+function GuestChannels({
+  channels,
+  email,
+  onChanged,
 }: {
-  label: string;
-  confirmLabel: string;
-  icon?: typeof Trash2;
-  busy?: boolean;
-  onConfirm: () => void;
+  channels: ChannelView[];
+  email: string;
+  onChanged: () => Promise<void>;
 }) {
-  const [armed, setArmed] = useState(false);
-  if (!armed)
-    return (
-      <Button small icon={icon} danger onPress={() => setArmed(true)}>
-        {label}
-      </Button>
-    );
+  const { api } = useWorkspace();
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const address = email.trim().toLowerCase();
+  const inside = channelsOfGuest(channels, address);
+  const has = new Set(inside.map((channel) => channel.id));
+  async function toggle(channel: ChannelView) {
+    setBusy(channel.id);
+    setError("");
+    try {
+      await api.request(`/api/agent/channels/${encodeURIComponent(channel.id)}/members`, {
+        [has.has(channel.id) ? "remove" : "add"]: [address],
+      });
+      channelsChanged();
+      await onChanged();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  }
   return (
-    <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-      <Button small danger busy={busy} onPress={onConfirm}>
-        {confirmLabel}
-      </Button>
-      <Button small disabled={busy} onPress={() => setArmed(false)}>
-        Cancel
-      </Button>
+    <View style={{ paddingLeft: 48, gap: 6 }}>
+      <Text style={s.small}>{guestChannelsLine(inside)}</Text>
+      <View style={s.row}>
+        <Button small onPress={() => setEditing((on) => !on)}>
+          {editing ? "Done" : "Choose channels"}
+        </Button>
+      </View>
+      {editing &&
+        choosable(channels).map((channel) => (
+          <CheckRow
+            key={channel.id}
+            label={
+              channel.visibility === "private" ? `${channel.name} (private)` : `# ${channel.name}`
+            }
+            checked={has.has(channel.id)}
+            onPress={() => {
+              if (!busy) void toggle(channel);
+            }}
+          />
+        ))}
+      <ErrorNotice error={error} />
     </View>
   );
 }
@@ -62,9 +101,11 @@ function Confirm({
  */
 export function PeopleSheet() {
   const hosted = useHosted();
-  const { close, notify } = useWorkspace();
+  const { api, close, notify } = useWorkspace();
   const [members, setMembers] = useState<Member[] | null>(null);
   const [invites, setInvites] = useState<InviteSummary[]>([]);
+  const [channels, setChannels] = useState<ChannelView[]>([]);
+  const [chosen, setChosen] = useState<string[]>([]);
   const [link, setLink] = useState("");
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<InvitedRole>("member");
@@ -81,11 +122,14 @@ export function PeopleSheet() {
     if (!control || !workspaceId) return;
     try {
       setMembers(await control.members(workspaceId));
-      if (manages) setInvites(await control.invites(workspaceId));
+      if (manages) {
+        setInvites(await control.invites(workspaceId));
+        setChannels(await api.request<ChannelView[]>("/api/agent/channels").catch(() => []));
+      }
     } catch (e) {
       setError(message(e));
     }
-  }, [control, workspaceId, manages]);
+  }, [control, workspaceId, manages, api]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -193,22 +237,76 @@ export function PeopleSheet() {
                   { id: "guest", label: "Guest" },
                 ]}
               />
-              {inviteRole === "guest" && <Text style={s.small}>{guestHint}</Text>}
+              {inviteRole === "guest" && (
+                <View style={{ gap: 2 }}>
+                  <Text style={s.label}>Channels they can open</Text>
+                  {choosable(channels).length === 0 ? (
+                    <Text style={s.small}>
+                      There are no channels yet. Make one first: a guest can open only the channels
+                      they are added to.
+                    </Text>
+                  ) : (
+                    choosable(channels).map((channel) => (
+                      <CheckRow
+                        key={channel.id}
+                        label={
+                          channel.visibility === "private"
+                            ? `${channel.name} (private)`
+                            : `# ${channel.name}`
+                        }
+                        checked={chosen.includes(channel.id)}
+                        onPress={() =>
+                          setChosen((now) =>
+                            now.includes(channel.id)
+                              ? now.filter((id) => id !== channel.id)
+                              : [...now, channel.id],
+                          )
+                        }
+                      />
+                    ))
+                  )}
+                  <Text style={s.small}>{guestHint}</Text>
+                </View>
+              )}
             </View>
             <View style={s.row}>
               <Button
                 busy={busy === "email"}
-                disabled={!email.trim()}
+                disabled={!email.trim() || (inviteRole === "guest" && chosen.length === 0)}
                 onPress={() =>
                   void run("email", async () => {
                     const to = email.trim();
-                    const made = await control.createInvite(workspaceId, {
-                      email: to,
-                      role: inviteRole,
-                    });
-                    setEmail("");
-                    setLink(made.link);
-                    notify(`Invitation made for ${to}. Share the link with them.`);
+                    const address = to.toLowerCase();
+                    // A guest sees nothing until a channel names them, as in Slack, so the channels
+                    // are chosen with the invitation and the guest is put in them first.
+                    const put: string[] = [];
+                    try {
+                      if (inviteRole === "guest")
+                        for (const id of chosen) {
+                          await api.request(
+                            `/api/agent/channels/${encodeURIComponent(id)}/members`,
+                            { add: [address] },
+                          );
+                          put.push(id);
+                        }
+                      const made = await control.createInvite(workspaceId, {
+                        email: to,
+                        role: inviteRole,
+                      });
+                      setEmail("");
+                      setChosen([]);
+                      setLink(made.link);
+                      channelsChanged();
+                      notify(`Invitation made for ${to}. Share the link with them.`);
+                    } catch (e) {
+                      for (const id of put)
+                        await api
+                          .request(`/api/agent/channels/${encodeURIComponent(id)}/members`, {
+                            remove: [address],
+                          })
+                          .catch(() => undefined);
+                      throw e;
+                    }
                   })
                 }
               >
@@ -290,6 +388,9 @@ export function PeopleSheet() {
                   </View>
                   <Chip>{roleLabel[person.role]}</Chip>
                 </View>
+                {person.role === "guest" && manages && (
+                  <GuestChannels channels={channels} email={person.email} onChanged={load} />
+                )}
                 {(mine === "owner" && person.role !== "owner" && !you) || canRemove ? (
                   <View style={[s.row, { gap: 10, flexWrap: "wrap", paddingLeft: 48 }]}>
                     {mine === "owner" && person.role !== "owner" && (

@@ -1,31 +1,37 @@
-import { Archive, Hash, Plus, RefreshCw } from "lucide-react-native";
+import { Archive, Hash, Lock, Plus, RefreshCw, Search } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
+import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
+import { useGuest } from "./access";
+import { NewChannelForm } from "./channel-create";
+import { channelsChanged, useOnChannelsChanged } from "./channel-events";
+import { useHosted } from "./hosted/context";
 import { useMuseThread } from "./threads";
-import { Button, colors, Empty, ErrorNotice, Field, Pending, radius, s } from "./ui";
+import { Button, colors, Empty, ErrorNotice, Pending, radius, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 /**
  * Channel list for the menu sheet. Channels open directly as chat surfaces —
  * no thread needed. Threads auto-create from replies and @hive mentions and
- * are reached from their parent message's reply count.
+ * are reached from their parent message's reply count. It lists the channels the person is in; the
+ * public ones they are not in are found by browsing.
  */
 export function ChannelsSection({ onClose }: { onClose: () => void }) {
-  const { api } = useWorkspace();
+  const { api, open } = useWorkspace();
+  const hosted = useHosted();
+  const guest = useGuest();
   const { selection, select } = useMuseThread();
-  const [channels, setChannels] = useState<Channel[] | null>(null);
+  const [channels, setChannels] = useState<ChannelView[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError("");
     setLoading(true);
     try {
-      setChannels(await api.request<Channel[]>("/api/agent/channels"));
+      setChannels(await api.request<ChannelView[]>("/api/agent/channels"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -35,13 +41,14 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     void load();
   }, [load]);
+  useOnChannelsChanged(() => void load());
 
-  async function mutate(action: () => Promise<void>) {
+  async function archive(channel: ChannelView) {
     setError("");
     setBusy(true);
     try {
-      await action();
-      await load();
+      await api.request(`/api/agent/channels/${encodeURIComponent(channel.id)}/archive`, {});
+      channelsChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -49,13 +56,18 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
     }
   }
 
-  function openChannel(channel: Channel) {
+  function openChannel(channel: { id: string }) {
     select({ id: `channel:${channel.id}`, existing: true });
     onClose();
   }
 
   const userChannels = (channels ?? [])
-    .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && channel.status !== "archived")
+    .filter(
+      (channel) =>
+        channel.id !== ORCHESTRATOR_CHANNEL_ID &&
+        channel.status !== "archived" &&
+        channel.joined !== false,
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -70,10 +82,19 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
       {loading && !channels ? (
         <Pending height={120} />
       ) : userChannels.length === 0 ? (
-        <Empty icon={Hash} title="No channels yet" detail="Create one to start chatting." />
+        <Empty
+          icon={Hash}
+          title="No channels yet"
+          detail={
+            guest
+              ? "You'll see a channel here when someone adds you to it."
+              : "Create one to start chatting."
+          }
+        />
       ) : (
         userChannels.map((channel) => {
           const isActive = selection.id === `channel:${channel.id}`;
+          const Icon = channel.visibility === "private" ? Lock : Hash;
           return (
             <View
               key={channel.id}
@@ -101,7 +122,7 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
                     },
                   ]}
                 >
-                  <Hash size={18} color={colors.text} />
+                  <Icon size={18} color={colors.text} />
                   <Text
                     style={[s.text, { flex: 1, fontWeight: isActive ? "600" : "400" }]}
                     numberOfLines={1}
@@ -109,17 +130,13 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
                     {channel.name}
                   </Text>
                 </Pressable>
-                {channel.status !== "archived" && (
+                {!guest && channel.status !== "archived" && (
                   <Button
                     small
                     danger
                     icon={Archive}
                     disabled={busy}
-                    onPress={() =>
-                      void mutate(() =>
-                        api.request(`/api/agent/channels/${channel.id}/archive`, {}),
-                      )
-                    }
+                    onPress={() => void archive(channel)}
                   >
                     Archive
                   </Button>
@@ -130,34 +147,32 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
         })
       )}
       {creating ? (
-        <View style={{ gap: 12 }}>
-          <Field label="Channel name" value={name} onChangeText={setName} />
-          <View style={[s.row, { gap: 8 }]}>
-            <Button
-              primary
-              disabled={busy || !name.trim()}
-              onPress={() =>
-                void mutate(async () => {
-                  const created = await api.request<Channel>("/api/agent/channels", {
-                    name: name.trim(),
-                  });
-                  setName("");
-                  setCreating(false);
-                  openChannel(created);
-                })
-              }
-            >
-              Create channel
-            </Button>
-            <Button disabled={busy} onPress={() => setCreating(false)}>
-              Cancel
-            </Button>
-          </View>
-        </View>
+        <NewChannelForm
+          onCancel={() => setCreating(false)}
+          onCreated={(created) => {
+            setCreating(false);
+            openChannel(created);
+          }}
+        />
       ) : (
-        <Button primary icon={Plus} disabled={busy} onPress={() => setCreating(true)}>
-          New channel
-        </Button>
+        !guest && (
+          <View style={{ gap: 12 }}>
+            <Button primary icon={Plus} onPress={() => setCreating(true)}>
+              New channel
+            </Button>
+            {hosted && (
+              <Button
+                icon={Search}
+                onPress={() => {
+                  onClose();
+                  open({ type: "browseChannels" });
+                }}
+              >
+                Browse channels
+              </Button>
+            )}
+          </View>
+        )
       )}
     </View>
   );

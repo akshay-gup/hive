@@ -23,7 +23,7 @@ Clone this template and customize it however you want.
 
 </div>
 
-> **Alpha, for self-hosting and building on.** The agent needs a running `opencode serve` and a model, and live Google accounts and CopilotKit Rich Threads require their own configuration. There are no roles yet: everyone who can sign in has full access ([Who sees what](#who-sees-what)). See [what is verified](docs/VERIFICATION.md) and the [roadmap](ROADMAP.md).
+> **Alpha, for self-hosting and building on.** The agent needs a running `opencode serve` and a model, and live Google accounts and CopilotKit Rich Threads require their own configuration. A hosted workspace has channels with people in them and guests, as in Slack; beyond that everyone who can sign in has full access ([Who sees what](#who-sees-what)). See [what is verified](docs/VERIFICATION.md) and the [roadmap](ROADMAP.md).
 
 ## Demo
 
@@ -41,7 +41,7 @@ Hive is a channel-based team chat with an agent in the loop. It runs its own ser
 
 Chat threads are plain conversation until you mention `@hive` — then the agent wakes with the full thread history and attached files, works as a durable OpenCode session, and asks before risky actions. Delegated tasks run as unattended OpenCode sessions and report back to the originating thread. The agent can browse public pages through the browser worker, work with files and PDFs, and run durable delegated tasks. Graphical desktops and autonomous checkout remain future work.
 
-What the agent does is the team's, not one person's. Everyone who signs in sees the same channels, threads, tasks, files, memories and Google connection, so a note on a task, a file in a channel, or something the agent was told to remember is there for the next person instead of living in one chat. Only each person's own orchestrator chat, their private tab for talking to the agent outside any channel, is private ([Who sees what](#who-sees-what)), and there are no roles yet ([roadmap](#roadmap)).
+What the agent does is the team's, not one person's. Everyone who signs in sees the same channels, threads, tasks, files, memories and Google connection, so a note on a task, a file in a channel, or something the agent was told to remember is there for the next person instead of living in one chat. Only each person's own orchestrator chat, their private tab for talking to the agent outside any channel, is private ([Who sees what](#who-sees-what)), and roles beyond who can open which channel are not built yet ([roadmap](#roadmap)).
 
 ## Features
 
@@ -78,7 +78,7 @@ Where Hive is headed: a self-contained, agent-native team chat.
 - [ ] Live VM verification: end-to-end task loop with real inference, `opencode serve` systemd unit.
 - [ ] Shared-computer arbitration between channel workers on the one box.
 - [ ] Orchestrator queue and new-tab routing for delegated tasks.
-- [ ] **Roles inside a workspace.** A hosted Hive's control plane has owners, admins, members and guests. A workspace uses one of them so far: a guest can open only the channels they were added to (see [Who sees what](#who-sees-what)). Everyone else it lets in can do everything, including connecting Google, approving what is sent from it, and changing the agent's settings, and a self-hosted Hive has no members to tell apart. Next are which actions are owner-only, and holding the agent's shell to its channel's folder, which a guest's isolation still lacks.
+- [ ] **Roles inside a workspace.** A hosted Hive's control plane has owners, admins, members and guests, and a workspace uses them for what people can open: public and private channels with managers, and guests held to the channels they were added to, as in Slack (see [Who sees what](#who-sees-what)). Everyone else it lets in can do everything, including connecting Google, approving what is sent from it, and changing the agent's settings, and a self-hosted Hive has no members to tell apart. Next are which actions are owner-only, and holding the agent's shell to its channel's folder, which private channels and guests still lack.
 - [ ] Hosted: billing, a model the platform pays for without handing its key to every workspace, Gmail and Calendar connected through the control plane, email for invitations, and rolling a new image out to workspaces that are already running.
 - [ ] Browser access (deferred); native mobile against the same API.
 
@@ -209,7 +209,7 @@ Hive is a team workspace. Everyone who signs in sees the same channels, threads 
 
 The workspace has **one Google connection** (Gmail, Calendar, Drive), so the mail, calendar and files that come through it are the team's. Anyone can connect it when there is none, grant it more access, or disconnect it; a different account can only be connected after the connected one is disconnected. Reviews run on that connection, so anyone can approve or decline one; `createdBy` only records who prepared it. Because every signed-in person can read that mailbox and approve what is sent from it, limit who can sign in to people you trust (for example the test users on your Google OAuth consent screen).
 
-**There is one role so far, in a hosted workspace: the guest.** A guest can open only the channels they were added to, and none of the rest of what is described here (see [hosted](docs/hosted.md#who-can-do-what)). Otherwise there are no roles: everyone who signs in has the same access, and a self-hosted Hive keeps no member list of its own: whoever your Google OAuth client lets through is a member, and nobody can be removed from inside Hive. Any member can connect or disconnect the Google account, approve or decline what is sent from it, mark tasks done, change the agent's name, tone and memories, set permission rules, and archive channels. Owner and member roles, invites and removing people are on the [roadmap](#roadmap).
+**In a hosted workspace, channels and people follow Slack.** A channel is public (anyone in the workspace but a guest finds it and joins) or private (found only by the people in it, and no one else is told it exists), a channel has managers, and a guest can open only the channels they were added to, none of the rest of what is described here (see [hosted](docs/hosted.md#who-can-do-what)). Otherwise everyone who signs in has the same access, and a self-hosted Hive keeps no member list of its own: whoever your Google OAuth client lets through is a member, and nobody can be removed from inside Hive. Any member can connect or disconnect the Google account, approve or decline what is sent from it, mark tasks done, change the agent's name, tone and memories, and set permission rules. Which actions are owner-only is on the [roadmap](#roadmap).
 
 Shared thread history applies to the default local thread storage. Hosted Rich Threads (`CPK_INTELLIGENCE_API_KEY`) identifies each person to CopilotKit separately, so it keeps their threads apart.
 

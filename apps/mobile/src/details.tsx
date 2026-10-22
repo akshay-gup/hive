@@ -35,8 +35,9 @@ import {
 import { DelegateSheet, NotificationsSheet, TaskDetail } from "./agent-ui";
 import BrowserConsole from "./BrowserConsole";
 import { browserAddress, browserSite } from "./browser-address";
-import { ChannelAccessSheet } from "./channel-access";
+import { BrowseChannelsSheet } from "./channel-browse";
 import { ChannelFileSheet, ChannelFilesSheet } from "./channel-files";
+import { ChannelMembersSheet } from "./channel-members";
 import { ComputerSheet } from "./computer";
 import DateTimeEditor from "./DateTimeEditor";
 import { localDateTime, zonedInstant } from "./date-time";
@@ -72,8 +73,9 @@ export function Details({ detail }: { detail: Detail }) {
     return <ChannelFilesSheet channelId={detail.channelId} name={detail.name} path={detail.path} />;
   if (detail.type === "channelFile")
     return <ChannelFileSheet channelId={detail.channelId} path={detail.path} />;
-  if (detail.type === "channelAccess")
-    return <ChannelAccessSheet channelId={detail.channelId} name={detail.name} />;
+  if (detail.type === "channelMembers")
+    return <ChannelMembersSheet channelId={detail.channelId} name={detail.name} />;
+  if (detail.type === "browseChannels") return <BrowseChannelsSheet />;
   if (detail.type === "task") return <TaskDetail taskId={detail.taskId} />;
   if (detail.type === "delegate") return <DelegateSheet threadId={detail.threadId} />;
   if (detail.type === "notifications") return <NotificationsSheet />;

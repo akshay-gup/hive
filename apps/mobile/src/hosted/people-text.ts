@@ -8,7 +8,8 @@ export const roleLabel: Record<Role, string> = {
 };
 
 /** What being a guest comes to, said wherever someone chooses it. */
-export const guestHint = "A guest can open only the channels they are added to.";
+export const guestHint =
+  "A guest sees only these channels, and nothing else in the workspace. You can change them later.";
 
 /** What an invitation is for, as the words after "invited you". */
 export function invitedAs(role: string): string {

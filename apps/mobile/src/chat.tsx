@@ -13,6 +13,7 @@ import {
   ArrowUp,
   FileText,
   FolderOpen,
+  Lock,
   Maximize2,
   Minimize2,
   Plus,
@@ -44,10 +45,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { z } from "zod";
-import type { Channel, ChannelThread } from "../../../packages/domain/src/agent";
-import { useManagesAccess } from "./access";
+import type { ChannelThread, ChannelView } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AssistantResponse } from "./assistant-response";
+import { channelsChanged, useOnChannelsChanged } from "./channel-events";
 import { ChannelMessage } from "./channel-message";
 import { ChannelThreadBanner } from "./channel-thread";
 import { looksLikeLostConnection } from "./connection-lost";
@@ -55,6 +56,7 @@ import { ConversationQueue, type QueuedMessage } from "./conversation-queue";
 import { runConversationTurn } from "./conversation-run";
 import { DraftReply } from "./draft-reply";
 import { SentFileToolCard } from "./file-card";
+import { useHosted } from "./hosted/context";
 import { confirmedJevSelection, displayJevUserMessage, latestJevPanelId } from "./jev-actions";
 import { JevInteractionContext, JevToolCard } from "./jev-tool-card";
 import { MailToolCard } from "./mail-tool-card";
@@ -123,49 +125,95 @@ function channelIdOf(selection: { id: string }): string | null {
   return selection.id.startsWith("channel:") ? selection.id.slice("channel:".length) : null;
 }
 
-/** Banner for a channel chat: just the channel name, like a Slack channel header. */
+/**
+ * Banner for a channel chat, like a Slack channel header: its name (a lock for a private one), the
+ * people in it, and its files. Looking at a public channel before joining it, there is a button to
+ * join.
+ */
 export function ChannelChatBanner({ channelId }: { channelId: string }) {
   const { api, open } = useWorkspace();
-  const manages = useManagesAccess();
-  const [name, setName] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    void api
-      .request<Channel[]>("/api/agent/channels")
-      .then((channels) => {
-        if (active) setName(channels.find((c) => c.id === channelId)?.name ?? null);
-      })
-      .catch(() => {
-        if (active) setName(null);
-      });
-    return () => {
-      active = false;
-    };
+  // Who is in a channel is a hosted workspace's: elsewhere there are no people to be in it.
+  const hosted = useHosted();
+  const me = hosted?.user.email.toLowerCase() ?? "";
+  // On a phone the header has little room: the files are an icon, and the title keeps the rest.
+  const narrow = useWindowDimensions().width < 600;
+  const [channel, setChannel] = useState<ChannelView | null>(null);
+  const [joining, setJoining] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      const channels = await api.request<ChannelView[]>("/api/agent/channels");
+      setChannel(channels.find((c) => c.id === channelId) ?? null);
+    } catch {
+      setChannel(null);
+    }
   }, [api, channelId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useOnChannelsChanged(() => void load());
+  const name = channel?.name ?? null;
+  async function join() {
+    setJoining(true);
+    try {
+      await api.request(`/api/agent/channels/${encodeURIComponent(channelId)}/members`, {
+        add: [me],
+      });
+      channelsChanged();
+    } catch {
+      // The members sheet says why, if they open it.
+    } finally {
+      setJoining(false);
+    }
+  }
   return (
     <View style={[s.row, { gap: 12 }]}>
-      <Text style={[s.heading, { fontSize: fontSize.title, flexShrink: 1 }]} numberOfLines={1}>
-        # {name ?? "channel"}
-      </Text>
+      <View style={[s.row, { gap: 8, flexShrink: 1 }]}>
+        {channel?.visibility === "private" && <Lock size={16} color={colors.muted} />}
+        <Text style={[s.heading, { fontSize: fontSize.title, flexShrink: 1 }]} numberOfLines={1}>
+          {channel?.visibility === "private" ? "" : "# "}
+          {name ?? "channel"}
+        </Text>
+      </View>
       <View style={{ flex: 1 }} />
-      {manages && (
+      {hosted && channel?.joined === false && (
+        <Button
+          small
+          primary
+          busy={joining}
+          accessibilityLabel="Join channel"
+          onPress={() => void join()}
+        >
+          {narrow ? "Join" : "Join channel"}
+        </Button>
+      )}
+      {hosted && (
         <Button
           small
           icon={Users}
-          accessibilityLabel="Who can open this channel"
-          onPress={() => open({ type: "channelAccess", channelId, name: name ?? undefined })}
+          accessibilityLabel="Who is in this channel"
+          onPress={() => open({ type: "channelMembers", channelId, name: name ?? undefined })}
         >
-          Access
+          {channel && channel.everyone !== false && channel.visibility !== "private"
+            ? "People"
+            : String((channel?.members ?? []).length)}
         </Button>
       )}
-      <Button
-        small
-        icon={FolderOpen}
-        accessibilityLabel="Files in this channel"
-        onPress={() => open({ type: "channelFiles", channelId, name: name ?? undefined })}
-      >
-        Files
-      </Button>
+      {narrow ? (
+        <IconButton
+          icon={FolderOpen}
+          label="Files in this channel"
+          onPress={() => open({ type: "channelFiles", channelId, name: name ?? undefined })}
+        />
+      ) : (
+        <Button
+          small
+          icon={FolderOpen}
+          accessibilityLabel="Files in this channel"
+          onPress={() => open({ type: "channelFiles", channelId, name: name ?? undefined })}
+        >
+          Files
+        </Button>
+      )}
     </View>
   );
 }
