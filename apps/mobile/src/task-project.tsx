@@ -27,17 +27,20 @@ export function ProjectSwitcher({
   onSelect,
   onNew,
   onManage,
+  inline,
 }: {
   projects: Project[];
   selected: ProjectSelection;
   onSelect: (selection: ProjectSelection) => void;
   onNew: () => void;
   onManage: (project: Project) => void;
+  /** Without a scroller of its own, to sit in a row that scrolls. */
+  inline?: boolean;
 }) {
   const dense = useDense();
   // The tabs are keyed by project id; "all" stands for no filter and "none" for no project.
   const options: SegmentedOption<string>[] = [
-    { id: "all", label: "All" },
+    { id: "all", label: "All projects" },
     ...projects.map((project) => ({
       id: project.id,
       label: project.name,
@@ -46,33 +49,37 @@ export function ProjectSwitcher({
     })),
     { id: "none", label: "No project" },
   ];
+  const row = (
+    <View style={[s.row, { gap: 8 }]}>
+      <SegmentedRow
+        label="Project"
+        options={options}
+        value={selected === null ? "all" : selected}
+        onChange={(id) => onSelect(id === "all" ? null : id)}
+      />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="+ New"
+        onPress={onNew}
+        style={({ hovered }: WebPressState) => ({
+          borderRadius: radius.pill,
+          paddingHorizontal: 16,
+          height: dense ? 32 : 38,
+          justifyContent: "center",
+          borderWidth: 1.5,
+          borderStyle: "dashed",
+          borderColor: colors.accent,
+          backgroundColor: hovered ? colors.accentSoft : colors.surface,
+        })}
+      >
+        <Text style={[s.small, { fontWeight: "600", color: colors.accentText }]}>+ New</Text>
+      </Pressable>
+    </View>
+  );
+  if (inline) return row;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={[s.row, { gap: 8 }]}>
-        <SegmentedRow
-          label="Project"
-          options={options}
-          value={selected === null ? "all" : selected}
-          onChange={(id) => onSelect(id === "all" ? null : id)}
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="+ New"
-          onPress={onNew}
-          style={({ hovered }: WebPressState) => ({
-            borderRadius: radius.pill,
-            paddingHorizontal: 16,
-            height: dense ? 32 : 38,
-            justifyContent: "center",
-            borderWidth: 1.5,
-            borderStyle: "dashed",
-            borderColor: colors.accent,
-            backgroundColor: hovered ? colors.accentSoft : colors.surface,
-          })}
-        >
-          <Text style={[s.small, { fontWeight: "600", color: colors.accentText }]}>+ New</Text>
-        </Pressable>
-      </View>
+      {row}
     </ScrollView>
   );
 }

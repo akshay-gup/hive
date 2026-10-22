@@ -32,6 +32,7 @@ import type {
   RunEvent,
 } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
+import { useActivityProjects } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
 import { useLineMaxWidth } from "./line-width";
@@ -51,14 +52,8 @@ import {
 } from "./task-board";
 import { TaskCreate } from "./task-create";
 import { TaskDetail as IssueDetail } from "./task-detail";
-import {
-  ProjectCreate,
-  ProjectManage,
-  type ProjectSelection,
-  ProjectSwitcher,
-} from "./task-project";
 import { TaskRunView } from "./task-run";
-import { TaskTimeline } from "./task-timeline";
+import { TaskSheet } from "./task-sheet";
 import { useMuseThread } from "./threads";
 import {
   Button,
@@ -317,13 +312,11 @@ export function ChatWork() {
 export function AgentActivityScreen() {
   const { data, refresh } = useAgentWorkspace();
   const { api } = useWorkspace();
-  const [filter, setFilter] = useState<"all" | "needs-you" | "active" | "finished">("all");
+  const { selected: projectFilter } = useActivityProjects();
+  const [onlyNeeds, setOnlyNeeds] = useState(false);
   const [view, setView] = useState<"list" | "board" | "timeline">("list");
-  const [projectFilter, setProjectFilter] = useState<ProjectSelection>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [managingProjectId, setManagingProjectId] = useState<string | null>(null);
   const projects = data?.projects ?? [];
   const allTasks = [...(data?.tasks || [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const projectTasks = allTasks.filter(
@@ -331,24 +324,9 @@ export function AgentActivityScreen() {
       projectFilter === null ||
       (projectFilter === "none" ? !task.projectId : task.projectId === projectFilter),
   );
-  const needsYou = (task: AgentTask) =>
-    task.status === "waiting_approval" ||
-    task.status === "waiting_input" ||
-    task.status === "in_review";
-  const needsYouCount = projectTasks.filter(needsYou).length;
-  const tasks = projectTasks.filter((task) =>
-    filter === "all"
-      ? true
-      : filter === "needs-you"
-        ? needsYou(task)
-        : filter === "active"
-          ? activeTask(task)
-          : !activeTask(task),
-  );
+  const needsYouCount = projectTasks.filter((task) => needsYou(task.status)).length;
+  const tasks = onlyNeeds ? projectTasks.filter((task) => needsYou(task.status)) : projectTasks;
   const selected = selectedId ? allTasks.find((task) => task.id === selectedId) : undefined;
-  const managingProject = managingProjectId
-    ? projects.find((project) => project.id === managingProjectId)
-    : undefined;
   const { width } = useWindowDimensions();
   const narrow = width < 700;
   const viewSwitcher = (
@@ -363,18 +341,27 @@ export function AgentActivityScreen() {
       ]}
     />
   );
-  const filterSwitcher = (
-    <Segmented
-      label="Show"
-      value={filter}
-      onChange={setFilter}
-      options={[
-        { id: "all", label: "All" },
-        { id: "needs-you", label: needsYouCount ? `Needs you · ${needsYouCount}` : "Needs you" },
-        { id: "active", label: "Active" },
-        { id: "finished", label: "Finished" },
-      ]}
-    />
+  const needsChip = (needsYouCount > 0 || onlyNeeds) && (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: onlyNeeds }}
+      accessibilityLabel={onlyNeeds ? "Show all work" : "Show only what needs you"}
+      onPress={() => setOnlyNeeds((on) => !on)}
+      style={{
+        height: 28,
+        paddingHorizontal: 12,
+        borderRadius: radius.pill,
+        borderWidth: 1,
+        borderColor: colors.warningLine,
+        backgroundColor: onlyNeeds ? colors.warningBg : "transparent",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text style={{ fontSize: fontSize.small, fontWeight: "600", color: colors.warningText }}>
+        {narrow ? `${needsYouCount} need you` : `Needs you · ${needsYouCount}`}
+      </Text>
+    </Pressable>
   );
   const newIssue = (
     <Button
@@ -382,85 +369,53 @@ export function AgentActivityScreen() {
       primary
       icon={Plus}
       accessibilityLabel="New issue"
+      style={narrow ? { gap: 0, paddingHorizontal: 10 } : undefined}
       onPress={() => setCreating(true)}
     >
-      {narrow ? "New" : "New issue"}
+      {narrow ? "" : "New issue"}
     </Button>
   );
-  const activeProject =
-    typeof projectFilter === "string" && projectFilter !== "none"
-      ? projects.find((project) => project.id === projectFilter)
-      : undefined;
   return (
-    <View style={{ gap: 24 }}>
+    <View style={{ gap: 16 }}>
       <AgentStatus />
-      <ProjectSwitcher
-        projects={projects}
-        selected={projectFilter}
-        onSelect={(selection) => {
-          setProjectFilter(selection);
-          setSelectedId(null);
-        }}
-        onNew={() => setCreatingProject(true)}
-        onManage={(project) => setManagingProjectId(project.id)}
-      />
-      {activeProject?.description ? <Text style={s.muted}>{activeProject.description}</Text> : null}
-      {narrow ? (
-        <View style={{ gap: 12 }}>
-          <View style={[s.between, { gap: 12 }]}>
-            {viewSwitcher}
-            {newIssue}
-          </View>
-          {view === "list" && filterSwitcher}
-        </View>
-      ) : (
-        <View style={[s.between, { gap: 12 }]}>
-          <View style={[s.row, { gap: 12, flexShrink: 1 }]}>
-            {viewSwitcher}
-            {view === "list" && filterSwitcher}
-          </View>
-          {newIssue}
-        </View>
+      {/* One toolbar: how to look at the work, what to narrow it to, and the new button at the right. */}
+      <View style={[s.row, { gap: 12 }]}>
+        {viewSwitcher}
+        {needsChip}
+        <View style={{ flex: 1 }} />
+        {newIssue}
+      </View>
+      {view !== "board" && tasks.length > 0 && (
+        <TaskSheet
+          tasks={tasks}
+          timeline={view === "timeline"}
+          onSelect={(task) => setSelectedId(task.id)}
+        />
       )}
-      {view === "list" && (
-        <>
-          <View style={{ gap: 10 }}>
-            {tasks.map((task) => (
-              <TaskCard key={task.id} task={task} onSelect={() => setSelectedId(task.id)} />
-            ))}
-          </View>
-          {!tasks.length &&
-            (projectTasks.length ? (
-              <Empty
-                icon={ListChecks}
-                title={filter === "needs-you" ? "Nothing needs you right now" : "No matching tasks"}
-                detail={
-                  filter === "needs-you"
-                    ? "Reviews and questions from Hive will show up here."
-                    : "Try a different filter to see more."
-                }
-              />
-            ) : (
-              <Empty
-                icon={ListChecks}
-                title="A place for the work"
-                detail="Delegate a task in Chat. Its plan, progress and results stay here."
-              />
-            ))}
-        </>
-      )}
+      {view !== "board" &&
+        !tasks.length &&
+        (projectTasks.length ? (
+          <Empty
+            icon={ListChecks}
+            title="Nothing needs you right now"
+            detail="Reviews and questions from Hive will show up here."
+          />
+        ) : (
+          <Empty
+            icon={ListChecks}
+            title="A place for the work"
+            detail="Delegate a task in Chat. Its plan, progress and results stay here."
+          />
+        ))}
       {view === "board" && (
         <TaskBoard
-          tasks={projectTasks}
+          tasks={tasks}
           onSelect={(task) => setSelectedId(task.id)}
           onControl={async (taskId, action) => {
             await api.request(`/api/agent/tasks/${taskId}/control`, { action }, "POST");
             await refresh();
           }}
         />
-      )}
-      {view === "timeline" && (
-        <TaskTimeline tasks={projectTasks} onSelect={(task) => setSelectedId(task.id)} />
       )}
       {selected && (
         <IssueDetail
@@ -471,14 +426,6 @@ export function AgentActivityScreen() {
         />
       )}
       {creating && <TaskCreate onClose={() => setCreating(false)} />}
-      {creatingProject && <ProjectCreate onClose={() => setCreatingProject(false)} />}
-      {managingProject && (
-        <ProjectManage
-          project={managingProject}
-          taskCount={allTasks.filter((task) => task.projectId === managingProject.id).length}
-          onClose={() => setManagingProjectId(null)}
-        />
-      )}
       <SectionHeading title="Reviews & receipts" />
       <ActivityScreen />
     </View>

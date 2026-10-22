@@ -1,4 +1,4 @@
-import { BellRing } from "lucide-react-native";
+import { BellRing, Link2, MessageSquare, Paperclip, Pause } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import {
@@ -9,6 +9,7 @@ import {
   taskColumn,
 } from "../../../packages/domain/src/agent";
 import { elapsedLabel, needsYou, orderColumn, runStartedAt, watchRuns } from "./board-order";
+import { Initial, PriorityMark } from "./task-marks";
 import { Button, colors, fontSize, radius, s, type WebPressState } from "./ui";
 import { useStill } from "./use-still";
 
@@ -247,6 +248,25 @@ export function TaskBoardCard({
           ) : (
             !!updated && <Text style={s.small}>{attention ? `waiting ${updated}` : updated}</Text>
           )}
+          {!manual && onControl && pausable && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Pause"
+              disabled={busy}
+              onPress={() => void control("pause")}
+              hitSlop={8}
+              style={({ hovered }: WebPressState) => ({
+                width: 22,
+                height: 22,
+                borderRadius: 11,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: hovered ? colors.surfaceHover : "transparent",
+              })}
+            >
+              <Pause size={13} color={colors.muted} />
+            </Pressable>
+          )}
         </View>
         <Text
           style={[
@@ -264,121 +284,75 @@ export function TaskBoardCard({
           </Text>
         )}
         {!manual && task.plan.length > 0 && (
-          <View style={{ gap: 4 }}>
+          <View style={[s.row, { gap: 8 }]}>
             <View
               style={{
-                height: 6,
-                borderRadius: 3,
+                flex: 1,
+                height: 4,
+                borderRadius: 2,
                 backgroundColor: colors.line,
                 overflow: "hidden",
               }}
             >
               <View
                 style={{
-                  height: 6,
-                  borderRadius: 3,
+                  height: 4,
+                  borderRadius: 2,
                   backgroundColor: meta.dot,
                   width: `${Math.round((doneSteps / task.plan.length) * 100)}%`,
                 }}
               />
             </View>
-            <Text style={s.small}>
-              {doneSteps}/{task.plan.length} steps
+            <Text style={[s.small, { fontVariant: ["tabular-nums"] }]}>
+              {doneSteps}/{task.plan.length}
               {task.attempts > 1 ? ` · attempt ${task.attempts}` : ""}
             </Text>
           </View>
         )}
-        <View style={[s.row, { gap: 6, flexWrap: "wrap" }]}>
-          <View
-            style={{
-              backgroundColor: manual ? colors.surfaceMuted : colors.primarySoft,
-              borderRadius: radius.md,
-              paddingHorizontal: 9,
-              paddingVertical: 4,
-            }}
-          >
-            <Text style={[s.small, { fontWeight: "700" }]}>{manual ? "Manual" : "Agent"}</Text>
-          </View>
-          {task.assignee === "agent" && (
-            <View
-              style={{
-                backgroundColor: colors.warningBg,
-                borderRadius: radius.md,
-                paddingHorizontal: 9,
-                paddingVertical: 4,
-              }}
-            >
-              <Text style={[s.small, { fontWeight: "700" }]}>Assigned</Text>
-            </View>
+        <View style={[s.row, { gap: 10 }]}>
+          <PriorityMark priority={task.priority} />
+          {manual && <Text style={s.small}>Manual</Text>}
+          {!!due && (
+            <Text style={[s.small, overdue && { color: colors.danger, fontWeight: "700" }]}>
+              {overdue ? `Overdue · ${due}` : due}
+            </Text>
           )}
           {noteCount > 0 && (
-            <View
-              style={{
-                backgroundColor: colors.surfaceMuted,
-                borderRadius: radius.md,
-                paddingHorizontal: 9,
-                paddingVertical: 4,
-              }}
-            >
-              <Text style={s.small}>
-                {noteCount} {noteCount === 1 ? "note" : "notes"}
-              </Text>
+            <View style={[s.row, { gap: 3 }]}>
+              <MessageSquare size={12} color={colors.muted} />
+              <Text style={s.small}>{noteCount}</Text>
             </View>
           )}
           {fileCount > 0 && (
-            <View
-              style={{
-                backgroundColor: colors.surfaceMuted,
-                borderRadius: radius.md,
-                paddingHorizontal: 9,
-                paddingVertical: 4,
-              }}
-            >
-              <Text style={s.small}>
-                {fileCount} {fileCount === 1 ? "file" : "files"}
-              </Text>
-            </View>
-          )}
-          {!!due && (
-            <View
-              style={{
-                backgroundColor: overdue ? colors.dangerBg : colors.surfaceMuted,
-                borderRadius: radius.md,
-                paddingHorizontal: 9,
-                paddingVertical: 4,
-              }}
-            >
-              <Text style={[s.small, overdue && { color: colors.danger, fontWeight: "700" }]}>
-                {overdue ? `Overdue · ${due}` : `Due ${due}`}
-              </Text>
+            <View style={[s.row, { gap: 3 }]}>
+              <Paperclip size={12} color={colors.muted} />
+              <Text style={s.small}>{fileCount}</Text>
             </View>
           )}
           {!!task.blockedBy.length && (
-            <Text style={s.small}>Blocked by {task.blockedBy.length}</Text>
+            <View style={[s.row, { gap: 3 }]}>
+              <Link2 size={12} color={colors.muted} />
+              <Text style={s.small}>{task.blockedBy.length}</Text>
+            </View>
           )}
+          <View style={{ flex: 1 }} />
+          {!!task.createdByName && <Initial name={task.createdByName} size={20} />}
         </View>
       </Pressable>
-      {!manual &&
-        onControl &&
-        (pausable || task.status === "paused" || task.status === "failed") && (
-          <View style={[s.row, { gap: 8, paddingHorizontal: 14, paddingBottom: 14 }]}>
-            {pausable && (
-              <Button small disabled={busy} onPress={() => void control("pause")}>
-                Pause
-              </Button>
-            )}
-            {task.status === "paused" && (
-              <Button small disabled={busy} onPress={() => void control("resume")}>
-                Resume
-              </Button>
-            )}
-            {task.status === "failed" && (
-              <Button small disabled={busy} onPress={() => void control("retry")}>
-                Retry
-              </Button>
-            )}
-          </View>
-        )}
+      {!manual && onControl && (task.status === "paused" || task.status === "failed") && (
+        <View style={[s.row, { gap: 8, paddingHorizontal: 14, paddingBottom: 12 }]}>
+          {task.status === "paused" && (
+            <Button small disabled={busy} onPress={() => void control("resume")}>
+              Resume
+            </Button>
+          )}
+          {task.status === "failed" && (
+            <Button small disabled={busy} onPress={() => void control("retry")}>
+              Retry
+            </Button>
+          )}
+        </View>
+      )}
     </View>
   );
 }

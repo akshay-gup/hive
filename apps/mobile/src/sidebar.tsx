@@ -14,6 +14,7 @@ import { AppState, Pressable, ScrollView, Text, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
+import { ProjectsList } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
 import { useOnChannelsChanged } from "./channel-events";
 import { useHosted } from "./hosted/context";
@@ -653,7 +654,7 @@ export function Sidebar({
             { width: LIST_WIDTH },
             panelStyle,
             { backgroundColor: glass.sidebar },
-            section !== "chat" && { display: "none" },
+            section !== "chat" && section !== "activity" && { display: "none" },
           ]}
         >
           <View
@@ -666,14 +667,16 @@ export function Sidebar({
               },
             ]}
           >
-            {title}
+            {section === "activity" ? <Text style={s.heading}>Activity</Text> : title}
           </View>
-          <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}>{search}</View>
+          {section !== "activity" && (
+            <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}>{search}</View>
+          )}
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 1 }}
           >
-            {conversations}
+            {section === "activity" ? <ProjectsList /> : conversations}
           </ScrollView>
         </View>
       </>
@@ -737,12 +740,14 @@ export function Sidebar({
         )}
         <IconButton icon={X} label="Close navigation" onPress={() => onNavigate?.()} />
       </View>
-      <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}>{search}</View>
+      {section !== "activity" && (
+        <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}>{search}</View>
+      )}
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 8, gap: 1 }}
       >
-        {conversations}
+        {section === "activity" ? <ProjectsList onPick={() => onNavigate?.()} /> : conversations}
         {!guest && (
           <>
             <View style={[s.divider, { marginVertical: 8, marginHorizontal: 8 }]} />

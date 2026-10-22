@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Section, Workspace } from "../../../packages/domain/src";
 import { useGuest } from "./access";
+import { ActivityProjectsProvider } from "./activity-projects";
 import { AgentActivityScreen, AgentStatus, AppsScreen, GoalsScreen, IdeasScreen } from "./agent-ui";
 import { AgentWorkspaceProvider } from "./agent-workspace";
 import type { MuseApi } from "./api";
@@ -129,17 +130,19 @@ export function WorkspaceApp({
       }}
     >
       <AgentWorkspaceProvider>
-        <ComputerDraftProvider key={identity}>
-          <ThreadsProvider>
-            <WorkspaceShell
-              detail={detail}
-              toast={toast}
-              clearToast={() => setToast("")}
-              error={error}
-              prompt={prompt}
-            />
-          </ThreadsProvider>
-        </ComputerDraftProvider>
+        <ActivityProjectsProvider>
+          <ComputerDraftProvider key={identity}>
+            <ThreadsProvider>
+              <WorkspaceShell
+                detail={detail}
+                toast={toast}
+                clearToast={() => setToast("")}
+                error={error}
+                prompt={prompt}
+              />
+            </ThreadsProvider>
+          </ComputerDraftProvider>
+        </ActivityProjectsProvider>
       </AgentWorkspaceProvider>
     </WorkspaceContext.Provider>
   );

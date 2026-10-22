@@ -1,7 +1,8 @@
-import { Bell, FolderOpen, Menu } from "lucide-react-native";
+import { Bell, ChevronDown, FolderOpen, Menu } from "lucide-react-native";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
+import { useActivityTitle } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
 import { ChannelChatBanner } from "./chat";
 import { ComputerEntry } from "./computer";
@@ -62,7 +63,9 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
     : data?.tasks.some((task) => task.status === "queued")
       ? "Picking up your next task…"
       : IDLE;
-  const title = titles[section] || titles.apps;
+  const project = useActivityTitle();
+  // The Activity page is named by the project it is on.
+  const title = section === "activity" ? project : titles[section] || titles.apps;
   return (
     <GlassBar
       kind="bar"
@@ -104,16 +107,29 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
             </View>
           </Pressable>
         ) : (
-          <View>
-            <Text style={[s.heading, { fontSize: fontSize.heading, lineHeight: 22 }]}>
-              {title?.title}
-            </Text>
+          <Pressable
+            accessibilityRole={section === "activity" && !desktop ? "button" : undefined}
+            accessibilityLabel={section === "activity" && !desktop ? "Choose a project" : undefined}
+            disabled={section !== "activity" || desktop}
+            onPress={onMenu}
+          >
+            <View style={[s.row, { gap: 4 }]}>
+              <Text
+                style={[s.heading, { fontSize: fontSize.heading, lineHeight: 22, flexShrink: 1 }]}
+                numberOfLines={1}
+              >
+                {title?.title}
+              </Text>
+              {section === "activity" && !desktop && (
+                <ChevronDown size={16} color={colors.muted} strokeWidth={2} />
+              )}
+            </View>
             {desktop && (
               <Text style={s.small} numberOfLines={1}>
                 {title?.subtitle}
               </Text>
             )}
-          </View>
+          </Pressable>
         )}
       </View>
       {desktop && section === "chat" && !channelChat && <ComputerEntry />}

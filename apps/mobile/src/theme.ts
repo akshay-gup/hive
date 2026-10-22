@@ -109,6 +109,8 @@ export const colors = {
   // Overlays
   /** Behind sheets and drawers. */
   scrim: "rgba(21,26,23,0.45)",
+  /** The finished part of a bar on the timeline, a shade darker than the bar. */
+  barDone: "rgba(0,0,0,0.2)",
   /** Dark toast. */
   inverse: "#1F2421",
   onInverse: "#F4F6F5",
