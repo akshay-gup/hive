@@ -102,3 +102,125 @@ test("a channel is unread for the others in it after someone writes, until they 
     404,
   );
 });
+
+test("people can be mentioned in a channel, and only those who can open it are offered or told", async () => {
+  const made = async (name: string, visibility: "public" | "private") =>
+    (await (
+      await call("max", "POST", "/api/agent/channels", { name, visibility })
+    ).json()) as Channel;
+  const handles = async (who: Who, id: string) =>
+    (
+      (await (await call(who, "GET", `/api/agent/channels/${id}/mentionable`)).json()) as {
+        handle: string;
+      }[]
+    ).map((p) => p.handle);
+  const noticesOf = async (who: Who) =>
+    (await (await call(who, "GET", "/api/agent/notifications")).json()) as {
+      title: string;
+      body: string;
+      channelId?: string;
+    }[];
+
+  // A public channel: everyone but a guest, except the one asking.
+  const open = await made("Plans", "public");
+  assert.deepEqual(await handles("max", open.id), ["mia", "olive"]);
+  assert.deepEqual(await handles("mia", open.id), ["max", "mia".replace("mia", "olive")].sort());
+  // A private one: only those in it. Others are told nothing of it.
+  const secret = await made("Hush", "private");
+  await call("max", "POST", `/api/agent/channels/${secret.id}/members`, {
+    add: ["mia@example.com"],
+  });
+  assert.deepEqual(await handles("max", secret.id), ["mia"]);
+  assert.equal(
+    (await call("olive", "GET", `/api/agent/channels/${secret.id}/mentionable`)).status,
+    404,
+  );
+
+  // Mentioning tells the people named, not the writer, not those who cannot open the channel.
+  await world.server.agent.notifyMentions(
+    owner("max"),
+    secret.id,
+    "hello @mia and @olive and @max",
+  );
+  const mia = (await noticesOf("mia")).filter((n) => n.channelId === secret.id);
+  assert.equal(mia.length, 1);
+  assert.equal(mia[0].title, "Max mentioned you in #Hush");
+  assert.equal(mia[0].body, "hello @mia and @olive and @max");
+  assert.equal(
+    (await noticesOf("olive")).some((n) => n.channelId === secret.id),
+    false,
+  );
+  assert.equal(
+    (await noticesOf("max")).some((n) => n.channelId === secret.id),
+    false,
+  );
+  // Saying it again is the same notice.
+  await world.server.agent.notifyMentions(
+    owner("max"),
+    secret.id,
+    "hello @mia and @olive and @max",
+  );
+  assert.equal((await noticesOf("mia")).filter((n) => n.channelId === secret.id).length, 1);
+  // A guest is told only of what they are in, and is offered only those in it.
+  await call("olive", "POST", `/api/agent/channels/${open.id}/members`, {
+    add: ["gus@example.com"],
+  });
+  assert.deepEqual(
+    await handles("gus", open.id),
+    ["max", "mia", "olive"].filter((h) => h !== "gus"),
+  );
+});
+
+test("notifications are personal: the result of a task is for whoever started it", async () => {
+  const now = new Date().toISOString();
+  await world.db.put("shared", "tasks", {
+    id: "task-by-max",
+    title: "Summarise the launch notes",
+    status: "completed",
+    channelId: "general",
+    createdBy: owner("max"),
+    createdAt: now,
+    updatedAt: now,
+  } as never);
+  await world.server.agent.notify(
+    owner("max"),
+    "Done: launch notes",
+    "Summary is ready",
+    "task-by-max",
+    "k1",
+  );
+  await world.server.agent.notify(
+    owner("max"),
+    "The workspace updated",
+    "A new version is running",
+  );
+  const titles = async (who: Who) =>
+    (
+      (await (await call(who, "GET", "/api/agent/notifications")).json()) as { title: string }[]
+    ).map((n) => n.title);
+  // Max asked for it, so it is his; the workspace's own notice is everyone's.
+  assert.ok((await titles("max")).includes("Done: launch notes"));
+  assert.ok(!(await titles("mia")).includes("Done: launch notes"));
+  assert.ok(!(await titles("olive")).includes("Done: launch notes"));
+  assert.ok((await titles("mia")).includes("The workspace updated"));
+  // Someone else cannot read or dismiss it.
+  const note = (
+    (await (await call("max", "GET", "/api/agent/notifications")).json()) as {
+      id: string;
+      title: string;
+    }[]
+  ).find((n) => n.title === "Done: launch notes");
+  assert.ok(note);
+  assert.equal(
+    (await call("mia", "POST", `/api/agent/notifications/${note.id}/dismiss`, {})).status,
+    404,
+  );
+  assert.equal(
+    (await call("mia", "POST", `/api/agent/notifications/${note.id}/read`, {})).status,
+    404,
+  );
+  assert.equal(
+    (await call("max", "POST", `/api/agent/notifications/${note.id}/read`, {})).status,
+    200,
+  );
+});

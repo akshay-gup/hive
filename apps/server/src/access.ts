@@ -127,6 +127,31 @@ export class Access {
     return people;
   }
 
+  /** Everyone who has signed in here and may open this channel, with the id they are known by. */
+  async openers(
+    channel: Channel,
+  ): Promise<{ owner: string; email: string; name: string; role: WorkspaceRole }[]> {
+    if (!this.roles) return [];
+    const users = await this.db.list<{ id: string; email?: string; name?: string; role?: string }>(
+      "system",
+      "users",
+    );
+    const people: { owner: string; email: string; name: string; role: WorkspaceRole }[] = [];
+    for (const user of users) {
+      const role = (["owner", "admin", "member", "guest"] as const).find((r) => r === user.role);
+      if (!user.email || !role) continue;
+      const person = {
+        id: user.id,
+        owner: user.id,
+        email: normalizeEmail(user.email),
+        name: user.name ?? "",
+        role,
+      };
+      if (canOpen(person, channel)) people.push(person);
+    }
+    return people;
+  }
+
   /** Which channels a request from this person may reach. */
   async scope(owner: string): Promise<Scope> {
     const person = await this.person(owner);

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Platform, Pressable, Share, Text, View } from "react-native";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AssistantResponse } from "./assistant-response";
+import { MentionText } from "./mention-ui";
 import {
   avatarTints,
   colors,
@@ -80,7 +81,10 @@ export function ChannelMessage({
   grouped = false,
   timestamp,
   onNotify,
+  mentions = [],
 }: {
+  /** The handles that name someone in this channel, to set them apart in the text. */
+  mentions?: string[];
   text: string;
   author: string;
   assistant?: boolean;
@@ -199,9 +203,7 @@ export function ChannelMessage({
             <AssistantResponse content={text} />
           ) : (
             // Flat, as in a team chat: everyone's words sit on the page, on the left, under their name.
-            <Text selectable style={[s.text, { lineHeight: 21 }]}>
-              {text}
-            </Text>
+            <MentionText text={text} handles={mentions} style={[s.text, { lineHeight: 21 }]} />
           )}
           {onReply && hasThread && (
             <Pressable

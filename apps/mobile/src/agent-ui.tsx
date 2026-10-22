@@ -59,6 +59,7 @@ import {
 } from "./task-project";
 import { TaskRunView } from "./task-run";
 import { TaskTimeline } from "./task-timeline";
+import { useMuseThread } from "./threads";
 import {
   Button,
   Card,
@@ -1840,12 +1841,17 @@ function MonitorCard({ monitor, onOpenTask }: { monitor: Monitor; onOpenTask?: (
 export function NotificationsSheet() {
   const { data, mutate } = useAgentWorkspace();
   const { close, open } = useWorkspace();
+  const { select } = useMuseThread();
   const canDismiss = useServerFeature("notifications-dismiss");
   const [error, setError] = useState("");
-  async function read(id: string, taskId?: string) {
+  async function read(id: string, taskId?: string, channelId?: string) {
     try {
       await mutate(`/notifications/${id}/read`, {});
       if (taskId) open({ type: "task", taskId });
+      else if (channelId) {
+        close();
+        select({ id: `channel:${channelId}`, existing: true });
+      }
     } catch (e) {
       setError(errorText(e));
     }
@@ -1860,7 +1866,7 @@ export function NotificationsSheet() {
   return (
     <Sheet
       title="Notifications"
-      subtitle="Results and decisions that need your attention."
+      subtitle="Your agents' results, decisions for you, and where you were mentioned."
       onClose={close}
     >
       <View style={{ gap: 16 }}>
@@ -1886,8 +1892,14 @@ export function NotificationsSheet() {
             <Text style={s.muted}>{item.body}</Text>
             <Text style={s.small}>{stamp(item.createdAt)}</Text>
             <View style={[s.row, { gap: 8 }]}>
-              <Button small onPress={() => void read(item.id, item.taskId)}>
-                {item.taskId ? "View task" : item.read ? "Read" : "Mark read"}
+              <Button small onPress={() => void read(item.id, item.taskId, item.channelId)}>
+                {item.taskId
+                  ? "View task"
+                  : item.channelId
+                    ? "Open channel"
+                    : item.read
+                      ? "Read"
+                      : "Mark read"}
               </Button>
               {canDismiss && (
                 <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>

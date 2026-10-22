@@ -269,7 +269,7 @@ test("the worker runs a shared task as the person who asked for it and everyone 
   assert.ok(seen.events.some((e) => e.title === "Reading the thread"));
 });
 
-test("a task's outcome notifies the workspace, and one person reading it clears it for everyone", async () => {
+test("a task's outcome notifies whoever started it, and no one else", async () => {
   await agent<AgentTask>(
     tokenA,
     "/tasks",
@@ -279,11 +279,16 @@ test("a task's outcome notifies the workspace, and one person reading it clears 
   // No model is configured, so the task stops to ask for one: an outcome that wants a person.
   await server.agent.worker.tick();
   const notes = (token: string) => agent<AgentNotification[]>(token, "/notifications");
-  const forBob = (await notes(tokenB)).find((n) => n.title === "Your details are needed");
-  assert.ok(forBob, "Bob sees the notification Alice's task raised");
-  await agent(tokenB, `/notifications/${forBob.id}/read`, {});
-  const forAlice = (await notes(tokenA)).find((n) => n.id === forBob.id);
-  assert.equal(forAlice?.read, true);
+  const forAlice = (await notes(tokenA)).find((n) => n.title === "Your details are needed");
+  assert.ok(forAlice, "Alice sees the notification her task raised");
+  // It is hers: Bob is not shown it, cannot read it, and reading it does not change what she has.
+  assert.equal(
+    (await notes(tokenB)).some((n) => n.id === forAlice.id),
+    false,
+  );
+  await agent(tokenB, `/notifications/${forAlice.id}/read`, {}, 404);
+  await agent(tokenA, `/notifications/${forAlice.id}/read`, {});
+  assert.equal((await notes(tokenA)).find((n) => n.id === forAlice.id)?.read, true);
 });
 
 test("reviews and receipts are shared, and anyone on the team can approve one", async () => {

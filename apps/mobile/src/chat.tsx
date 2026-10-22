@@ -26,6 +26,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -46,6 +47,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { z } from "zod";
 import type { ChannelThread, ChannelView } from "../../../packages/domain/src/agent";
+import { activeMention, insertMention, matchPeople } from "../../../packages/domain/src/mentions";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AssistantResponse } from "./assistant-response";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
@@ -60,6 +62,7 @@ import { useHosted } from "./hosted/context";
 import { confirmedJevSelection, displayJevUserMessage, latestJevPanelId } from "./jev-actions";
 import { JevInteractionContext, JevToolCard } from "./jev-tool-card";
 import { MailToolCard } from "./mail-tool-card";
+import { type MentionOption, MentionPicker, MentionText, useMentionable } from "./mention-ui";
 import { PendingApprovals } from "./opencode-permissions";
 import PanelResizer from "./PanelResizer";
 import {
@@ -448,6 +451,11 @@ export function ChatScreen({
   const { copilotkit } = useCopilotKit();
   const renderToolCall = useRenderToolCall();
   const [draft, setDraft] = useState(initialDraft);
+  // Typing `@` offers the people in the channel, and Hive.
+  const [cursor, setCursor] = useState(initialDraft.length);
+  const [placeCursor, setPlaceCursor] = useState<{ start: number; end: number } | undefined>();
+  const [mentionPick, setMentionPick] = useState(0);
+  const composerRef = useRef<TextInput>(null);
   const [focused, setFocused] = useState(false);
   const [inputHeight, setInputHeight] = useState(INPUT_MIN);
   const [busy, setBusy] = useState(false);
@@ -991,6 +999,36 @@ export function ChatScreen({
     }
   }
   const agentName = agentWorkspace?.identity.name || "Hive";
+  // Who can be mentioned here, and what to offer while an `@` is being typed.
+  const mentionPeople = useMentionable(channelId, threadParent ? threadId : undefined);
+  const mentionHandles = useMemo(
+    () => ["hive", ...mentionPeople.flatMap((person) => [person.handle, person.email])],
+    [mentionPeople],
+  );
+  const [mentionOff, setMentionOff] = useState(false);
+  const mentionActive = channelId || threadParent ? activeMention(draft, cursor) : null;
+  const mentionOptions: MentionOption[] =
+    mentionActive && !mentionOff
+      ? matchPeople(
+          [
+            { handle: "hive", name: agentName, note: "Agent" },
+            ...mentionPeople.map((person) => ({
+              handle: person.handle,
+              name: person.name || person.email,
+              note: person.role === "guest" ? "Guest" : undefined,
+            })),
+          ],
+          mentionActive.query,
+        )
+      : [];
+  function chooseMention(option: MentionOption) {
+    if (!mentionActive) return;
+    const next = insertMention(draft, mentionActive, cursor, option.handle);
+    setDraft(next.text);
+    onDraftChange?.(next.text);
+    setCursor(next.cursor);
+    setPlaceCursor({ start: next.cursor, end: next.cursor });
+  }
   // On a wide window a channel is a panel of its own, with its header inside, beside the thread's.
   const panels = !!channelId && !threadParent && width >= 900;
   return (
@@ -1160,6 +1198,7 @@ export function ChatScreen({
                         <ChannelMessage
                           text={text}
                           author={user ? message.name || w.profile.name || "You" : agentName}
+                          mentions={mentionHandles}
                           assistant={!user}
                           grouped={grouped}
                           timestamp={timestamp}
@@ -1187,9 +1226,7 @@ export function ChatScreen({
                             backgroundColor: colors.primarySoft,
                           }}
                         >
-                          <Text selectable style={s.text}>
-                            {text}
-                          </Text>
+                          <MentionText text={text} handles={mentionHandles} style={s.text} />
                         </View>
                       ) : (
                         <View style={{ maxWidth: 720, paddingVertical: 2 }}>
@@ -1386,6 +1423,11 @@ export function ChatScreen({
                 </Button>
               </Card>
             )}
+            <MentionPicker
+              options={mentionOptions}
+              selected={Math.min(mentionPick, Math.max(0, mentionOptions.length - 1))}
+              onPick={chooseMention}
+            />
             <GlassBar
               kind="raised"
               style={{
@@ -1459,7 +1501,22 @@ export function ChatScreen({
                   value={draft}
                   onChangeText={(text) => {
                     setDraft(text);
+                    setMentionOff(false);
+                    setMentionPick(0);
                     onDraftChange?.(text);
+                    // Where the cursor is after typing, on the web, where it is the box's own.
+                    setTimeout(() => {
+                      const box = composerRef.current as unknown as {
+                        selectionStart?: number;
+                      } | null;
+                      if (typeof box?.selectionStart === "number") setCursor(box.selectionStart);
+                    }, 0);
+                  }}
+                  ref={composerRef}
+                  selection={placeCursor}
+                  onSelectionChange={(event) => {
+                    setCursor(event.nativeEvent.selection.end);
+                    setPlaceCursor(undefined);
                   }}
                   onContentSizeChange={(event) =>
                     setInputHeight(
@@ -1501,6 +1558,36 @@ export function ChatScreen({
                   onKeyPress={
                     Platform.OS === "web"
                       ? (event) => {
+                          // While someone is being chosen, the arrows and Enter are for the choice.
+                          if (mentionOptions.length) {
+                            const key = event.nativeEvent.key;
+                            const last = mentionOptions.length - 1;
+                            if (key === "ArrowDown" || key === "ArrowUp") {
+                              event.preventDefault();
+                              setMentionPick((n) =>
+                                key === "ArrowDown"
+                                  ? n >= last
+                                    ? 0
+                                    : n + 1
+                                  : n <= 0
+                                    ? last
+                                    : n - 1,
+                              );
+                              return;
+                            }
+                            if (key === "Enter" || key === "Tab") {
+                              event.preventDefault();
+                              chooseMention(
+                                mentionOptions[Math.min(mentionPick, last)] ?? mentionOptions[0],
+                              );
+                              return;
+                            }
+                            if (key === "Escape") {
+                              event.preventDefault();
+                              setMentionOff(true);
+                              return;
+                            }
+                          }
                           if (
                             event.nativeEvent.key === "Enter" &&
                             !("shiftKey" in event.nativeEvent && event.nativeEvent.shiftKey) &&
@@ -1617,6 +1704,7 @@ export function ChatScreen({
                 : agentName
             }
             assistant={replyPanel.parent.role === "assistant"}
+            mentions={mentionHandles}
             timestamp={messageTimestamp(replyPanel.parent)}
             onNotify={notify}
           />

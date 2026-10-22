@@ -129,6 +129,10 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     ]);
     return c.json(channels.map((channel) => service.access.view(person, channel, read)));
   });
+  /** The people who can be mentioned in the channel, by the handle typed after the @. */
+  app.get("/channels/:id/mentionable", async (c) =>
+    c.json(await service.mentionable(c.get("owner"), c.req.param("id"))),
+  );
   /** The person has the channel open: what was written in it so far is read. */
   app.post("/channels/:id/read", async (c) => {
     await service.markRead(c.get("owner"), c.req.param("id"));
@@ -408,6 +412,13 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     c.json((await service.snapshot(c.get("owner"))).notifications),
   );
   app.post("/notifications/:id/read", async (c) => {
+    // Only a notice that is theirs: the rest is not something to tell them exists.
+    if (
+      !(await service.snapshot(c.get("owner"))).notifications.some(
+        (n) => n.id === c.req.param("id"),
+      )
+    )
+      throw new AppError("Notification not found", 404);
     const notification = await service.db.compareAndSwap<AgentNotification>(
       c.get("owner"),
       "notifications",
@@ -430,7 +441,7 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   app.post("/notifications/:id/dismiss", async (c) => {
     const owner = c.get("owner");
     const id = c.req.param("id");
-    if (!(await service.db.get<AgentNotification>(owner, "notifications", id)))
+    if (!(await service.snapshot(owner)).notifications.some((n) => n.id === id))
       throw new AppError("Notification not found", 404);
     await service.db.remove(owner, "notifications", id);
     return c.json({ ok: true });

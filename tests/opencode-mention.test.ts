@@ -217,6 +217,7 @@ describe("opencodeShimRoutes mention gating", () => {
       service: {
         access: { isGuest: async () => false, assertChannel: async () => undefined },
         noteMessage: async () => undefined,
+        notifyMentions: async () => undefined,
         ...service,
       },
       bus: new OpencodeEventBus(testConnection),
@@ -254,6 +255,35 @@ describe("opencodeShimRoutes mention gating", () => {
     });
     assert.equal(res.status, 200);
     assert.deepEqual(await eventTypes(res), ["RUN_STARTED", "RUN_FINISHED"]);
+  });
+
+  it("tells the people a message mentions, and marks the channel, even when the agent is not asked", async () => {
+    const told: [string, string][] = [];
+    const marked: string[] = [];
+    const app = opencodeShimRoutes(
+      stubDeps({
+        ensureOrchestratorChannel: async () => ({ id: "orchestrator" }),
+        ensureThreadBinding: async () => ({ threadId: "t1", channelId: "team" }),
+        noteMessage: async (_owner: string, channelId: string) => {
+          marked.push(channelId);
+        },
+        notifyMentions: async (_owner: string, channelId: string, text: string) => {
+          told.push([channelId, text]);
+        },
+      }),
+    );
+    const res = await app.request("/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        threadId: "t1",
+        runId: "r1",
+        messages: [{ role: "user", content: "@mia can you look at this?" }],
+      }),
+    });
+    assert.deepEqual(await eventTypes(res), ["RUN_STARTED", "RUN_FINISHED"]);
+    assert.deepEqual(marked, ["team"]);
+    assert.deepEqual(told, [["team", "@mia can you look at this?"]]);
   });
 
   it("releases the in-flight slot after a no-op run", async () => {

@@ -37,6 +37,11 @@ import type {
   Mail,
   ProposalInput,
 } from "../../../../packages/domain/src/index.ts";
+import {
+  type Mentionable,
+  mentionedPeople,
+  withHandles,
+} from "../../../../packages/domain/src/mentions.ts";
 import { Access, canSeeTask, type Scope } from "../access.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
@@ -277,6 +282,54 @@ export class AgentService {
       /* storage unavailable */
     }
     return [general];
+  }
+  /** The people who may be mentioned in a channel: those who can open it, but the asker. */
+  async mentionable(owner: string, channelId: string): Promise<Mentionable[]> {
+    await this.access.assertChannel(owner, channelId);
+    const channel = await this.getChannel(owner, channelId);
+    if (!channel) return [];
+    const person = await this.access.person(owner);
+    const everyone = withHandles(await this.access.openers(channel));
+    // Only what is typed and shown: the ids people are known by here stay here.
+    return everyone
+      .filter((who) => who.email !== person?.email)
+      .map(({ email, name, handle, role }) => ({ email, name, handle, role }))
+      .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+  }
+  /**
+   * Tell the people a message mentions, in their notifications. Only those who may open the
+   * channel are told, so a mention cannot be used to tell someone a private channel exists.
+   */
+  async notifyMentions(owner: string, channelId: string, text: string): Promise<void> {
+    if (channelId === ORCHESTRATOR_CHANNEL_ID || !text.includes("@")) return;
+    const channel = await this.getChannel(owner, channelId);
+    const sender = await this.access.person(owner);
+    if (!channel || !sender?.email) return;
+    const openers = await this.access.openers(channel);
+    const people = withHandles(openers);
+    const owners = new Map(openers.map((o) => [o.email, o.owner]));
+    const snippet = text.replace(/\s+/g, " ").trim();
+    for (const who of mentionedPeople(text, people)) {
+      const target = owners.get(who.email);
+      if (!target || who.email === sender.email) continue;
+      // The same message said again to the same person is the same notice, so a run that is
+      // repeated does not tell them twice.
+      const id = createHash("sha256")
+        .update(`${channelId}\n${sender.email}\n${who.email}\n${text}`)
+        .digest("hex")
+        .slice(0, 32);
+      if (await this.db.get(target, "notifications", id)) continue;
+      const note: AgentNotification = {
+        id,
+        channelId,
+        to: [who.email],
+        title: `${sender.name || sender.email} mentioned you in #${channel.name}`,
+        body: snippet.length > 160 ? `${snippet.slice(0, 160)}…` : snippet,
+        createdAt: new Date().toISOString(),
+        read: false,
+      };
+      await this.db.put(target, "notifications", note);
+    }
   }
   /** Record that someone wrote in a channel, for the unread mark of the others in it. */
   async noteMessage(owner: string, channelId: string): Promise<void> {
@@ -545,6 +598,20 @@ export class AgentService {
     return updated;
   }
   /**
+   * Whether a notice is this person's. One said to someone is theirs alone, and the result of a
+   * task is for whoever started it. What has neither (the workspace's own) is everyone's.
+   */
+  private noticeIsFor(
+    owner: string,
+    email: string | undefined,
+    note: AgentNotification,
+    tasks: Map<string, AgentTask>,
+  ): boolean {
+    if (note.to) return !!email && note.to.includes(email);
+    const asker = note.taskId ? tasks.get(note.taskId)?.createdBy : undefined;
+    return !asker || asker === owner;
+  }
+  /**
    * What a guest is shown of the work: the tasks of the channels they were added to, and what came
    * of them. The goals, ideas, memories and notifications belong to the whole workspace.
    */
@@ -553,9 +620,10 @@ export class AgentService {
       canSeeTask(scope, task),
     );
     const ids = new Set(tasks.map((task) => task.id));
-    const [artifacts, identity] = await Promise.all([
+    const [artifacts, identity, notices] = await Promise.all([
       this.db.list<AgentArtifact>(owner, "agent-artifacts"),
       this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
+      this.db.list<AgentNotification>(owner, "notifications"),
     ]);
     return {
       tasks: await this.present(owner, tasks),
@@ -565,7 +633,13 @@ export class AgentService {
       ideas: [],
       memories: [],
       artifacts: artifacts.filter((artifact) => !artifact.taskId || ids.has(artifact.taskId)),
-      notifications: [],
+      // Only what was said to them: the rest is the workspace's.
+      notifications: notices.filter(
+        (note) =>
+          (!note.channelId || scope.allows(note.channelId)) &&
+          (!note.taskId || ids.has(note.taskId)) &&
+          this.noticeIsFor(owner, scope.person?.email, note, new Map(tasks.map((t) => [t.id, t]))),
+      ),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: { running: this.worker.running, lastTickAt: this.worker.lastTickAt },
     };
@@ -640,6 +714,7 @@ export class AgentService {
     // What belongs to a private channel is shown to the people in it: its tasks, and what came of
     // them, and what the agent learned there.
     const hidden = new Set(tasks.filter((task) => !canSeeTask(scope, task)).map((task) => task.id));
+    const byId = new Map(tasks.map((task) => [task.id, task]));
     return {
       tasks: await this.present(
         owner,
@@ -651,7 +726,12 @@ export class AgentService {
       ideas,
       memories: memories.filter((memory) => !memory.channelId || scope.allows(memory.channelId)),
       artifacts: artifacts.filter((artifact) => !artifact.taskId || !hidden.has(artifact.taskId)),
-      notifications: notifications.filter((note) => !note.taskId || !hidden.has(note.taskId)),
+      notifications: notifications.filter(
+        (note) =>
+          (!note.taskId || !hidden.has(note.taskId)) &&
+          (!note.channelId || scope.allows(note.channelId)) &&
+          this.noticeIsFor(owner, scope.person?.email, note, byId),
+      ),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: {
         running:

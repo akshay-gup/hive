@@ -164,7 +164,7 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
   if (method === "GET" && /^\/api\/browser-shots\/[0-9a-f-]{36}(\/link)?$/.test(path)) return;
 
   const inChannel = match(
-    /^\/api\/agent\/channels\/([^/]+)\/(files|files\/info|tasks|threads|uploads\/[^/]+|view\/.+|members|read)$/,
+    /^\/api\/agent\/channels\/([^/]+)\/(files|files\/info|tasks|threads|uploads\/[^/]+|view\/.+|members|read|mentionable)$/,
   );
   if (inChannel) {
     // They may write to the channel, and leave it: the channel's own rules say whether they may
