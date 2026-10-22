@@ -1,35 +1,75 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import type { Channel, ChannelVisibility } from "../../../packages/domain/src/agent";
 import { channelsChanged } from "./channel-events";
-import { visibilityHint } from "./channel-text";
 import { useHosted } from "./hosted/context";
-import { Button, ErrorNotice, Field, Segmented, s } from "./ui";
+import { useMuseThread } from "./threads";
+import { Button, colors, ErrorNotice, fontSize, radius, Sheet, s, shadow } from "./ui";
 import { useWorkspace } from "./workspace";
 
-/**
- * The form for a new channel. Where the workspace knows its people a channel is public or private,
- * as in Slack: the team finds a public one and joins it, and only the people in a private one find
- * it. The person who makes it is in it and manages it.
- */
-export function NewChannelForm({
-  onCreated,
-  onCancel,
-  autoFocus,
+/** One of two ways to share a channel: a radio, what it is called, and what it comes to. */
+function Choice({
+  selected,
+  title,
+  detail,
+  onPress,
 }: {
-  onCreated: (channel: Channel) => void;
-  onCancel: () => void;
-  autoFocus?: boolean;
+  selected: boolean;
+  title: string;
+  detail: string;
+  onPress: () => void;
 }) {
-  const { api } = useWorkspace();
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={title}
+      onPress={onPress}
+      style={[s.row, { gap: 12, alignItems: "flex-start", paddingVertical: 6 }]}
+    >
+      <View
+        style={{
+          width: 20,
+          height: 20,
+          marginTop: 1,
+          borderRadius: 10,
+          borderWidth: 2,
+          borderColor: selected ? colors.primary : colors.lineStrong,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {selected && (
+          <View
+            style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }}
+          />
+        )}
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={s.text}>{title}</Text>
+        <Text style={s.small}>{detail}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/**
+ * The window for a new channel. Where the workspace knows its people a channel is public or private:
+ * the team finds a public one and joins it, and only the people in a private one find it. The person
+ * who makes it is in it and manages it.
+ */
+export function NewChannelSheet() {
+  const { api, close } = useWorkspace();
   const hosted = useHosted();
+  const { select } = useMuseThread();
   const [name, setName] = useState("");
   const [visibility, setVisibility] = useState<ChannelVisibility>("public");
+  const [focused, setFocused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function create() {
-    const trimmed = name.trim();
+    const trimmed = name.trim().replace(/^#+\s*/, "");
     if (!trimmed || busy) return;
     setBusy(true);
     setError("");
@@ -50,7 +90,9 @@ export function NewChannelForm({
         );
       }
       channelsChanged();
-      onCreated(made);
+      close();
+      // A new channel is usable immediately: open it as a chat.
+      select({ id: `channel:${made.id}`, existing: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -59,43 +101,84 @@ export function NewChannelForm({
   }
 
   return (
-    <View style={{ gap: 12 }}>
-      <Field
-        label="Channel name"
-        compact
-        autoFocus={autoFocus}
-        value={name}
-        onChangeText={setName}
-        placeholder="e.g. family-trip"
-        returnKeyType="done"
-        onSubmitEditing={() => void create()}
-        onKeyPress={(event) => {
-          if (event.nativeEvent.key === "Escape") onCancel();
-        }}
-      />
-      {hosted && (
-        <View style={{ gap: 6 }}>
-          <Segmented
-            label="Who can find it"
-            value={visibility}
-            onChange={setVisibility}
-            options={[
-              { id: "public", label: "Public" },
-              { id: "private", label: "Private" },
+    <Sheet title="Create a channel" narrow onClose={close}>
+      <View style={{ gap: 22 }}>
+        <View style={{ gap: 8 }}>
+          <Text style={[s.text, { fontWeight: "600" }]}>Name</Text>
+          <View
+            style={[
+              s.row,
+              {
+                gap: 8,
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: focused ? colors.primary : colors.lineStrong,
+                borderRadius: radius.md,
+                paddingHorizontal: 14,
+                ...(focused ? { boxShadow: shadow.focus } : null),
+              },
             ]}
-          />
-          <Text style={s.small}>{visibilityHint[visibility]}</Text>
+          >
+            <Text style={[s.text, { color: colors.muted }]}>#</Text>
+            <TextInput
+              autoFocus
+              accessibilityLabel="Channel name"
+              placeholder="e.g. family-trip"
+              placeholderTextColor={colors.muted}
+              value={name}
+              onChangeText={setName}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={() => void create()}
+              style={[
+                {
+                  flex: 1,
+                  minWidth: 0,
+                  paddingVertical: 12,
+                  fontSize: fontSize.body,
+                  color: colors.text,
+                },
+                Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null,
+              ]}
+            />
+          </View>
+          <Text style={s.small}>
+            A channel is a place for one topic, with its own threads and files. Pick a name that is
+            easy to find.
+          </Text>
         </View>
-      )}
-      <ErrorNotice error={error} />
-      <View style={[s.row, { gap: 8 }]}>
-        <Button primary small busy={busy} disabled={!name.trim()} onPress={() => void create()}>
-          Create
-        </Button>
-        <Button small disabled={busy} onPress={onCancel}>
-          Cancel
-        </Button>
+
+        {hosted && (
+          <View style={{ gap: 6 }} accessibilityRole="radiogroup">
+            <Text style={[s.text, { fontWeight: "600" }]}>Who can find it</Text>
+            <Choice
+              selected={visibility === "public"}
+              title={`Public: anyone in ${hosted.workspace.name}`}
+              detail="They can look inside it and join."
+              onPress={() => setVisibility("public")}
+            />
+            <Choice
+              selected={visibility === "private"}
+              title="Private: only the people you add"
+              detail="No one else can see it or find it."
+              onPress={() => setVisibility("private")}
+            />
+          </View>
+        )}
+
+        <ErrorNotice error={error} />
+        <View style={[s.row, { gap: 10, justifyContent: "flex-end" }]}>
+          <Button disabled={busy} onPress={close}>
+            Cancel
+          </Button>
+          <Button primary busy={busy} disabled={!name.trim()} onPress={() => void create()}>
+            Create
+          </Button>
+        </View>
       </View>
-    </View>
+    </Sheet>
   );
 }

@@ -35,6 +35,7 @@ import {
 import { DelegateSheet, NotificationsSheet, TaskDetail } from "./agent-ui";
 import BrowserConsole from "./BrowserConsole";
 import { browserAddress, browserSite } from "./browser-address";
+import { NewChannelSheet } from "./channel-create";
 import { ChannelFileSheet, ChannelFilesSheet } from "./channel-files";
 import { ChannelMembersSheet } from "./channel-members";
 import { ComputerSheet } from "./computer";
@@ -74,6 +75,7 @@ export function Details({ detail }: { detail: Detail }) {
     return <ChannelFileSheet channelId={detail.channelId} path={detail.path} />;
   if (detail.type === "channelMembers")
     return <ChannelMembersSheet channelId={detail.channelId} name={detail.name} />;
+  if (detail.type === "newChannel") return <NewChannelSheet />;
   if (detail.type === "task") return <TaskDetail taskId={detail.taskId} />;
   if (detail.type === "delegate") return <DelegateSheet threadId={detail.threadId} />;
   if (detail.type === "notifications") return <NotificationsSheet />;

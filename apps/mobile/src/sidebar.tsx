@@ -15,7 +15,6 @@ import type { Section } from "../../../packages/domain/src";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
 import { useAgentWorkspace } from "./agent-workspace";
-import { NewChannelForm } from "./channel-create";
 import { useOnChannelsChanged } from "./channel-events";
 import { useHosted } from "./hosted/context";
 import { readLastCount, writeLastCount } from "./last-count";
@@ -261,7 +260,6 @@ export function Sidebar({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const [find, setFind] = useState("");
 
   const load = useCallback(
@@ -459,7 +457,10 @@ export function Sidebar({
             accessibilityRole="button"
             accessibilityLabel="New channel"
             hitSlop={6}
-            onPress={() => setCreating(true)}
+            onPress={() => {
+              onNavigate?.();
+              open({ type: "newChannel" });
+            }}
             {...newChannelTip.props}
             style={({ pressed, hovered }: WebPressState) => ({
               width: 28,
@@ -523,20 +524,6 @@ export function Sidebar({
         <Text style={[s.small, { paddingHorizontal: 8, paddingVertical: 6 }]}>
           No conversation by that name.
         </Text>
-      )}
-      {creating && (
-        <View style={{ paddingHorizontal: 8, marginTop: 8 }}>
-          <NewChannelForm
-            autoFocus
-            onCancel={() => setCreating(false)}
-            onCreated={(created) => {
-              setCreating(false);
-              // A new channel is usable immediately: open it as a chat.
-              select({ id: `channel:${created.id}`, existing: true });
-              onNavigate?.();
-            }}
-          />
-        </View>
       )}
     </>
   );

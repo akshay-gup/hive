@@ -806,6 +806,7 @@ export function Sheet({
   children,
   onClose,
   wide,
+  narrow,
   tall,
 }: {
   title: string;
@@ -815,6 +816,8 @@ export function Sheet({
   wide?: boolean;
   /** For a sheet whose content arrives after it opens: on a phone it opens at its full height, so the title does not move when the content comes. */
   tall?: boolean;
+  /** For a short form, which does not need the usual width. */
+  narrow?: boolean;
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -839,6 +842,7 @@ export function Sheet({
           style={[
             s.sheet,
             wide && { maxWidth: 1050 },
+            narrow && { maxWidth: 520 },
             !compact && { maxHeight: "100%" },
             compact && {
               borderTopLeftRadius: radius.xl,

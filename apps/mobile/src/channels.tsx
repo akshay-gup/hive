@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
-import { NewChannelForm } from "./channel-create";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
 import { useMuseThread } from "./threads";
 import { Button, colors, Empty, ErrorNotice, Pending, radius, SearchField, s } from "./ui";
@@ -16,13 +15,12 @@ import { useWorkspace } from "./workspace";
  * public ones they are not in are found by browsing.
  */
 export function ChannelsSection({ onClose }: { onClose: () => void }) {
-  const { api } = useWorkspace();
+  const { api, open } = useWorkspace();
   const guest = useGuest();
   const { selection, select } = useMuseThread();
   const [channels, setChannels] = useState<ChannelView[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [find, setFind] = useState("");
 
@@ -186,22 +184,17 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
           )}
         </>
       )}
-      {creating ? (
-        <NewChannelForm
-          onCancel={() => setCreating(false)}
-          onCreated={(created) => {
-            setCreating(false);
-            openChannel(created);
+      {!guest && (
+        <Button
+          primary
+          icon={Plus}
+          onPress={() => {
+            onClose();
+            open({ type: "newChannel" });
           }}
-        />
-      ) : (
-        !guest && (
-          <View style={{ gap: 12 }}>
-            <Button primary icon={Plus} onPress={() => setCreating(true)}>
-              New channel
-            </Button>
-          </View>
-        )
+        >
+          New channel
+        </Button>
       )}
     </View>
   );
