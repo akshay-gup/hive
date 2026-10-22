@@ -12,6 +12,11 @@ import {
   WorkspaceUnavailable,
 } from "./open-workspace";
 
+/** How old a session may get before it is made again, so a changed role arrives. */
+const ROLE_REFRESH_MS = 5 * 60 * 1000;
+/** The same, when the person comes back to the app. */
+const ROLE_REFRESH_ON_RETURN_MS = 60 * 1000;
+
 /**
  * A workspace the person has been signed in to. Its session lasts an hour, so this signs in again
  * through the control plane before that ends, and when the workspace refuses the session
@@ -39,6 +44,8 @@ export function HostedWorkspace({
   const [opened, setOpened] = useState(initial);
   const current = useRef(initial);
   const renewing = useRef<Promise<string | null> | null>(null);
+  // When the session was last made, so a change of role is picked up soon after it is made.
+  const signedAt = useRef(Date.now());
   // One API object for as long as the workspace is open, so what holds it is not rebuilt at each renewal.
   const api = useMemo(() => new MuseApi(initial.token, initial.url), [initial]);
 
@@ -47,6 +54,7 @@ export function HostedWorkspace({
       renewing.current = renewSession(control, current.current)
         .then((next) => {
           current.current = next;
+          signedAt.current = Date.now();
           api.token = next.token;
           setOpened(next);
           return next.token;
@@ -64,12 +72,15 @@ export function HostedWorkspace({
 
   useEffect(() => {
     api.renew = renew;
-    const check = () => {
-      if (shouldRenew(current.current)) void renew();
+    // The role a person has is the one the workspace was told when they last signed in, so a
+    // session is made again every few minutes, and as soon as they come back to the app after a
+    // while, not only when it is about to end.
+    const check = (staleAfter: number) => {
+      if (shouldRenew(current.current) || Date.now() - signedAt.current > staleAfter) void renew();
     };
-    const timer = setInterval(check, 60_000);
+    const timer = setInterval(() => check(ROLE_REFRESH_MS), 60_000);
     const listener = AppState.addEventListener("change", (state) => {
-      if (state === "active") check();
+      if (state === "active") check(ROLE_REFRESH_ON_RETURN_MS);
     });
     return () => {
       api.renew = undefined;

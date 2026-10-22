@@ -240,12 +240,75 @@ export class AgentService {
       patch,
     );
   }
+  /**
+   * A workspace that knows its people starts with a #general everyone is in, so a new team has
+   * somewhere to talk at once. Only a workspace with no channels at all gets one: an archived one
+   * counts, so it does not come back after someone put it away.
+   */
+  private async ensureGeneral(owner: string, channels: Channel[]): Promise<Channel[]> {
+    if (channels.length > 0) return channels;
+    const person = await this.access.person(owner);
+    if (!person?.email || person.role === "guest") return channels;
+    const now = new Date().toISOString();
+    const general: Channel = {
+      id: "general",
+      name: "general",
+      status: "active",
+      createdBy: owner,
+      createdAt: now,
+      updatedAt: now,
+      workerPid: null,
+      lastActiveAt: now,
+      visibility: "public",
+      everyone: true,
+      members: [],
+      managers: [],
+      topic: "Where the team talks about anything",
+    };
+    // Two people opening a new workspace at once make the same channel, so this only writes it
+    // where it is not already.
+    if (!(await this.db.get<Channel>(SHARED_OWNER, "channels", general.id)))
+      await this.db.put(SHARED_OWNER, "channels", general);
+    try {
+      await mkdir(channelWorkspaceDir(this.config.dataDir, SHARED_OWNER, general.id), {
+        recursive: true,
+      });
+    } catch {
+      /* storage unavailable */
+    }
+    return [general];
+  }
+  /** Record that someone wrote in a channel, for the unread mark of the others in it. */
+  async noteMessage(owner: string, channelId: string): Promise<void> {
+    if (channelId === ORCHESTRATOR_CHANNEL_ID) return;
+    const person = await this.access.person(owner);
+    if (!person?.email) return;
+    await this.touchChannel(owner, channelId, {
+      lastMessageAt: new Date().toISOString(),
+      lastMessageBy: person.email,
+    });
+  }
+  /** When this person last had each channel open. */
+  async readMarks(owner: string): Promise<Record<string, string>> {
+    return (
+      (await this.db.get<{ id: string; at: Record<string, string> }>(owner, "reads", "channels"))
+        ?.at ?? {}
+    );
+  }
+  /** The person has the channel open: everything written in it so far is read. */
+  async markRead(owner: string, channelId: string): Promise<void> {
+    if (channelId === ORCHESTRATOR_CHANNEL_ID) return;
+    const scope = await this.access.scope(owner);
+    if (!scope.allows(channelId)) throw new AppError("Channel not found", 404);
+    const at = { ...(await this.readMarks(owner)), [channelId]: new Date().toISOString() };
+    await this.db.put(owner, "reads", { id: "channels", at });
+  }
   async listChannels(owner: string): Promise<Channel[]> {
     // Only the channels this person may open: a guest has no orchestrator chat, and a private
     // channel is not listed to anyone who is not in it.
     const visible = await this.access.visibleChannels(
       owner,
-      await this.db.list<Channel>(SHARED_OWNER, "channels"),
+      await this.ensureGeneral(owner, await this.db.list<Channel>(SHARED_OWNER, "channels")),
     );
     if (await this.access.isGuest(owner)) return visible;
     await this.ensureOrchestratorChannel(owner);

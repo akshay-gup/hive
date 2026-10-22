@@ -365,6 +365,11 @@ export interface Channel {
   /** PID of the spawned channel worker, when running. */
   workerPid?: number | null;
   lastActiveAt?: string | null;
+  /** A line on what the channel is for. */
+  topic?: string;
+  /** When someone last wrote in the channel, and who (email address): the others' unread marks. */
+  lastMessageAt?: string;
+  lastMessageBy?: string;
   /**
    * Who can find the channel: anyone in the workspace but a guest (public), or only the people in
    * it (private). Missing means public.
@@ -398,6 +403,8 @@ export interface ChannelView extends Channel {
   manager?: boolean;
   /** How many people are named in it. */
   count?: number;
+  /** Whether someone else has written in it since this person last had it open. */
+  unread?: boolean;
 }
 /** The people in a channel, and what the person asking may do about them. */
 export interface ChannelPeopleView {
@@ -407,6 +414,8 @@ export interface ChannelPeopleView {
   archived: boolean;
   /** Everyone in the workspace but guests is in the channel, named or not. */
   everyone: boolean;
+  /** A line on what the channel is for; empty when it has none. */
+  topic: string;
   /** The people named in it: its managers first. `role` is null for an address that has not signed in here yet. */
   people: {
     email: string;
@@ -426,6 +435,8 @@ export interface ChannelPeopleView {
     makePrivate: boolean;
     makePublic: boolean;
     setEveryone: boolean;
+    /** Change the channel's topic. */
+    topic: boolean;
   };
 }
 const emailAddress = z
@@ -443,6 +454,7 @@ export type ChannelPeopleInput = z.infer<typeof channelPeopleSchema>;
 export const channelSettingsSchema = z.object({
   visibility: z.enum(["public", "private"]).optional(),
   everyone: z.boolean().optional(),
+  topic: z.string().trim().max(250).optional(),
 });
 export type ChannelSettingsInput = z.infer<typeof channelSettingsSchema>;
 export const createChannelSchema = z.object({

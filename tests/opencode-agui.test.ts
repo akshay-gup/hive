@@ -466,6 +466,7 @@ describe("opencodeShimRoutes", () => {
       // Nobody in these tests is a guest.
       service: {
         access: { isGuest: async () => false, assertChannel: async () => undefined },
+        noteMessage: async () => undefined,
         ...service,
       },
       bus: new OpencodeEventBus(testConnection),

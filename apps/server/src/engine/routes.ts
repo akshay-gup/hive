@@ -122,11 +122,17 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   });
   app.get("/channels", async (c) => {
     const owner = c.get("owner");
-    const [channels, person] = await Promise.all([
+    const [channels, person, read] = await Promise.all([
       service.listChannels(owner),
       service.access.person(owner),
+      service.readMarks(owner),
     ]);
-    return c.json(channels.map((channel) => service.access.view(person, channel)));
+    return c.json(channels.map((channel) => service.access.view(person, channel, read)));
+  });
+  /** The person has the channel open: what was written in it so far is read. */
+  app.post("/channels/:id/read", async (c) => {
+    await service.markRead(c.get("owner"), c.req.param("id"));
+    return c.json({ ok: true });
   });
   app.post("/channels", async (c) =>
     c.json(await service.createChannel(c.get("owner"), await c.req.json()), 201),

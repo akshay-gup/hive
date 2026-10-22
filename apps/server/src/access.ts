@@ -162,11 +162,17 @@ export class Access {
   }
 
   /** A channel as this person is shown it. */
-  view(person: Person | null, channel: Channel): ChannelView {
+  view(person: Person | null, channel: Channel, read?: Record<string, string>): ChannelView {
     if (!person) return channel;
+    const joined = isIn(person, channel);
     return {
       ...channel,
-      joined: isIn(person, channel),
+      joined,
+      unread:
+        joined &&
+        !!channel.lastMessageAt &&
+        channel.lastMessageBy !== person.email &&
+        channel.lastMessageAt > (read?.[channel.id] ?? ""),
       manager: managesChannel(person, channel),
       count: (channel.members ?? []).length,
     };

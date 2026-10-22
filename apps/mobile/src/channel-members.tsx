@@ -67,6 +67,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
   const { mainId, select, retry } = useMuseThread();
   const [view, setView] = useState<ChannelPeopleView | null>(null);
   const [email, setEmail] = useState("");
+  const [topic, setTopic] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const base = `/api/agent/channels/${encodeURIComponent(channelId)}`;
@@ -78,6 +79,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
       if (!Array.isArray(loaded.people))
         throw new Error("This workspace is still updating. Try again in a few minutes.");
       setView(loaded);
+      setTopic((was) => was ?? loaded.topic ?? "");
       setError("");
     } catch (e) {
       setError(message(e));
@@ -102,6 +104,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
         return;
       }
       setView(result);
+      setTopic(result.topic ?? "");
       setEmail("");
     } catch (e) {
       setError(message(e));
@@ -113,8 +116,10 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
     act(what, `${base}/members`, body);
   const managers = (what: string, body: { add?: string[]; remove?: string[] }) =>
     act(what, `${base}/managers`, body);
-  const settings = (what: string, body: { visibility?: string; everyone?: boolean }) =>
-    act(what, base, body, "PATCH");
+  const settings = (
+    what: string,
+    body: { visibility?: string; everyone?: boolean; topic?: string },
+  ) => act(what, base, body, "PATCH");
 
   const you = view?.you;
   const typed = email.trim().toLowerCase();
@@ -143,6 +148,37 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
               >
                 Join channel
               </Button>
+            </View>
+          )}
+
+          {(you?.topic || !!view.topic) && (
+            <View style={{ gap: 10 }}>
+              <SectionHeading title="Topic" />
+              {you?.topic ? (
+                <>
+                  <Field
+                    label="What this channel is for"
+                    value={topic ?? ""}
+                    onChangeText={setTopic}
+                    placeholder="Add a line on what this channel is for"
+                    maxLength={250}
+                    returnKeyType="done"
+                    onSubmitEditing={() => void settings("topic", { topic: topic ?? "" })}
+                  />
+                  <View style={s.row}>
+                    <Button
+                      small
+                      busy={busy === "topic"}
+                      disabled={(topic ?? "").trim() === view.topic}
+                      onPress={() => void settings("topic", { topic: topic ?? "" })}
+                    >
+                      Save topic
+                    </Button>
+                  </View>
+                </>
+              ) : (
+                <Text style={s.text}>{view.topic}</Text>
+              )}
             </View>
           )}
 

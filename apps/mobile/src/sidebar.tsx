@@ -54,6 +54,7 @@ function SidebarRow({
   onPress,
   accessibilityLabel,
   dense,
+  unread,
 }: {
   icon: typeof Bot;
   label: string;
@@ -61,12 +62,16 @@ function SidebarRow({
   onPress: () => void;
   accessibilityLabel?: string;
   dense?: boolean;
+  /** Something was written here that the person has not seen. */
+  unread?: boolean;
 }) {
   const m = rowMetrics(!!dense);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityLabel={
+        unread ? `${accessibilityLabel ?? label}, unread` : (accessibilityLabel ?? label)
+      }
       onPress={onPress}
       style={({ pressed, hovered }: WebPressState) => ({
         flexDirection: "row",
@@ -87,12 +92,15 @@ function SidebarRow({
         style={[
           s.text,
           dense && { fontSize: fontSize.ui, lineHeight: 20 },
-          { flex: 1, fontWeight: "400" },
+          { flex: 1, fontWeight: unread ? "700" : "400" },
         ]}
         numberOfLines={1}
       >
         {label}
       </Text>
+      {unread && (
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
+      )}
     </Pressable>
   );
 }
@@ -286,6 +294,24 @@ export function Sidebar({
   }, [load]);
   // A channel made, joined or left, or someone put in it, is seen in the list at once.
   useOnChannelsChanged(() => void load(true));
+  // A channel is read while it is open: tell the workspace, and drop the mark at once.
+  useEffect(() => {
+    if (section !== "chat" || !activeChannelId) return;
+    if (!channels?.some((channel) => channel.id === activeChannelId && channel.unread)) return;
+    setChannels((all) =>
+      (all ?? []).map((channel) =>
+        channel.id === activeChannelId ? { ...channel, unread: false } : channel,
+      ),
+    );
+    void api
+      .request(`/api/agent/channels/${encodeURIComponent(activeChannelId)}/read`, {})
+      .catch(() => undefined);
+  }, [api, section, activeChannelId, channels]);
+  // What others write while the app is open shows in the list within the minute.
+  useEffect(() => {
+    const timer = setInterval(() => void load(true), 30_000);
+    return () => clearInterval(timer);
+  }, [load]);
   // There is no refresh button: the list is fetched again when the person comes back to the app.
   useEffect(() => {
     const listener = AppState.addEventListener("change", (state) => {
@@ -497,6 +523,7 @@ export function Sidebar({
             icon={channel.visibility === "private" ? Lock : Hash}
             label={channel.name}
             accessibilityLabel={`Open channel: ${channel.name}`}
+            unread={channel.unread && activeChannelId !== channel.id}
             active={section === "chat" && !isMainActive && activeChannelId === channel.id}
             onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
           />

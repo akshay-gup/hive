@@ -403,7 +403,7 @@ A stopped machine does nothing, and Fly decides a machine is idle from the reque
 
 The control plane decides. An **owner** (who made the workspace) can invite admins, members and guests, change roles, remove anyone, retry a workspace that failed to start, and delete it. An **admin** can invite members and guests and remove them. A **member** can leave. A **guest** can leave, and is shown only themselves in the list of people. Invitations are a link anyone can use (50 uses, 7 days; always as a member) or one for a single email address (1 use, 7 days; as a member, admin or guest). A person who is not in a workspace gets "not found" for it, not "forbidden".
 
-A workspace stores the role it was told, at each sign-in (an hour's session, so a changed role is taken up within the hour), and uses it for **what people can open: which channels**. The rest of a workspace (the mail, calendar, files, goals and the agent's settings) is the whole team's, as in a self-hosted Hive (see the [roadmap](../ROADMAP.md)) except that a guest has none of it.
+A workspace stores the role it was told, at each sign-in (the app signs in again every few minutes, and when the person comes back to it, so a changed role is taken up within about five minutes), and uses it for **what people can open: which channels**. The rest of a workspace (the mail, calendar, files, goals and the agent's settings) is the whole team's, as in a self-hosted Hive (see the [roadmap](../ROADMAP.md)) except that a guest has none of it.
 
 Who can open what depends on channels, which have people in them, and on people's roles.
 
@@ -414,6 +414,7 @@ A channel is **public** or **private**, chosen when it is made. The server is `a
 - **Public.** Anyone in the workspace but a guest can find it by searching the sidebar, look inside before joining, and join. The sidebar lists the channels a person is in.
 - **Private.** Only the people in it can find it. To everyone else, the owner and admins included, it does not exist: every route that names it, its threads, its tasks or its files answers "not found", and the work and what the agent learned in it (tasks, notices, reviews and their receipts, goals, projects, monitors, memories, browser windows) are shown only to the people in it.
 - **Made now: the maker is in it and manages it.** A channel made before channels had people (every older one) has *everyone* in it, like a #general channel: no one leaves it, and an owner or admin can take everyone out (which keeps the people who have signed in as its members) or put everyone in.
+- **A first channel, a topic, and what is unread.** A new workspace starts with a `#general` everyone but a guest is in, made when the first person lists channels (an archived one is not made again). Anyone in a channel can set its one-line topic, shown under its name and in its people sheet. A channel is marked unread, with a dot and a bold name in the sidebar, when someone else wrote in it since the person last had it open; it is a mark, not a count, and it follows what is sent through the channel's chat.
 - **Adding and removing.** Anyone in the team can add a teammate to a public channel; a guest is added to a public channel only by an owner or admin, and to a private one by anyone in it. Someone who has not opened the workspace yet can be added only by an owner or admin (people are named by email address, so this works before their first sign-in). A channel's *managers*, and the owner and admins, take people out of a public channel and choose who manages it (never a guest); anyone in a private channel takes people out of it. The last person in a private channel cannot leave it: archive it. An archived channel is read-only.
 - **Public or private.** A manager can make a channel private, and only an owner or admin can make a private one public again.
 
@@ -423,9 +424,9 @@ A guest is invited, and put in channels, at the same time: *People*, an invitati
 
 ### What is not built
 
-- A single-channel guest, a guest account that expires on a date, members asking for a guest to be invited, who may post in a channel, and a channel's topic: not built. A guest here can be in several channels.
+- A single-channel guest, a guest account that expires on a date, members asking for a guest to be invited, who may post in a channel: not built. A guest here can be in several channels.
 - Owners and admins cannot list private channels' names, so a private channel that every one of its people has left is gone: it cannot be left by its last person.
-- A person's role is taken at their next sign-in, within the hour, not at once.
+- A changed role reaches a person when their app next signs in again, which is within about five minutes of their having it open, or when they come back to it; it is not pushed to them. Someone taken out of the workspace still keeps their session for up to an hour.
 - **The agent's own reach is not confined to a channel.** The agent works in the channel's folder, but its shell can read other folders on the machine (a private channel's too), and what a person writes it reads as text. What a channel's agent is asked to run is for the people in that channel to allow, and a guest cannot allow it, but until the agent's shell is confined to the channel, a private channel keeps people out of what Hive shows, not out of what the agent could be asked to read: treat it as that, and a guest as someone you would also trust with the team's files when a teammate is careless with an approval.
 
 ## What is not built

@@ -132,6 +132,7 @@ export class ChannelPeople {
       visibility: channel.visibility ?? "public",
       archived: channel.status === "archived",
       everyone,
+      topic: channel.topic ?? "",
       people,
       candidates,
       you: {
@@ -145,6 +146,7 @@ export class ChannelPeople {
         makePrivate: manager && isPublic(channel),
         makePublic: runs(person) && !isPublic(channel),
         setEveryone: runs(person) && isPublic(channel),
+        topic: channel.status !== "archived" && person.role !== "guest" && (runs(person) || inIt),
       },
     };
   }
@@ -259,6 +261,11 @@ export class ChannelPeople {
     const known = await this.access.known();
     const saved = await this.update(person, channelId, (channel) => {
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
+      if (
+        input.topic !== undefined &&
+        (person.role === "guest" || !(runs(person) || isIn(person, channel)))
+      )
+        throw new AppError("Only someone in the channel can change its topic", 403);
       let visibility = channel.visibility ?? "public";
       if (input.visibility && input.visibility !== visibility) {
         if (input.visibility === "private" && !managesChannel(person, channel))
@@ -285,7 +292,12 @@ export class ChannelPeople {
       const members = new Set(channel.members ?? []);
       if (was && !everyone)
         for (const [email, who] of known) if (who.role !== "guest") members.add(email);
-      return { visibility, everyone, members: [...members].sort() };
+      return {
+        visibility,
+        everyone,
+        members: [...members].sort(),
+        ...(input.topic !== undefined ? { topic: input.topic } : {}),
+      };
     });
     return this.describe(person, saved);
   }

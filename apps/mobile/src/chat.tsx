@@ -166,53 +166,60 @@ export function ChannelChatBanner({ channelId }: { channelId: string }) {
     }
   }
   return (
-    <View style={[s.row, { gap: 12 }]}>
-      <View style={[s.row, { gap: 8, flexShrink: 1 }]}>
-        {channel?.visibility === "private" && <Lock size={16} color={colors.muted} />}
-        <Text style={[s.heading, { fontSize: fontSize.title, flexShrink: 1 }]} numberOfLines={1}>
-          {channel?.visibility === "private" ? "" : "# "}
-          {name ?? "channel"}
-        </Text>
+    <View style={{ gap: 2 }}>
+      <View style={[s.row, { gap: 12 }]}>
+        <View style={[s.row, { gap: 8, flexShrink: 1 }]}>
+          {channel?.visibility === "private" && <Lock size={16} color={colors.muted} />}
+          <Text style={[s.heading, { fontSize: fontSize.title, flexShrink: 1 }]} numberOfLines={1}>
+            {channel?.visibility === "private" ? "" : "# "}
+            {name ?? "channel"}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }} />
+        {hosted && channel?.joined === false && (
+          <Button
+            small
+            primary
+            busy={joining}
+            accessibilityLabel="Join channel"
+            onPress={() => void join()}
+          >
+            {narrow ? "Join" : "Join channel"}
+          </Button>
+        )}
+        {hosted && (
+          <Button
+            small
+            icon={Users}
+            accessibilityLabel="Who is in this channel"
+            onPress={() => open({ type: "channelMembers", channelId, name: name ?? undefined })}
+          >
+            {channel && channel.everyone !== false && channel.visibility !== "private"
+              ? "People"
+              : String((channel?.members ?? []).length)}
+          </Button>
+        )}
+        {narrow ? (
+          <IconButton
+            icon={FolderOpen}
+            label="Files in this channel"
+            onPress={() => open({ type: "channelFiles", channelId, name: name ?? undefined })}
+          />
+        ) : (
+          <Button
+            small
+            icon={FolderOpen}
+            accessibilityLabel="Files in this channel"
+            onPress={() => open({ type: "channelFiles", channelId, name: name ?? undefined })}
+          >
+            Files
+          </Button>
+        )}
       </View>
-      <View style={{ flex: 1 }} />
-      {hosted && channel?.joined === false && (
-        <Button
-          small
-          primary
-          busy={joining}
-          accessibilityLabel="Join channel"
-          onPress={() => void join()}
-        >
-          {narrow ? "Join" : "Join channel"}
-        </Button>
-      )}
-      {hosted && (
-        <Button
-          small
-          icon={Users}
-          accessibilityLabel="Who is in this channel"
-          onPress={() => open({ type: "channelMembers", channelId, name: name ?? undefined })}
-        >
-          {channel && channel.everyone !== false && channel.visibility !== "private"
-            ? "People"
-            : String((channel?.members ?? []).length)}
-        </Button>
-      )}
-      {narrow ? (
-        <IconButton
-          icon={FolderOpen}
-          label="Files in this channel"
-          onPress={() => open({ type: "channelFiles", channelId, name: name ?? undefined })}
-        />
-      ) : (
-        <Button
-          small
-          icon={FolderOpen}
-          accessibilityLabel="Files in this channel"
-          onPress={() => open({ type: "channelFiles", channelId, name: name ?? undefined })}
-        >
-          Files
-        </Button>
+      {!!channel?.topic && (
+        <Text style={s.small} numberOfLines={1}>
+          {channel.topic}
+        </Text>
       )}
     </View>
   );
