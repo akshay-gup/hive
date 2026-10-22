@@ -718,6 +718,7 @@ export function SearchField({
         style={[
           {
             flex: 1,
+            minWidth: 0,
             paddingVertical: slim ? 6 : 12,
             fontSize: slim ? fontSize.ui : fontSize.body,
             color: colors.text,

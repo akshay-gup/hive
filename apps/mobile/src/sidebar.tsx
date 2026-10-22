@@ -264,6 +264,7 @@ export function Sidebar({
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [find, setFind] = useState("");
+  const [menu, setMenu] = useState(false);
 
   const load = useCallback(
     async (quiet = false) => {
@@ -343,6 +344,20 @@ export function Sidebar({
     .filter(isListed)
     .filter((channel) => !needle || channel.name.toLowerCase().includes(needle))
     .sort((a, b) => a.name.localeCompare(b.name));
+  // Searching finds the public channels the person is not in as well, as Slack's does: opening one
+  // shows it with a Join button.
+  const unjoined = needle
+    ? (channels ?? [])
+        .filter(
+          (channel) =>
+            channel.id !== ORCHESTRATOR_CHANNEL_ID &&
+            channel.status !== "archived" &&
+            channel.joined === false &&
+            channel.visibility !== "private" &&
+            channel.name.toLowerCase().includes(needle),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
 
   const newChannelTip = useHoverTip("New channel");
   const dense = !compact;
@@ -411,7 +426,10 @@ export function Sidebar({
       label="Find a conversation"
       placeholder="Find a conversation…"
       value={find}
-      onChangeText={setFind}
+      onChangeText={(text) => {
+        setFind(text);
+        setMenu(false);
+      }}
     />
   );
 
@@ -446,7 +464,7 @@ export function Sidebar({
             accessibilityRole="button"
             accessibilityLabel="New channel"
             hitSlop={6}
-            onPress={() => setCreating(true)}
+            onPress={() => (hosted ? setMenu((open) => !open) : setCreating(true))}
             {...newChannelTip.props}
             style={({ pressed, hovered }: WebPressState) => ({
               width: 28,
@@ -462,6 +480,29 @@ export function Sidebar({
           </Pressable>
         )}
       </View>
+      {menu && !creating && (
+        <>
+          <SidebarRow
+            dense={dense}
+            icon={Plus}
+            label="New channel"
+            onPress={() => {
+              setMenu(false);
+              setCreating(true);
+            }}
+          />
+          <SidebarRow
+            dense={dense}
+            icon={Search}
+            label="Browse channels"
+            onPress={() => {
+              setMenu(false);
+              onNavigate?.();
+              open({ type: "browseChannels" });
+            }}
+          />
+        </>
+      )}
       <ErrorNotice error={error} />
       {!!error && (
         <Pressable
@@ -488,21 +529,28 @@ export function Sidebar({
           />
         ))
       )}
-      {!!needle && !loading && userChannels.length === 0 && !showAgent && (
+      {unjoined.length > 0 && (
+        <>
+          <Text style={[s.small, { paddingHorizontal: 8, paddingTop: 10, paddingBottom: 2 }]}>
+            Not joined
+          </Text>
+          {unjoined.map((channel) => (
+            <SidebarRow
+              dense={dense}
+              key={channel.id}
+              icon={Hash}
+              label={channel.name}
+              accessibilityLabel={`Look at channel: ${channel.name}`}
+              active={section === "chat" && activeChannelId === channel.id}
+              onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
+            />
+          ))}
+        </>
+      )}
+      {!!needle && !loading && userChannels.length === 0 && unjoined.length === 0 && !showAgent && (
         <Text style={[s.small, { paddingHorizontal: 8, paddingVertical: 6 }]}>
           No conversation by that name.
         </Text>
-      )}
-      {hosted && !guest && !creating && (
-        <SidebarRow
-          dense={dense}
-          icon={Search}
-          label="Browse channels"
-          onPress={() => {
-            onNavigate?.();
-            open({ type: "browseChannels" });
-          }}
-        />
       )}
       {creating && (
         <View style={{ paddingHorizontal: 8, marginTop: 8 }}>
