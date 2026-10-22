@@ -54,7 +54,7 @@ function Initial({ text }: { text: string }) {
 }
 
 /**
- * Who is in a channel, the way Slack shows it: the people, with who manages it and who is a guest;
+ * Who is in a channel: the people, with who manages it and who is a guest;
  * adding people, taking them out, joining and leaving; and, for a manager, whether the channel is
  * private. What each person may do is the server's say: the buttons are the ones it allows.
  */

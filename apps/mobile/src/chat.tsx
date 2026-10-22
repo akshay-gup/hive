@@ -126,7 +126,7 @@ function channelIdOf(selection: { id: string }): string | null {
 }
 
 /**
- * Banner for a channel chat, like a Slack channel header: its name (a lock for a private one), the
+ * Banner for a channel chat, the channel's header: its name (a lock for a private one), the
  * people in it, and its files. Looking at a public channel before joining it, there is a button to
  * join.
  */

@@ -95,7 +95,7 @@ one workspace shared by the team, so what the agent is given once is there for e
       inside a workspace, so it cannot read the server's secrets. Returning from sign-in on
       a phone by a link the app owns rather than a custom scheme, and binding the code to
       the app that asked. Trying all of it on a real Fly or DigitalOcean account (`docs/hosted.md`).
-- [ ] **Roles.** What people can open follows Slack in a hosted workspace: channels are public or
+- [ ] **Roles.** What people can open in a hosted workspace is set by channels and roles: channels are public or
       private and have managers, and a guest can open only the channels they were added to
       (`docs/hosted.md`). Beyond that everyone who can sign in can do everything: connect or
       disconnect the workspace's Google account, approve or decline what is sent from it, mark
@@ -105,7 +105,7 @@ one workspace shared by the team, so what the agent is given once is there for e
       - [ ] Which actions are owner-only.
       - [ ] The agent's shell held to its channel's folder: a private channel and a guest are
             kept from what Hive shows, not from what the agent could be asked to read.
-      - [ ] Slack's single-channel guests, guests that expire, and members asking for a guest.
+      - [ ] Single-channel guests, guests that expire, and members asking for a guest.
       - [ ] Removing a member, and ending their sessions at once rather than within the hour.
 - [ ] Browser access (deferred).
 - [ ] Native mobile against the same API.

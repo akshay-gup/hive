@@ -11,7 +11,7 @@ import type {
 import { managedWorkspace } from "./helpers/managed.ts";
 
 /**
- * Channels and the people in them, the way a Slack workspace has it: a channel is public (the team
+ * Channels and the people in them: a channel is public (the team
  * finds it and joins it) or private (found only by the people in it), its managers look after who
  * is in it, and a guest has only the channels that name them. Owner and admin run the workspace.
  */
@@ -484,7 +484,7 @@ test("anyone in a private channel can add and take out people, and the last one 
   // A guest may leave a private channel, and is then gone from it.
   assert.equal((await remove("gus", room.id, "gus@example.com")).status, 200);
   assert.deepEqual(await namesOf("gus"), []);
-  // Anyone in a private channel may take someone out: Slack lets any member.
+  // Anyone in a private channel may take someone out.
   assert.equal((await remove("mia", room.id, "max@example.com")).status, 200);
   assert.equal((await call("max", "GET", members(room.id))).status, 404);
   // The last person cannot leave: there would be no one to open it.

@@ -277,7 +277,7 @@ export function PeopleSheet() {
                   void run("email", async () => {
                     const to = email.trim();
                     const address = to.toLowerCase();
-                    // A guest sees nothing until a channel names them, as in Slack, so the channels
+                    // A guest sees nothing until a channel names them, so the channels
                     // are chosen with the invitation and the guest is put in them first.
                     const put: string[] = [];
                     try {

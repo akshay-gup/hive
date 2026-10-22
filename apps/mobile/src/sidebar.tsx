@@ -38,7 +38,7 @@ import {
 import { useWorkspace } from "./workspace";
 
 /**
- * How a row is laid out, thin as Slack's are so a long list of channels stays in view. On a wide
+ * How a row is laid out, thin, so a long list of channels stays in view. On a wide
  * window a row is 30 px; where it is touched it is 38 px. The icon starts 20 px in on a wide window
  * (the list's 12 plus the row's 8), in line with the header above.
  */
@@ -228,13 +228,13 @@ function RailItem({
 }
 
 /**
- * Persistent Slack-style conversation sidebar, rendered on desktop widths.
- * The orchestrator is a single Slackbot-like tab (no threads); channels open
+ * Persistent conversation sidebar, rendered on desktop widths.
+ * The orchestrator is a single tab (no threads); channels open
  * directly as chat surfaces — no thread needed. Threads auto-create from
  * replies and @hive mentions. The menu sheet remains the navigation on
  * narrow screens.
  *
- * On a wide window it is two parts, as in Slack: a thin strip of icons for the places in the
+ * On a wide window it is two parts: a thin strip of icons for the places in the
  * workspace, and, only while in the conversations, a list of them (the agent and the channels).
  * Elsewhere the list steps aside and the screen has its room. Where it is touched it is one list
  * in a drawer, with the places in it and the person at the foot. It says as little as it can: no
@@ -340,7 +340,7 @@ export function Sidebar({
     .filter(isListed)
     .filter((channel) => !needle || channel.name.toLowerCase().includes(needle))
     .sort((a, b) => a.name.localeCompare(b.name));
-  // Searching finds the public channels the person is not in as well, as Slack's does: opening one
+  // Searching finds the public channels the person is not in as well: opening one
   // shows it with a Join button.
   const unjoined = needle
     ? (channels ?? [])
@@ -415,7 +415,7 @@ export function Sidebar({
     </>
   );
 
-  // Above the list, where Slack has it, so finding a conversation is the first thing to hand.
+  // Above the list, so finding a conversation is the first thing to hand.
   const search = (
     <SearchField
       slim

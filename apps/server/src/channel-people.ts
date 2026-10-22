@@ -25,8 +25,7 @@ const ARCHIVED = "This channel is archived";
 const refused = (reason: string) => new AppError(reason, reason === ARCHIVED ? 409 : 403);
 
 /**
- * Who is in a channel, who manages it, and who may change either: the way a Slack workspace does
- * it. A public channel is open to the team, who join it or are added; a private one is found only
+ * Who is in a channel, who manages it, and who may change either. A public channel is open to the team, who join it or are added; a private one is found only
  * by the people in it, who can add others; a guest is added by an owner or admin, and is held to
  * the channels that name them. A channel's managers, and the owner and admins, can take people out
  * of a public channel and choose its managers; anyone in a private channel can take people out of
