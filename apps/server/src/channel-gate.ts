@@ -160,6 +160,15 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     )
   )
     return;
+  // Their own notices: the server shows them only what was said to them, so reading, unreading and
+  // dismissing are theirs to do.
+  if (
+    method === "POST" &&
+    /^\/api\/agent\/notifications\/(?:read-all|dismiss-all|[^/]+\/(?:read|unread|dismiss))$/.test(
+      path,
+    )
+  )
+    return;
   // A picture of a page the agent read, seen in a conversation: named by a number no one guesses.
   if (method === "GET" && /^\/api\/browser-shots\/[0-9a-f-]{36}(\/link)?$/.test(path)) return;
 

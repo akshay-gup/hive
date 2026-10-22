@@ -18,7 +18,7 @@ import {
 } from "./ui";
 
 /** A stable tint per person, so a busy channel is easier to scan than a wall of identical tiles. */
-function authorTint(name: string): string {
+export function authorTint(name: string): string {
   let hash = 0;
   for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return avatarTints[hash % avatarTints.length];

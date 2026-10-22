@@ -224,3 +224,51 @@ test("notifications are personal: the result of a task is for whoever started it
     200,
   );
 });
+
+test("someone can mark their notifications unread, or all read, and a mention says who it is from", async () => {
+  const open = (
+    (await (
+      await call("max", "POST", "/api/agent/channels", { name: "Inbox talk", visibility: "public" })
+    ).json()) as Channel
+  ).id;
+  await call("olive", "POST", `/api/agent/channels/${open}/members`, { add: ["gus@example.com"] });
+  await world.server.agent.notifyMentions(owner("max"), open, "hello @mia and @gus");
+  const mine = async (who: Who) =>
+    (await (await call(who, "GET", "/api/agent/notifications")).json()) as {
+      id: string;
+      read: boolean;
+      by?: string;
+      byName?: string;
+      channelId?: string;
+    }[];
+  const note = (await mine("mia")).find((n) => n.channelId === open);
+  assert.ok(note);
+  assert.deepEqual([note.by, note.byName], ["max@example.com", "Max"]);
+  // Read, then unread again; someone else cannot.
+  assert.equal(
+    (await call("mia", "POST", `/api/agent/notifications/${note.id}/read`, {})).status,
+    200,
+  );
+  assert.equal((await mine("mia")).find((n) => n.id === note.id)?.read, true);
+  assert.equal(
+    (await call("mia", "POST", `/api/agent/notifications/${note.id}/unread`, {})).status,
+    200,
+  );
+  assert.equal((await mine("mia")).find((n) => n.id === note.id)?.read, false);
+  assert.equal(
+    (await call("max", "POST", `/api/agent/notifications/${note.id}/unread`, {})).status,
+    404,
+  );
+  // All read clears only the asker's own.
+  const gusNote = (await mine("gus")).find((n) => n.channelId === open);
+  assert.ok(gusNote);
+  assert.equal((await call("mia", "POST", "/api/agent/notifications/read-all", {})).status, 200);
+  assert.ok((await mine("mia")).every((n) => n.read));
+  assert.equal((await mine("gus")).find((n) => n.id === gusNote.id)?.read, false);
+  // A guest does the same with their own.
+  assert.equal(
+    (await call("gus", "POST", `/api/agent/notifications/${gusNote.id}/read`, {})).status,
+    200,
+  );
+  assert.equal((await mine("gus")).find((n) => n.id === gusNote.id)?.read, true);
+});

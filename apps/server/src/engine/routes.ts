@@ -411,6 +411,37 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   app.get("/notifications", async (c) =>
     c.json((await service.snapshot(c.get("owner"))).notifications),
   );
+  /** Everything this person is shown is read: what is not theirs is left as it is. */
+  app.post("/notifications/read-all", async (c) => {
+    const owner = c.get("owner");
+    const mine = (await service.snapshot(owner)).notifications.filter((n) => !n.read);
+    for (const note of mine)
+      await service.db.compareAndSwap<AgentNotification>(
+        owner,
+        "notifications",
+        note.id,
+        {},
+        { read: true },
+      );
+    return c.json({ read: mine.length });
+  });
+  app.post("/notifications/:id/unread", async (c) => {
+    if (
+      !(await service.snapshot(c.get("owner"))).notifications.some(
+        (n) => n.id === c.req.param("id"),
+      )
+    )
+      throw new AppError("Notification not found", 404);
+    const notification = await service.db.compareAndSwap<AgentNotification>(
+      c.get("owner"),
+      "notifications",
+      c.req.param("id"),
+      {},
+      { read: false },
+    );
+    if (!notification) throw new AppError("Notification not found", 404);
+    return c.json(notification);
+  });
   app.post("/notifications/:id/read", async (c) => {
     // Only a notice that is theirs: the rest is not something to tell them exists.
     if (

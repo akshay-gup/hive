@@ -275,6 +275,9 @@ export interface AgentNotification {
   channelId?: string;
   /** Who it is for, by email address. Without it, it is the whole workspace's. */
   to?: string[];
+  /** Who it is from, when a person did it: their name and address, as when they mentioned someone. */
+  byName?: string;
+  by?: string;
   title: string;
   body: string;
   createdAt: string;

@@ -20,6 +20,7 @@ import { ChatScreen, WorkspaceTools } from "./chat";
 import { ComputerDraftProvider } from "./computer-drafts";
 import { Details } from "./details";
 import { ProgressScreen } from "./hosted/progress";
+import { InboxScreen } from "./inbox";
 import { guestPlaces, places } from "./places";
 import { BrowserScreen, CalendarScreen, FilesScreen, MailScreen } from "./screens";
 import { ShellHeader } from "./shell-header";
@@ -188,16 +189,18 @@ function WorkspaceShell({
             ? FilesScreen
             : section === "activity"
               ? AgentActivityScreen
-              : section === "ideas"
-                ? IdeasScreen
-                : section === "goals"
-                  ? GoalsScreen
-                  : AppsScreen;
+              : section === "inbox"
+                ? InboxScreen
+                : section === "ideas"
+                  ? IdeasScreen
+                  : section === "goals"
+                    ? GoalsScreen
+                    : AppsScreen;
   const utility = ["mail", "calendar", "browser", "files"].includes(section);
   // How wide a page may grow. Activity is columns and rows of work, so it uses the window, up to a
   // width a list and a feed still read well at; the pages of forms and settings read better in a
   // narrower column.
-  const pageWidth = section === "activity" ? 1400 : 1040;
+  const pageWidth = section === "activity" ? 1400 : section === "inbox" ? 1180 : 1040;
   return (
     <>
       <WorkspaceTools />

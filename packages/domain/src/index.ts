@@ -9,6 +9,7 @@ export type Section =
   | "browser"
   | "files"
   | "activity"
+  | "inbox"
   | "connections"
   | "ideas"
   | "goals"

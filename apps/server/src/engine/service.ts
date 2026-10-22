@@ -323,6 +323,8 @@ export class AgentService {
         id,
         channelId,
         to: [who.email],
+        by: sender.email,
+        byName: sender.name || undefined,
         title: `${sender.name || sender.email} mentioned you in #${channel.name}`,
         body: snippet.length > 160 ? `${snippet.slice(0, 160)}…` : snippet,
         createdAt: new Date().toISOString(),
