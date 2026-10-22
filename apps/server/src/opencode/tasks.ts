@@ -28,7 +28,7 @@ import type { PermissionTracker } from "./approvals.ts";
 import type { OpencodeClientPool } from "./client.ts";
 import { type OpenCodeEvent, type OpencodeEventBus, sessionErrorMessage } from "./events.ts";
 import type { HiveTool, HiveToolBridge } from "./hive-tools.ts";
-import { taskSessionRuleset } from "./permissions.ts";
+import { type PermissionRuleset, taskSessionRuleset } from "./permissions.ts";
 import { sessionDirectory } from "./sessions.ts";
 import { TaskRunLog } from "./task-run-log.ts";
 
@@ -177,12 +177,13 @@ async function createTaskSession(
   runtime: OpencodeTaskRuntime,
   task: AgentTask,
   directory: string,
+  confinement: PermissionRuleset,
 ): Promise<TaskSession> {
   const client = runtime.pool.forDirectory(directory);
   const created = await client.session.create({
     title: task.title.slice(0, 80),
     directory,
-    permission: taskSessionRuleset(),
+    permission: taskSessionRuleset(confinement),
   });
   if (created.error || !created.data) {
     throw new Error(
@@ -228,7 +229,7 @@ async function openTaskSession(
       }
     }
   }
-  const created = await createTaskSession(runtime, task, directory);
+  const created = await createTaskSession(runtime, task, directory, await service.sandbox.rules());
   await service.db
     .put<TaskSessionRecord>(owner, "task-sessions", {
       id: task.id,

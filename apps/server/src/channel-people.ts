@@ -35,6 +35,8 @@ export class ChannelPeople {
   constructor(
     private readonly db: Store,
     private readonly access: Access,
+    /** Told after a channel's privacy changes, for whatever keeps the agent out of private channels. */
+    private readonly privacyChanged: () => Promise<void> = async () => {},
   ) {}
 
   private async actor(owner: string): Promise<Person> {
@@ -299,6 +301,7 @@ export class ChannelPeople {
         ...(input.topic !== undefined ? { topic: input.topic } : {}),
       };
     });
+    await this.privacyChanged();
     return this.describe(person, saved);
   }
 }

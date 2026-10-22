@@ -128,6 +128,10 @@ install_workspace() {
   chmod 0440 /etc/sudoers.d/90-hive-workspace
   visudo -cf /etc/sudoers.d/90-hive-workspace
   install -m 0755 "$PAYLOAD/node" /usr/local/bin/node
+  # The workspace's own programs run from a copy that can be run and not read, which keeps their settings
+  # from a command the agent runs as the same user (see apps/workspace/src/index.ts). hive-ensure keeps it current.
+  install -d -m 0755 /usr/local/libexec
+  install -m 0711 "$PAYLOAD/node" /usr/local/libexec/hive-node
   install -m 0755 "$PAYLOAD/opencode" /usr/local/bin/opencode
   rm -rf /app
   cp -a "$PAYLOAD/app" /app

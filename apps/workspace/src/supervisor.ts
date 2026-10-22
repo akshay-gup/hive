@@ -144,6 +144,27 @@ const defined = (env: Env): Record<string, string> =>
   >;
 
 /**
+ * What keeps the agent's commands out of a private channel's folder (apps/workspace/vm/hive-sandbox):
+ * the shell they run through, the policy file the server writes for it, and the disk it keeps hidden.
+ */
+export interface Sandbox {
+  shell: string;
+  policy: string;
+  volume: string;
+}
+
+/** Where the policy goes: with the workspace's own records, which are where its channels are. */
+export function sandboxFor(env: Env, volumeDir: string, shell: string): Sandbox {
+  const dataDir = env.DATA_DIR?.trim() || join(volumeDir, "hive");
+  return { shell, policy: join(dataDir, "sandbox-policy.json"), volume: volumeDir };
+}
+
+const sandboxEnv = (sandbox: Sandbox): Record<string, string> => ({
+  HIVE_SANDBOX_POLICY: sandbox.policy,
+  HIVE_SANDBOX_VOLUME: sandbox.volume,
+});
+
+/**
  * What the agent runs with: the machine's settings (its model and provider keys among them),
  * minus the server's own, and a place on the volume to keep its sessions. It is pinned to the
  * version in the image and does not share what it does.
@@ -153,6 +174,7 @@ export function agentEnv(
   secrets: WorkspaceSecrets,
   volumeDir: string,
   home?: string,
+  sandbox?: Sandbox,
 ): Record<string, string> {
   const own = defined(env);
   for (const name of SERVER_ONLY) delete own[name];
@@ -168,6 +190,13 @@ export function agentEnv(
     // OpenCode's own web search, for questions the answer to which is out on the web. The browser is
     // for reading a page the agent was pointed at, not for looking things up.
     OPENCODE_ENABLE_EXA: "true",
+    // Its commands run through the sandbox, which confines them while a channel is private.
+    ...(sandbox
+      ? {
+          ...sandboxEnv(sandbox),
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({ shell: sandbox.shell }),
+        }
+      : {}),
   };
 }
 
@@ -177,6 +206,7 @@ export function serverEnv(
   secrets: WorkspaceSecrets,
   home?: string,
   browserToken?: string,
+  sandbox?: Sandbox,
 ): Record<string, string> {
   return {
     // The workspace's own browser, unless the machine was pointed at another.
@@ -186,6 +216,7 @@ export function serverEnv(
     TOKEN_ENCRYPTION_KEY: secrets.tokenEncryptionKey,
     OPENCODE_SERVER_URL: OPENCODE_URL,
     OPENCODE_SERVER_PASSWORD: secrets.opencodePassword,
+    ...(sandbox ? sandboxEnv(sandbox) : {}),
   };
 }
 

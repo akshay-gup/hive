@@ -58,8 +58,9 @@ COPY --from=build /src/package.json ./
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/dist ./dist
 COPY --from=browser /browser-worker ./browser-worker
-# The scripts that keep a machine up to date: a newer copy of the updater, and what a build needs from the machine.
-COPY --from=build /src/apps/workspace/vm/hive-update /src/apps/workspace/vm/hive-ensure ./machine/
+# The scripts that keep a machine up to date: a newer copy of the updater, and what a build needs from the machine;
+# and the shell the agent's commands run through, which keeps them out of a private channel's folder.
+COPY --from=build /src/apps/workspace/vm/hive-update /src/apps/workspace/vm/hive-ensure /src/apps/workspace/vm/hive-sandbox ./machine/
 # Which build this is, for /api/health and for an updater that compares versions.
 ARG HIVE_VERSION=dev
 RUN printf "%s\n" "$HIVE_VERSION" > /app/VERSION

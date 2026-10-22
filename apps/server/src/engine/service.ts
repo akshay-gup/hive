@@ -53,6 +53,7 @@ import type { Files } from "../files.ts";
 import { createJevService, type JevService } from "../jev/service.ts";
 import { backgroundFailure } from "../log.ts";
 import type { OpencodeTaskRuntime } from "../opencode/index.ts";
+import { SandboxPolicy } from "../opencode/sandbox.ts";
 import { requesterNames, withRequester } from "../requesters.ts";
 import type { WorkspaceService } from "../workspace.ts";
 import { inlineLimits, renderBrief } from "./brief.ts";
@@ -100,6 +101,8 @@ export class AgentService {
   readonly access: Access;
   /** Who is in each channel, who manages it, and who may change either. */
   readonly people: ChannelPeople;
+  /** What keeps the agent out of a private channel's folder (see opencode/sandbox.ts). */
+  readonly sandbox: SandboxPolicy;
   constructor(
     readonly db: Store,
     readonly config: Config,
@@ -112,7 +115,15 @@ export class AgentService {
   ) {
     this.jev = jev;
     this.access = new Access(db, Boolean(config.managed));
-    this.people = new ChannelPeople(db, this.access);
+    this.sandbox = new SandboxPolicy(
+      {
+        dataDir: config.dataDir,
+        file: process.env.HIVE_SANDBOX_POLICY?.trim() || undefined,
+        volume: process.env.HIVE_SANDBOX_VOLUME,
+      },
+      () => db.list<Channel>(SHARED_OWNER, "channels"),
+    );
+    this.people = new ChannelPeople(db, this.access, () => this.sandbox.sync());
     this.taskFiles = new TaskFiles(config.dataDir);
     this.channelFiles = new ChannelFiles(config, files, (owner, id) => this.getChannel(owner, id));
     this.uploadRequests = new UploadRequests(db);
@@ -125,6 +136,8 @@ export class AgentService {
   }
   start() {
     this.worker.start();
+    // The agent's commands are confined by what this says about the channels, so it is there before the first one.
+    void this.sandbox.sync().catch((error) => backgroundFailure("the sandbox policy", error));
     // In orchestrator mode the main process also manages per-channel workers.
     // (A channel worker itself never manages: workerChannelId is set there.)
     if (this.config.manageChannels && !this.config.workerChannelId) {
@@ -407,6 +420,7 @@ export class AgentService {
         : {}),
     };
     await this.db.put(SHARED_OWNER, "channels", channel);
+    if (channel.visibility === "private") await this.sandbox.sync();
     // Best-effort: give the channel its own directory on local disk.
     // This must not fail channel creation.
     try {

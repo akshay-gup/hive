@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""The shell the agent's commands run in.
+
+OpenCode runs every command as `hive-sandbox -c "<command>"` from the folder of the channel it is working
+for (apps/workspace/src/index.ts points its `shell` setting here). While the workspace has a private
+channel, what that command can reach is cut to what the channel itself may see, with Landlock, a
+kernel feature that needs neither root nor a container and cannot be undone by what it confines:
+
+  * its own folder, to read and write; the other open channels' folders, to read;
+  * the system (programs, libraries, settings), to read; its home, /tmp and /dev, to write;
+  * nothing else on the volume: not a private channel's folder, not another person's own agent's
+    folder, not the workspace's database, secrets, or the agent's own state.
+
+The command also loses sudo, since Landlock needs `no_new_privs` and that turns setuid programs off,
+and the settings that look like keys. When the workspace has no private channel, the command runs as it
+always did, with nothing between it and the machine.
+
+What the policy says is written by the workspace server (apps/server/src/opencode/sandbox.ts):
+
+  { "version": 1, "confine": true, "dataDir": "/data/hive", "private": ["<folder of a private channel>"] }
+
+  HIVE_SANDBOX_POLICY   where that file is; with none, or no file, nothing is confined
+  HIVE_SANDBOX_VOLUME   the disk the workspace keeps everything on (default: where dataDir is)
+  HIVE_SANDBOX_SHELL    the shell to run (default bash)
+
+A policy that is there and cannot be read stops the command; so does a kernel that cannot confine it,
+since running it open would be telling a private channel it is private when it is not.
+"""
+
+import ctypes
+import json
+import os
+import re
+import signal
+import struct
+import sys
+
+# Landlock's access rights for the file system, by the kernel version that added each.
+EXECUTE, WRITE_FILE, READ_FILE, READ_DIR = 1 << 0, 1 << 1, 1 << 2, 1 << 3
+FILE_RIGHTS = EXECUTE | WRITE_FILE | READ_FILE | 1 << 14 | 1 << 15  # plus truncate and device ioctl
+SYS_CREATE, SYS_ADD, SYS_RESTRICT = 444, 445, 446
+PR_SET_PDEATHSIG, PR_SET_NO_NEW_PRIVS = 1, 38
+
+# Settings that look like keys are not handed to a command in a channel that is meant to be private.
+SECRET = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)", re.I)
+# What the agent was started with that is the machine's and not the channel's.
+MACHINE = ("HIVE_SANDBOX_POLICY", "HIVE_SANDBOX_VOLUME", "OPENCODE_CONFIG_CONTENT", "XDG_DATA_HOME", "XDG_STATE_HOME")
+
+libc = ctypes.CDLL(None, use_errno=True)
+
+
+def fail(message):
+    sys.stderr.write("hive-sandbox: %s\n" % message)
+    sys.exit(126)
+
+
+def inside(path, root):
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def abi():
+    version = libc.syscall(SYS_CREATE, None, 0, 1)
+    return version if version > 0 else 0
+
+
+class Ruleset:
+    def __init__(self):
+        version = abi()
+        if version < 1:
+            fail("this machine's kernel cannot confine a command (no Landlock), so a private channel cannot be kept private on it")
+        # Every right the kernel knows is handled, so what is not granted is refused.
+        self.handled = 0x1FFF | (1 << 13 if version >= 2 else 0) | (1 << 14 if version >= 3 else 0) | (1 << 15 if version >= 5 else 0)
+        self.fd = libc.syscall(SYS_CREATE, ctypes.c_char_p(struct.pack("<Q", self.handled)), 8, 0)
+        if self.fd < 0:
+            fail("Landlock refused the rules (errno %d)" % ctypes.get_errno())
+
+    def allow(self, path, rights):
+        """Lets the command use `path` and what is under it as `rights` says; a path that is not there is skipped."""
+        try:
+            fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
+        except OSError:
+            return
+        try:
+            rights &= self.handled
+            if not os.path.isdir(os.path.realpath(path)):
+                rights &= FILE_RIGHTS
+            attr = struct.pack("<Qi", rights, fd)
+            libc.syscall(SYS_ADD, self.fd, 1, ctypes.c_char_p(attr), 0)
+        finally:
+            os.close(fd)
+
+    def seal(self):
+        if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+            fail("could not stop the command from gaining privileges")
+        if libc.syscall(SYS_RESTRICT, self.fd, 0) != 0:
+            fail("Landlock would not confine the command (errno %d)" % ctypes.get_errno())
+        os.close(self.fd)
+
+
+def allow_all_but(ruleset, root, hidden, rights):
+    """Lets the command read everything under `root` except `hidden`, by naming what is beside the way to it."""
+    root, hidden = os.path.realpath(root), os.path.realpath(hidden)
+    if not inside(hidden, root) or hidden == root:
+        ruleset.allow(root, rights)
+        return
+    here = root
+    for part in os.path.relpath(hidden, root).split(os.sep):
+        try:
+            names = os.listdir(here)
+        except OSError:
+            return
+        for name in names:
+            if name != part:
+                ruleset.allow(os.path.join(here, name), rights)
+        here = os.path.join(here, part)
+
+
+def folders(path):
+    try:
+        return [os.path.join(path, name) for name in sorted(os.listdir(path))]
+    except OSError:
+        return []
+
+
+def confine(policy, own_dir):
+    data = os.path.realpath(policy["dataDir"])
+    volume = os.path.realpath(os.environ.get("HIVE_SANDBOX_VOLUME") or os.path.dirname(data))
+    private = {os.path.realpath(p) for p in policy.get("private", [])}
+    home = os.environ.get("HOME", "")
+    ruleset = Ruleset()
+    everything = (1 << 16) - 1
+
+    # The machine, to read; the volume is the one place that is not.
+    allow_all_but(ruleset, "/", volume, EXECUTE | READ_FILE | READ_DIR)
+    for place in ("/tmp", "/var/tmp", "/dev", "/run/lock", home):
+        if not place or inside(os.path.realpath(place), volume):
+            continue
+        # A place the volume is in (a test's scratch folder) is the machine's all but the volume.
+        allow_all_but(ruleset, place, volume, everything)
+    # Open channels' folders, to read. A private one is not on this list, and never was.
+    for folder in folders(os.path.join(data, "owners", "shared", "channels")):
+        if os.path.realpath(folder) not in private:
+            ruleset.allow(folder, EXECUTE | READ_FILE | READ_DIR)
+    # What this channel keeps, to use.
+    if own_dir:
+        ruleset.allow(own_dir, everything)
+    ruleset.seal()
+
+
+def own_folder(policy):
+    """The channel folder the command was started in, or None if it was started somewhere else."""
+    data = os.path.realpath(policy["dataDir"])
+    here = os.path.realpath(os.getcwd())
+    if not inside(here, data):
+        return None
+    parts = os.path.relpath(here, data).split(os.sep)
+    # owners/<whose>/channels/<channel>, and whatever is below it.
+    if len(parts) >= 4 and parts[0] == "owners" and parts[2] == "channels":
+        return os.path.join(data, *parts[:4])
+    return None
+
+
+def sweep(own_dir, volume):
+    """Removes the links in the channel's folder that lead out of it into the volume.
+
+    OpenCode's own file tools are not confined the way a command is: they would follow such a link.
+    Folders that hold thousands of links to their own files (node_modules, .git) are not walked."""
+    if not own_dir:
+        return
+    for here, names, files in os.walk(own_dir, followlinks=False):
+        names[:] = [n for n in names if n not in ("node_modules", ".git")]
+        for name in names + files:
+            path = os.path.join(here, name)
+            if not os.path.islink(path):
+                continue
+            target = os.path.realpath(path)
+            if inside(target, volume) and not inside(target, own_dir):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    continue
+                sys.stderr.write("hive-sandbox: removed %s, a link out of this channel\n" % os.path.relpath(path, own_dir))
+
+
+def clean_environment():
+    for name in list(os.environ):
+        if name in MACHINE or SECRET.search(name):
+            del os.environ[name]
+
+
+def main():
+    shell = os.environ.get("HIVE_SANDBOX_SHELL") or "/bin/bash"
+    arguments = [shell] + sys.argv[1:]
+    path = os.environ.get("HIVE_SANDBOX_POLICY")
+    if not path or not os.path.exists(path):
+        os.execv(shell, arguments)
+    try:
+        with open(path) as handle:
+            policy = json.load(handle)
+        if not isinstance(policy, dict) or not isinstance(policy.get("dataDir"), str):
+            raise ValueError("no dataDir")
+    except (OSError, ValueError) as error:
+        fail("the policy %s could not be read (%s)" % (path, error))
+    if not policy.get("confine"):
+        os.execv(shell, arguments)
+
+    own_dir = own_folder(policy)
+    child = os.fork()
+    if child == 0:
+        libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
+        confine(policy, own_dir)
+        clean_environment()
+        os.execv(shell, arguments)
+    for name in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(name, lambda number, _frame: os.kill(child, number))
+    while True:
+        try:
+            _, status = os.waitpid(child, 0)
+            break
+        except InterruptedError:
+            continue
+    volume = os.path.realpath(os.environ.get("HIVE_SANDBOX_VOLUME") or os.path.dirname(os.path.realpath(policy["dataDir"])))
+    sweep(own_dir, volume)
+    sys.exit(os.waitstatus_to_exitcode(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status))
+
+
+if __name__ == "__main__":
+    main()

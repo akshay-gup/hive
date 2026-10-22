@@ -11,6 +11,7 @@ import {
   OPENCODE_PORT,
   OPENCODE_URL,
   Supervisor,
+  sandboxFor,
   serverEnv,
   withEnvFile,
 } from "./supervisor.ts";
@@ -41,27 +42,36 @@ const ownBrowser =
   !env.BROWSER_WORKER_URL?.trim() && env.HIVE_BROWSER !== "off" && existsSync(browserDir);
 const browserToken = ownBrowser ? loadBrowserToken(volumeDir) : undefined;
 
+// The shell the agent's commands run through, which confines them while a channel is private. A build
+// without it (a checkout, a test) runs them as they were.
+const shell = fileURLToPath(new URL("../../../../machine/hive-sandbox", import.meta.url));
+const sandbox = existsSync(shell) ? sandboxFor(env, volumeDir, shell) : undefined;
+
+// The server and the browser run from a copy of node that cannot be read, only run. A process started
+// from a program its user cannot read is one nobody else of that user may look into, so a command the
+// agent runs (the same user) cannot read the server's settings out of /proc. Machines without the copy
+// (a container, a test) run the node they have.
+const HIDDEN_NODE = "/usr/local/libexec/hive-node";
+const node = existsSync(HIDDEN_NODE) ? HIDDEN_NODE : process.execPath;
+
 const supervisor = new Supervisor({
   agent: {
     name: "opencode",
     command: ["opencode", "serve", "--hostname", OPENCODE_HOST, "--port", String(OPENCODE_PORT)],
-    env: agentEnv(env, secrets, volumeDir, home),
+    env: agentEnv(env, secrets, volumeDir, home, sandbox),
     cwd: volumeDir,
     healthUrl: `${OPENCODE_URL}/global/health`,
     headers: { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` },
   },
   server: {
     name: "hive",
-    command: [
-      process.execPath,
-      fileURLToPath(new URL("../../server/src/index.js", import.meta.url)),
-    ],
-    env: serverEnv(env, secrets, home, browserToken),
+    command: [node, fileURLToPath(new URL("../../server/src/index.js", import.meta.url))],
+    env: serverEnv(env, secrets, home, browserToken, sandbox),
   },
   browser: browserToken
     ? {
         name: "browser",
-        command: [process.execPath, "--experimental-strip-types", "src/index.ts"],
+        command: [node, "--experimental-strip-types", "src/index.ts"],
         cwd: browserDir,
         listenPort: BROWSER_PORT,
         internalPort: BROWSER_INTERNAL_PORT,
