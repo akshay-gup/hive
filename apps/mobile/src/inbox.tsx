@@ -1,4 +1,4 @@
-import { BellOff, Check, Mail, Trash2 } from "lucide-react-native";
+import { BellOff, Check, Mail, Settings, Trash2 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import type { AgentNotification } from "../../../packages/domain/src/agent";
@@ -13,6 +13,7 @@ import {
   noticeTabs,
   unreadCounts,
 } from "./notice-text";
+import { NotificationSettingsSheet } from "./notification-settings";
 import { useMuseThread } from "./threads";
 import {
   Button,
@@ -201,6 +202,7 @@ export function InboxScreen() {
   const [chosen, setChosen] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [settings, setSettings] = useState(false);
   const all = data?.notifications ?? [];
   const shown = useMemo(() => noticesFor(all, tab, unreadOnly), [all, tab, unreadOnly]);
   const groups = useMemo(() => groupByDay(shown), [shown]);
@@ -284,6 +286,11 @@ export function InboxScreen() {
             >
               Clear all
             </Button>
+            <IconButton
+              icon={Settings}
+              label="Notification settings"
+              onPress={() => setSettings(true)}
+            />
           </View>
         ) : (
           <View style={[s.between, { gap: 8 }]}>
@@ -301,11 +308,17 @@ export function InboxScreen() {
                 label="Clear all"
                 onPress={() => void run("clear", "/notifications/dismiss-all")}
               />
+              <IconButton
+                icon={Settings}
+                label="Notification settings"
+                onPress={() => setSettings(true)}
+              />
             </View>
           </View>
         )}
       </View>
       <ErrorNotice error={error} />
+      {settings && <NotificationSettingsSheet onClose={() => setSettings(false)} />}
       {!shown.length ? (
         <Empty
           icon={BellOff}

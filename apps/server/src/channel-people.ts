@@ -1,5 +1,6 @@
 import {
   type Channel,
+  type ChannelDirectoryEntry,
   type ChannelPeopleView,
   channelPeopleSchema,
   channelSettingsSchema,
@@ -145,6 +146,10 @@ export class ChannelPeople {
         leave: this.leaveDenied(person, channel) === null,
         add: channel.status !== "archived" && person.role !== "guest" && (runs(person) || inIt),
         remove: channel.status !== "archived" && (manager || (!isPublic(channel) && inIt)),
+        archive:
+          channel.status !== "archived" &&
+          person.role !== "guest" &&
+          (manager || (!isPublic(channel) && inIt)),
         makePrivate: manager && isPublic(channel),
         makePublic: runs(person) && !isPublic(channel),
         setEveryone: runs(person) && isPublic(channel),
@@ -224,6 +229,67 @@ export class ChannelPeople {
       return { members: [...members].sort(), managers };
     });
     return canOpen(person, saved) ? this.describe(person, saved) : null;
+  }
+
+  /**
+   * Every channel in the workspace for an owner or admin, the private ones too, so that none is lost
+   * when the people in it have gone, and a team can see what exists. It lists what the channels are
+   * and who is in them, not what is said there; to read that, an admin joins a channel, which
+   * names them in it for everyone there to see.
+   */
+  async directory(owner: string): Promise<ChannelDirectoryEntry[]> {
+    const person = await this.actor(owner);
+    if (!runs(person)) throw refused("Only an owner or admin can see every channel");
+    const known = await this.access.known();
+    const channels = await this.db.list<Channel>(SHARED_OWNER, "channels");
+    return channels
+      .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID)
+      .map((channel) => ({
+        id: channel.id,
+        name: channel.name,
+        visibility: channel.visibility ?? "public",
+        archived: channel.status === "archived",
+        everyone: isPublic(channel) && channel.everyone !== false,
+        count: (channel.members ?? []).length,
+        managers: (channel.managers ?? []).map((email) => known.get(email)?.name || email),
+        joined: isIn(person, channel),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async entry(owner: string, channelId: string): Promise<ChannelDirectoryEntry> {
+    const found = (await this.directory(owner)).find((entry) => entry.id === channelId);
+    if (!found) throw new AppError("Channel not found", 404);
+    return found;
+  }
+
+  /** An owner or admin puts themself in a channel they cannot open, which is how they get to read it. */
+  async enter(owner: string, channelId: string): Promise<ChannelDirectoryEntry> {
+    const person = await this.actor(owner);
+    if (!runs(person)) throw refused("Only an owner or admin can join any channel");
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
+      if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID)
+        throw new AppError("Channel not found", 404);
+      if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
+      if (isIn(person, channel)) return this.entry(owner, channelId);
+      const now = new Date().toISOString();
+      const saved = await this.db.compareAndSwap<Channel>(
+        SHARED_OWNER,
+        "channels",
+        channelId,
+        { updatedAt: channel.updatedAt },
+        {
+          members: [...new Set([...(channel.members ?? []), person.email])].sort(),
+          updatedAt:
+            now > channel.updatedAt
+              ? now
+              : new Date(Date.parse(channel.updatedAt) + 1).toISOString(),
+        },
+      );
+      if (saved) return this.entry(owner, channelId);
+    }
+    throw new AppError("The channel was changed at the same moment. Try again", 409);
   }
 
   /** Choose who manages the channel, among the people in it. */

@@ -1,4 +1,4 @@
-import { Check, Hash, X } from "lucide-react-native";
+import { AlertCircle, Check, Hash, X } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -42,7 +42,7 @@ import {
   radius,
   s,
 } from "./ui";
-import { type Detail, useWorkspace, WorkspaceContext } from "./workspace";
+import { type Detail, type ToastOptions, useWorkspace, WorkspaceContext } from "./workspace";
 
 /**
  * A workspace once the person is in it. `identity` is who they are here and stays the same when
@@ -60,7 +60,7 @@ export function WorkspaceApp({
   const [workspace, setWorkspace] = useState<Workspace>();
   const [section, setSection] = useState<Section>("chat");
   const [detail, setDetail] = useState<Detail>();
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<(ToastOptions & { text: string }) | null>(null);
   const [error, setError] = useState("");
   const [prompt, setPrompt] = useState<{ id: number; text: string }>();
   const refresh = useCallback(async () => {
@@ -79,7 +79,8 @@ export function WorkspaceApp({
   }, [refresh]);
   useEffect(() => {
     if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 5500);
+    // One that offers to be tried again waits longer for it.
+    const timer = setTimeout(() => setToast(null), toast.retry ? 12000 : 5500);
     return () => clearTimeout(timer);
   }, [toast]);
   const navigate = useCallback(
@@ -124,7 +125,7 @@ export function WorkspaceApp({
         refresh,
         open,
         close,
-        notify: setToast,
+        notify: (text, options) => setToast(text ? { text, ...options } : null),
         ask,
         logout,
       }}
@@ -136,7 +137,7 @@ export function WorkspaceApp({
               <WorkspaceShell
                 detail={detail}
                 toast={toast}
-                clearToast={() => setToast("")}
+                clearToast={() => setToast(null)}
                 error={error}
                 prompt={prompt}
               />
@@ -155,7 +156,7 @@ function WorkspaceShell({
   prompt,
 }: {
   detail?: Detail;
-  toast: string;
+  toast: (ToastOptions & { text: string }) | null;
   clearToast: () => void;
   error: string;
   prompt?: { id: number; text: string };
@@ -406,7 +407,7 @@ function WorkspaceShell({
             </View>
           </View>
         </View>
-        {!!toast && (
+        {toast && (
           <View
             pointerEvents="box-none"
             accessibilityLiveRegion="polite"
@@ -431,10 +432,37 @@ function WorkspaceShell({
                 },
               ]}
             >
-              <Check size={16} color={colors.onInverse} />
+              {toast.error ? (
+                <AlertCircle size={16} color={colors.onInverse} />
+              ) : (
+                <Check size={16} color={colors.onInverse} />
+              )}
               <Text style={{ color: colors.onInverse, fontSize: fontSize.small, flexShrink: 1 }}>
-                {toast}
+                {toast.text}
               </Text>
+              {toast.retry && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Try again"
+                  hitSlop={10}
+                  onPress={() => {
+                    const again = toast.retry;
+                    clearToast();
+                    again?.();
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: colors.onInverse,
+                      fontSize: fontSize.small,
+                      fontWeight: "700",
+                      textDecorationLine: "underline",
+                    }}
+                  >
+                    Retry
+                  </Text>
+                </Pressable>
+              )}
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Dismiss notification"

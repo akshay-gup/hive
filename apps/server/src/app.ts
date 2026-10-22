@@ -254,6 +254,12 @@ export async function createApp(
     const body = z.object({ token: z.string().min(1).max(4096) }).parse(await c.req.json());
     return c.json(await managed.signIn(body.token));
   });
+  /** Public: the control plane ends a person's sessions here, as it signs a token to say so. */
+  app.post("/api/auth/revoke", async (c) => {
+    if (!managed) throw new AppError("This workspace signs in with Google", 404);
+    const body = z.object({ token: z.string().min(1).max(4096) }).parse(await c.req.json());
+    return c.json(await managed.revoke(body.token));
+  });
   /** Public: exchange a single-use login code (and the proof, if it was started with a challenge) for the session token. */
   app.post("/api/auth/exchange", async (c) => {
     const body = z

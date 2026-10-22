@@ -29,6 +29,12 @@ export type Detail =
   | { type: "people" }
   | { type: "account" }
   | { type: "menu" };
+export interface ToastOptions {
+  /** It is a failure, and shown as one. */
+  error?: boolean;
+  /** What a "Retry" button on the toast does. */
+  retry?: () => void;
+}
 export interface WorkspaceContextValue {
   workspace: Workspace;
   api: MuseApi;
@@ -37,7 +43,11 @@ export interface WorkspaceContextValue {
   refresh: () => Promise<void>;
   open: (detail: Detail) => void;
   close: () => void;
-  notify: (message: string) => void;
+  /**
+   * Say something that passes: a line at the foot of the screen for a few seconds. A failure can offer
+   * to be tried again, and then stays a little longer.
+   */
+  notify: (message: string, options?: ToastOptions) => void;
   ask: (prompt: string) => void;
   logout: () => Promise<void>;
 }

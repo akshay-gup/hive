@@ -1,12 +1,14 @@
-import { LogOut, UserMinus, UserPlus, Users } from "lucide-react-native";
+import { Archive, Bell, BellOff, LogOut, UserMinus, UserPlus, Users } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { ChannelPeopleView } from "../../../packages/domain/src/agent";
 import { useManagesAccess } from "./access";
+import { ArchiveChannelSheet } from "./channel-archive";
 import { channelsChanged } from "./channel-events";
 import { Confirm } from "./confirm";
 import { useHosted } from "./hosted/context";
 import { roleLabel } from "./hosted/people-text";
+import { usePrefs } from "./notification-settings";
 import { useMuseThread } from "./threads";
 import {
   Button,
@@ -70,6 +72,8 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
   const [topic, setTopic] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [archiving, setArchiving] = useState(false);
+  const notices = usePrefs();
   const base = `/api/agent/channels/${encodeURIComponent(channelId)}`;
 
   const load = useCallback(async () => {
@@ -390,6 +394,45 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
             </View>
           )}
 
+          {notices.prefs && !view?.archived && (
+            <View style={{ gap: 6 }}>
+              <Text style={s.small}>
+                {notices.prefs.muted.includes(channelId)
+                  ? "Muted for you: no unread mark, and no notice from it."
+                  : "Mute it to get no unread mark and no notice from it. It is only you who stops hearing it."}
+              </Text>
+              <View style={s.row}>
+                <Button
+                  small
+                  icon={notices.prefs.muted.includes(channelId) ? Bell : BellOff}
+                  busy={notices.busy}
+                  onPress={() =>
+                    void notices.change({
+                      muted: notices.prefs?.muted.includes(channelId)
+                        ? notices.prefs.muted.filter((id) => id !== channelId)
+                        : [...(notices.prefs?.muted ?? []), channelId],
+                    })
+                  }
+                >
+                  {notices.prefs.muted.includes(channelId) ? "Unmute channel" : "Mute channel"}
+                </Button>
+              </View>
+            </View>
+          )}
+
+          {you?.archive && (
+            <View style={{ gap: 6 }}>
+              <Text style={s.small}>
+                Put the channel away. It stays as it is, read-only, and leaves everyone's list.
+              </Text>
+              <View style={s.row}>
+                <Button small danger icon={Archive} onPress={() => setArchiving(true)}>
+                  Archive channel…
+                </Button>
+              </View>
+            </View>
+          )}
+
           {you?.leave && (
             <View style={s.row}>
               <Confirm
@@ -402,6 +445,20 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
             </View>
           )}
         </View>
+      )}
+      {archiving && (
+        <ArchiveChannelSheet
+          id={channelId}
+          name={view?.name ?? name ?? channelId}
+          onClose={() => setArchiving(false)}
+          onArchived={() => {
+            setArchiving(false);
+            // It has left everyone's list: move to somewhere that is still there.
+            close();
+            if (mainId) select({ id: mainId, existing: true });
+            else retry();
+          }}
+        />
       )}
     </Sheet>
   );

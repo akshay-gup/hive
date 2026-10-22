@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
-import { channelsChanged, useOnChannelsChanged } from "./channel-events";
+import { ArchiveChannelSheet } from "./channel-archive";
+import { useOnChannelsChanged } from "./channel-events";
 import { useMuseThread } from "./threads";
 import { Button, colors, Empty, ErrorNotice, Pending, radius, SearchField, s } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -21,7 +22,7 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
   const [channels, setChannels] = useState<ChannelView[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [archiving, setArchiving] = useState<ChannelView | null>(null);
   const [find, setFind] = useState("");
 
   const load = useCallback(async () => {
@@ -39,19 +40,6 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
     void load();
   }, [load]);
   useOnChannelsChanged(() => void load());
-
-  async function archive(channel: ChannelView) {
-    setError("");
-    setBusy(true);
-    try {
-      await api.request(`/api/agent/channels/${encodeURIComponent(channel.id)}/archive`, {});
-      channelsChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   function openChannel(channel: { id: string }) {
     select({ id: `channel:${channel.id}`, existing: true });
@@ -145,17 +133,13 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
                       {channel.name}
                     </Text>
                   </Pressable>
-                  {!guest && channel.status !== "archived" && (
-                    <Button
-                      small
-                      danger
-                      icon={Archive}
-                      disabled={busy}
-                      onPress={() => void archive(channel)}
-                    >
-                      Archive
-                    </Button>
-                  )}
+                  {!guest &&
+                    channel.status !== "archived" &&
+                    (channel.manager || (channel.visibility === "private" && channel.joined)) && (
+                      <Button small danger icon={Archive} onPress={() => setArchiving(channel)}>
+                        Archive…
+                      </Button>
+                    )}
                 </View>
               </View>
             );
@@ -183,6 +167,14 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
             </>
           )}
         </>
+      )}
+      {archiving && (
+        <ArchiveChannelSheet
+          id={archiving.id}
+          name={archiving.name}
+          onClose={() => setArchiving(null)}
+          onArchived={() => setArchiving(null)}
+        />
       )}
       {!guest && (
         <Button

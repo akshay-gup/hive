@@ -47,7 +47,10 @@ export const MAX_TOKEN_SECONDS = 15 * 60;
 /** Clocks of the control plane and a workspace may differ a little. */
 const LEEWAY_SECONDS = 30;
 
-const audience = (workspaceId: string) => `ws:${workspaceId}`;
+/** A token for signing in, or one that ends someone's sessions: each is good for one thing only. */
+type Purpose = "sign-in" | "revoke";
+const audience = (workspaceId: string, purpose: Purpose = "sign-in") =>
+  purpose === "revoke" ? `ws:${workspaceId}:revoke` : `ws:${workspaceId}`;
 const claimsSchema = z.object({
   iss: z.string(),
   aud: z.string(),
@@ -114,7 +117,12 @@ const header = part({ alg: "EdDSA", typ: "JWT" });
  */
 export function signWorkspaceToken(
   privateKey: string,
-  input: WorkspaceIdentity & { workspaceId: string; ttlSeconds?: number; now?: number },
+  input: WorkspaceIdentity & {
+    workspaceId: string;
+    ttlSeconds?: number;
+    now?: number;
+    purpose?: Purpose;
+  },
 ): string {
   const ttl = input.ttlSeconds ?? DEFAULT_TOKEN_SECONDS;
   if (ttl <= 0 || ttl > MAX_TOKEN_SECONDS)
@@ -122,7 +130,7 @@ export function signWorkspaceToken(
   const issued = Math.floor((input.now ?? Date.now()) / 1000);
   const body = `${header}.${part({
     iss: TOKEN_ISSUER,
-    aud: audience(input.workspaceId),
+    aud: audience(input.workspaceId, input.purpose),
     sub: input.sub,
     email: input.email,
     name: input.name,
@@ -138,7 +146,7 @@ export function signWorkspaceToken(
 export function verifyWorkspaceToken(
   publicKey: string,
   token: string,
-  expected: { workspaceId: string; now?: number },
+  expected: { workspaceId: string; now?: number; purpose?: Purpose },
 ): VerifiedWorkspaceToken {
   const parts = token.split(".");
   if (parts.length !== 3 || parts.some((p) => !/^[\w-]+$/.test(p)))
@@ -165,7 +173,7 @@ export function verifyWorkspaceToken(
   if (!valid) throw new WorkspaceTokenError("signature", "This sign-in is not valid. Try again.");
   if (claims.iss !== TOKEN_ISSUER)
     throw new WorkspaceTokenError("issuer", "This sign-in is not valid. Try again.");
-  if (claims.aud !== audience(expected.workspaceId))
+  if (claims.aud !== audience(expected.workspaceId, expected.purpose))
     throw new WorkspaceTokenError("audience", "This sign-in is for a different workspace.");
   const now = Math.floor((expected.now ?? Date.now()) / 1000);
   if (claims.exp <= now - LEEWAY_SECONDS || claims.iat > now + LEEWAY_SECONDS)
@@ -181,4 +189,34 @@ export function verifyWorkspaceToken(
     id: claims.jti,
     expiresAt: claims.exp * 1000,
   };
+}
+
+/**
+ * What the control plane sends a workspace when a person is removed or their role changes: their
+ * sessions there end at once, and the app signs them in again, through the control plane, which now
+ * says what they are. It names the person and nothing else, and is good for one workspace and
+ * for ending sessions only, so it cannot be used to sign in.
+ */
+export function signRevocation(
+  privateKey: string,
+  input: { workspaceId: string; sub: string; now?: number },
+): string {
+  return signWorkspaceToken(privateKey, {
+    workspaceId: input.workspaceId,
+    sub: input.sub,
+    email: "revoked",
+    name: "",
+    role: "guest",
+    now: input.now,
+    purpose: "revoke",
+  });
+}
+
+/** Whose sessions to end, once the token is known to be the control plane's, for this workspace. */
+export function verifyRevocation(
+  publicKey: string,
+  token: string,
+  expected: { workspaceId: string; now?: number },
+): string {
+  return verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "revoke" }).sub;
 }

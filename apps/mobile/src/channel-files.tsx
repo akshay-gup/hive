@@ -15,7 +15,7 @@ import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import type { ChannelFile, ChannelFolder } from "../../../packages/domain/src/workspace-files";
 import { crumbs, fileSize, fileType, parentOf } from "./file-format";
 import { FileBody, kindIcon, openFile } from "./file-preview";
-import { pickFiles, uploadChannelFile } from "./file-upload";
+import { type PickedFile, pickFiles, uploadChannelFile } from "./file-upload";
 import { ago } from "./task-board";
 import {
   Button,
@@ -246,12 +246,12 @@ export function ChannelFilesSheet({
       setOpening(false);
     }
   }
-  async function upload() {
+  /** Add what was picked, one file at a time; a failure says how far it got and offers to carry on from there. */
+  async function send(picked: PickedFile[]) {
     setError("");
     let added = 0;
+    let failed = false;
     try {
-      const picked = await pickFiles();
-      if (!picked.length) return;
       setUploading(true);
       for (const item of picked) {
         await uploadChannelFile(
@@ -263,13 +263,28 @@ export function ChannelFilesSheet({
         added++;
       }
     } catch (e) {
-      setError(errorText(e));
+      failed = true;
+      const rest = picked.slice(added);
+      notify(`${errorText(e)}${rest.length > 1 ? ` ${rest.length} files were not added.` : ""}`, {
+        error: true,
+        retry: () => void send(rest),
+      });
     } finally {
       setUploading(false);
+      // What did go through is there to see; the failure's toast is the one left on screen.
       if (added) {
-        notify(added === 1 ? "File added" : `${added} files added`);
+        if (!failed) notify(added === 1 ? "File added" : `${added} files added`);
         reload();
       }
+    }
+  }
+  async function upload() {
+    setError("");
+    try {
+      const picked = await pickFiles();
+      if (picked.length) await send(picked);
+    } catch (e) {
+      setError(errorText(e));
     }
   }
 

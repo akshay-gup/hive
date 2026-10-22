@@ -412,6 +412,26 @@ export interface ChannelView extends Channel {
   count?: number;
   /** Whether someone else has written in it since this person last had it open. */
   unread?: boolean;
+  /** Whether this person has muted it: no unread mark, and no notice from it. */
+  muted?: boolean;
+}
+/**
+ * A channel as an owner or admin sees it in the list of every channel, private ones too: what it is
+ * and who is in it, and nothing of what is said there.
+ */
+export interface ChannelDirectoryEntry {
+  id: string;
+  name: string;
+  visibility: ChannelVisibility;
+  archived: boolean;
+  /** Everyone in the workspace but guests is in it, named or not. */
+  everyone: boolean;
+  /** How many people are named in it. */
+  count: number;
+  /** Who manages it, by name where it is known. */
+  managers: string[];
+  /** Whether the person asking is in it. */
+  joined: boolean;
 }
 /** The people in a channel, and what the person asking may do about them. */
 export interface ChannelPeopleView {
@@ -439,6 +459,8 @@ export interface ChannelPeopleView {
     leave: boolean;
     add: boolean;
     remove: boolean;
+    /** Whether they may put the channel away: its managers, and anyone in a private one. */
+    archive: boolean;
     makePrivate: boolean;
     makePublic: boolean;
     setEveryone: boolean;
@@ -464,6 +486,20 @@ export const channelSettingsSchema = z.object({
   topic: z.string().trim().max(250).optional(),
 });
 export type ChannelSettingsInput = z.infer<typeof channelSettingsSchema>;
+/** What a person wants to be told about: their own, and kept by the workspace. Everything is on until they turn it off. */
+export interface NotificationPrefs {
+  /** When someone mentions them. */
+  mentions: boolean;
+  /** When work they asked for is done, or stops for them. */
+  work: boolean;
+  /** Channels they have muted, by id. */
+  muted: string[];
+}
+export const notificationPrefsSchema = z.object({
+  mentions: z.boolean().optional(),
+  work: z.boolean().optional(),
+  muted: z.array(z.string().min(1).max(200)).max(500).optional(),
+});
 export const createChannelSchema = z.object({
   name: z.string().trim().min(1).max(80),
   id: z

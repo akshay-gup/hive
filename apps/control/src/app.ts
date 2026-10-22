@@ -28,6 +28,8 @@ export interface ControlDeps {
   gateway?: GatewaySettings;
   /** See `WorkspaceServiceOptions`: where making a workspace is started, when not in this process. */
   startProvisioning?: WorkspaceServiceOptions["startProvisioning"];
+  /** For tests: the `fetch` that tells a workspace a person's sessions are over. */
+  fetch?: typeof fetch;
 }
 
 /** What the sign-in routes need of Google; src/google.ts is the real one. */
@@ -78,6 +80,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     maxWorkspacesPerAccount: config.maxWorkspacesPerAccount,
     modelEnvironment: gateway ? (id) => gateway.environmentFor(id) : undefined,
     startProvisioning: deps.startProvisioning,
+    fetch: deps.fetch,
   });
   const origins = new Set([new URL(config.publicUrl).origin, ...config.allowedOrigins]);
 

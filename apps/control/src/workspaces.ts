@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
   DEFAULT_TOKEN_SECONDS,
+  signRevocation,
   signWorkspaceToken,
   type WorkspaceRole,
 } from "../../../packages/integrations/src/workspace-token.ts";
@@ -134,6 +135,8 @@ export interface WorkspaceServiceOptions {
    * hands the id to a workflow or queue, which calls `provisionNow`.
    */
   startProvisioning?: (workspaceId: string) => void | Promise<void>;
+  /** For tests: the `fetch` that reaches a workspace. */
+  fetch?: typeof fetch;
 }
 
 /** Workspaces, who belongs to them, and getting them running. */
@@ -482,6 +485,31 @@ export class WorkspaceService {
     if (!target) throw new HttpError("That person is not in this workspace", 404);
     if (target.role === "owner") throw new HttpError("The owner's role cannot change", 409);
     await this.db.compareAndSwap(HOME, "members", target.id, {}, { role });
+    await this.endSessions(id, targetId);
+  }
+
+  /**
+   * Tell a workspace that a person's sessions there are over, so that being removed, or having a new
+   * role, takes hold now and not when the hour of their session is up. The app is signed in again
+   * through this control plane, which refuses a person who is gone and says what a person now is.
+   * Best effort: a workspace that is stopped or slow keeps the session until it runs out.
+   */
+  private async endSessions(workspaceId: string, accountId: string): Promise<void> {
+    const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", workspaceId);
+    if (record?.status !== "ready" || !record.url) return;
+    const token = signRevocation(this.options.keys.privateKey, { workspaceId, sub: accountId });
+    try {
+      await (this.options.fetch ?? fetch)(`${record.url.replace(/\/+$/, "")}/api/auth/revoke`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+        signal: AbortSignal.timeout(4000),
+      });
+    } catch (error) {
+      console.error(
+        `[Hive control] could not end ${accountId}'s sessions in ${workspaceId}: ${this.describe(error)}`,
+      );
+    }
   }
 
   /** Remove someone, or leave: the owner can remove anyone, an admin members, and anyone can leave but the owner. */
@@ -498,6 +526,7 @@ export class WorkspaceService {
       (member.role === "admin" && (target.role === "member" || target.role === "guest"));
     if (!allowed) throw new HttpError("You cannot remove that person", 403);
     await this.db.remove(HOME, "members", target.id);
+    await this.endSessions(id, targetId);
   }
 
   /**
@@ -524,7 +553,10 @@ export class WorkspaceService {
         409,
       );
     }
-    for (const member of memberships) await this.db.remove(HOME, "members", member.id);
+    for (const member of memberships) {
+      await this.db.remove(HOME, "members", member.id);
+      await this.endSessions(member.workspaceId, account.id);
+    }
     const invites = [
       ...(await this.db.listWhere<InviteRecord>(HOME, "invites", "createdBy", account.id)),
       ...(await this.db.listWhere<InviteRecord>(HOME, "invites", "email", account.email)),

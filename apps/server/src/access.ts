@@ -187,13 +187,21 @@ export class Access {
   }
 
   /** A channel as this person is shown it. */
-  view(person: Person | null, channel: Channel, read?: Record<string, string>): ChannelView {
+  view(
+    person: Person | null,
+    channel: Channel,
+    read?: Record<string, string>,
+    muted?: ReadonlySet<string>,
+  ): ChannelView {
     if (!person) return channel;
     const joined = isIn(person, channel);
+    const quiet = muted?.has(channel.id) ?? false;
     return {
       ...channel,
       joined,
+      muted: quiet,
       unread:
+        !quiet &&
         joined &&
         !!channel.lastMessageAt &&
         channel.lastMessageBy !== person.email &&

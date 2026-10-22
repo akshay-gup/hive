@@ -160,6 +160,8 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     )
   )
     return;
+  // What they want to be told about is theirs to say.
+  if ((method === "GET" || method === "PUT") && path === "/api/agent/notification-prefs") return;
   // Their own notices: the server shows them only what was said to them, so reading, unreading and
   // dismissing are theirs to do.
   if (

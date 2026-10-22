@@ -44,6 +44,12 @@ export class Auth {
       throw new AppError("Session expired. Sign in again.", 401);
     return session.owner;
   }
+  /** End every session a person has, so what they were signed in as stops working now and not when each runs out. */
+  async endSessions(owner: string): Promise<number> {
+    const sessions = await this.db.listWhere<{ id: string }>("system", "sessions", "owner", owner);
+    for (const session of sessions) await this.db.remove("system", "sessions", session.id);
+    return sessions.length;
+  }
   async logout(authorization: string) {
     await this.db.remove("system", "sessions", digest(authorization.slice(7)).toString("hex"));
   }

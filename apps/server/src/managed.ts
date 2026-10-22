@@ -1,4 +1,5 @@
 import {
+  verifyRevocation,
   verifyWorkspaceToken,
   type WorkspaceRole,
   WorkspaceTokenError,
@@ -75,5 +76,23 @@ export class ManagedSignIn {
       expiresAt: now + MANAGED_SESSION_MS,
       user: { id: owner, email: verified.email, name: verified.name, role: verified.role },
     };
+  }
+
+  /**
+   * The control plane says a person's sessions here are over: they were removed, or their role changed
+   * and what they were signed in as is no longer so. The app signs them in again, through the control
+   * plane, which either refuses or says what they are now.
+   */
+  async revoke(token: string): Promise<{ ended: number }> {
+    let sub: string;
+    try {
+      sub = verifyRevocation(this.managed.controlPublicKey, token, {
+        workspaceId: this.managed.workspaceId,
+      });
+    } catch (error) {
+      if (error instanceof WorkspaceTokenError) throw new AppError(error.message, 401);
+      throw error;
+    }
+    return { ended: await this.auth.endSessions(`acct:${sub}`) };
   }
 }

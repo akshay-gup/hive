@@ -20,6 +20,8 @@ import {
   type Idea,
   type Monitor,
   monitorInputSchema,
+  type NotificationPrefs,
+  notificationPrefsSchema,
   ORCHESTRATOR_CHANNEL_ID,
   type Project,
   type RunEvent,
@@ -42,7 +44,7 @@ import {
   mentionedPeople,
   withHandles,
 } from "../../../../packages/domain/src/mentions.ts";
-import { Access, canSeeTask, type Scope } from "../access.ts";
+import { Access, canSeeTask, isIn, isPublic, managesChannel, type Scope } from "../access.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
 import { ChannelPeople } from "../channel-people.ts";
@@ -356,6 +358,37 @@ export class AgentService {
       lastMessageBy: person.email,
     });
   }
+  /** What this person wants to be told about: all of it, until they turn something off. */
+  async notificationPrefs(owner: string): Promise<NotificationPrefs> {
+    const saved = await this.db.get<NotificationPrefs & { id: string }>(
+      owner,
+      "notification-prefs",
+      "me",
+    );
+    return {
+      mentions: saved?.mentions ?? true,
+      work: saved?.work ?? true,
+      muted: saved?.muted ?? [],
+    };
+  }
+  async setNotificationPrefs(owner: string, raw: unknown): Promise<NotificationPrefs> {
+    const input = notificationPrefsSchema.parse(raw);
+    const now = await this.notificationPrefs(owner);
+    const next: NotificationPrefs = {
+      mentions: input.mentions ?? now.mentions,
+      work: input.work ?? now.work,
+      muted: [...new Set(input.muted ?? now.muted)].sort(),
+    };
+    await this.db.put(owner, "notification-prefs", { id: "me", ...next });
+    return next;
+  }
+  /** Whether a notice is one this person has asked to be told: a muted channel's, a mention's and the work's are theirs to turn off. */
+  private wanted(prefs: NotificationPrefs, note: AgentNotification): boolean {
+    if (note.channelId && prefs.muted.includes(note.channelId)) return false;
+    if (note.by) return prefs.mentions;
+    if (note.taskId) return prefs.work;
+    return true;
+  }
   /** When this person last had each channel open. */
   async readMarks(owner: string): Promise<Record<string, string>> {
     return (
@@ -432,12 +465,31 @@ export class AgentService {
     }
     return channel;
   }
+  /**
+   * Put a channel away. A channel's managers, the owner and the admins can archive one, and anyone in
+   * a private channel (its last person cannot leave it); the owner and admins can archive any, a
+   * private one they are not in too.
+   */
   async archiveChannel(owner: string, id: string): Promise<Channel> {
     if (id === ORCHESTRATOR_CHANNEL_ID)
       throw new AppError("The orchestrator channel cannot be archived", 409);
     const scope = await this.access.scope(owner);
-    if (scope.person?.role === "guest") throw new AppError("A guest can't archive a channel", 403);
-    if (!scope.allows(id)) throw new AppError("Channel not found", 404);
+    const person = scope.person;
+    if (person?.role === "guest") throw new AppError("A guest can't archive a channel", 403);
+    const runs = person?.role === "owner" || person?.role === "admin";
+    if (!runs && !scope.allows(id)) throw new AppError("Channel not found", 404);
+    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", id);
+    if (!channel) throw new AppError("Channel not found", 404);
+    if (
+      person &&
+      !runs &&
+      !managesChannel(person, channel) &&
+      !(!isPublic(channel) && isIn(person, channel))
+    )
+      throw new AppError(
+        "Only a channel manager, an admin or the owner can archive a public channel",
+        403,
+      );
     const updated = await this.db.compareAndSwap<Channel>(
       SHARED_OWNER,
       "channels",
@@ -636,6 +688,7 @@ export class AgentService {
       canSeeTask(scope, task),
     );
     const ids = new Set(tasks.map((task) => task.id));
+    const prefs = await this.notificationPrefs(owner);
     const [artifacts, identity, notices] = await Promise.all([
       this.db.list<AgentArtifact>(owner, "agent-artifacts"),
       this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
@@ -652,6 +705,7 @@ export class AgentService {
       // Only what was said to them: the rest is the workspace's.
       notifications: notices.filter(
         (note) =>
+          this.wanted(prefs, note) &&
           (!note.channelId || scope.allows(note.channelId)) &&
           (!note.taskId || ids.has(note.taskId)) &&
           this.noticeIsFor(owner, scope.person?.email, note, new Map(tasks.map((t) => [t.id, t]))),
@@ -731,6 +785,7 @@ export class AgentService {
     // them, and what the agent learned there.
     const hidden = new Set(tasks.filter((task) => !canSeeTask(scope, task)).map((task) => task.id));
     const byId = new Map(tasks.map((task) => [task.id, task]));
+    const prefs = await this.notificationPrefs(owner);
     return {
       tasks: await this.present(
         owner,
@@ -744,6 +799,7 @@ export class AgentService {
       artifacts: artifacts.filter((artifact) => !artifact.taskId || !hidden.has(artifact.taskId)),
       notifications: notifications.filter(
         (note) =>
+          this.wanted(prefs, note) &&
           (!note.taskId || !hidden.has(note.taskId)) &&
           (!note.channelId || scope.allows(note.channelId)) &&
           this.noticeIsFor(owner, scope.person?.email, note, byId),

@@ -6,7 +6,10 @@ import { after, before, mock, test } from "node:test";
 import { createControlApp } from "../apps/control/src/app.ts";
 import type { ControlConfig } from "../apps/control/src/config.ts";
 import { loadSigningKeys, type SigningKeys } from "../apps/control/src/signing.ts";
-import { verifyWorkspaceToken } from "../packages/integrations/src/workspace-token.ts";
+import {
+  verifyRevocation,
+  verifyWorkspaceToken,
+} from "../packages/integrations/src/workspace-token.ts";
 import { type ControlTestStore, createControlStore } from "./helpers/control-store.ts";
 import { FakeProvisioner } from "./helpers/fake-provisioner.ts";
 
@@ -16,6 +19,8 @@ let keys: SigningKeys;
 let provisioner: FakeProvisioner;
 let control: ReturnType<typeof createControlApp>;
 const sent: { to: string; link: string; workspaceName: string }[] = [];
+/** What the control plane told workspaces: whose sessions are over. */
+const revoked: { url: string; token: string }[] = [];
 
 const config = (over: Partial<ControlConfig> = {}): ControlConfig => ({
   mode: "sample",
@@ -38,6 +43,10 @@ before(async () => {
   control = createControlApp(db, config(), {
     provisioner,
     keys,
+    fetch: async (url, init) => {
+      revoked.push({ url: String(url), token: JSON.parse(String(init?.body)).token });
+      return new Response("{}");
+    },
     mailer: {
       async sendInvite(mail) {
         sent.push(mail);
@@ -766,7 +775,14 @@ test("removing someone ends their access, and people can leave except the owner"
   assert.equal((await admin.del(`/v1/workspaces/${id}/members/${owner.account.id}`)).status, 409);
   assert.equal((await other.del(`/v1/workspaces/${id}/members/${leaver.account.id}`)).status, 403);
   assert.equal((await admin.del(`/v1/workspaces/${id}/members/${other.account.id}`)).status, 200);
-  // Once removed, they cannot get a token, or see the workspace.
+  // Once removed, they cannot get a token, or see the workspace, and the workspace is told their
+  // sessions there are over, so it does not wait for the hour to run out.
+  const told = revoked.at(-1);
+  assert.equal(told?.url, `https://${id}.fake.test/api/auth/revoke`);
+  assert.equal(
+    verifyRevocation(keys.publicKey, told?.token ?? "", { workspaceId: id }),
+    other.account.id,
+  );
   assert.equal((await other.post(`/v1/workspaces/${id}/token`)).status, 404);
   assert.equal((await other.get(`/v1/workspaces/${id}`)).status, 404);
   // Leaving is the same as being removed.

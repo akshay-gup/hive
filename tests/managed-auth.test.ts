@@ -10,6 +10,7 @@ import { createStore, type Store } from "../apps/server/src/db.ts";
 import { MANAGED_SESSION_MS } from "../apps/server/src/managed.ts";
 import {
   generateWorkspaceKeys,
+  signRevocation,
   signWorkspaceToken,
   type WorkspaceRole,
 } from "../packages/integrations/src/workspace-token.ts";
@@ -183,4 +184,39 @@ test("a workspace that is not managed has no managed sign-in, and says nothing o
     await plainDb.close();
     await rm(plainDir, { recursive: true, force: true });
   }
+});
+
+test("the control plane ends a person's sessions at once, and no one else can", async () => {
+  const ada = await (await signIn(token({ id: "acct_revoked" }))).json();
+  const bea = await (await signIn(token({ id: "acct_kept" }))).json();
+  const open = (session: { token: string }) =>
+    app.request("/api/auth/session", { headers: { Authorization: `Bearer ${session.token}` } });
+  assert.equal((await open(ada)).status, 200);
+
+  // Only the control plane's signature counts, and only for this workspace.
+  const forged = generateWorkspaceKeys();
+  for (const bad of [
+    signRevocation(forged.privateKey, { workspaceId, sub: "acct_revoked" }),
+    signRevocation(keys.privateKey, { workspaceId: "w2other", sub: "acct_revoked" }),
+    // A sign-in token is for signing in: it ends nothing.
+    token({ id: "acct_revoked" }),
+    "not a token",
+  ])
+    assert.equal((await post("/api/auth/revoke", { token: bad })).status, 401);
+  assert.equal((await open(ada)).status, 200);
+
+  const ended = await post("/api/auth/revoke", {
+    token: signRevocation(keys.privateKey, { workspaceId, sub: "acct_revoked" }),
+  });
+  assert.equal(ended.status, 200);
+  assert.equal((await ended.json()).ended, 1);
+  assert.equal((await open(ada)).status, 401);
+  // Nobody else's is touched, and the person can sign in again if the control plane still lets them.
+  assert.equal((await open(bea)).status, 200);
+  assert.equal((await signIn(token({ id: "acct_revoked" }))).status, 200);
+  // A revocation is no way in.
+  assert.equal(
+    (await signIn(signRevocation(keys.privateKey, { workspaceId, sub: "acct_revoked" }))).status,
+    401,
+  );
 });

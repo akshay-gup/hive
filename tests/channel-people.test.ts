@@ -589,7 +589,7 @@ test("a manager makes a channel private, only an owner or admin makes it public 
   assert.equal((await call("ada", "GET", `/api/agent/channels/${lab.id}/tasks`)).status, 200);
   // Archived, it is read-only: no one is added or taken out.
   assert.equal(
-    (await call("mia", "POST", `/api/agent/channels/${lab.id}/archive`, {})).status,
+    (await call("max", "POST", `/api/agent/channels/${lab.id}/archive`, {})).status,
     200,
   );
   const frozen = await add("max", lab.id, "ada@example.com");
@@ -662,23 +662,74 @@ test("an older channel everyone is in becomes private only by an owner or admin,
   assert.ok((await namesOf("gus")).includes("Ops"));
 });
 
-test("archiving a channel is for people who can open it, and not for guests", async () => {
+test("archiving a channel is for its managers, the owner and admins, and anyone in a private one, and not for guests", async () => {
   const spare = await make("max", "Spare");
   const hidden = await make("max", "Hidden spare", "private");
+  const archive = (who: Who, id: string) =>
+    call(who, "POST", `/api/agent/channels/${id}/archive`, {});
+  assert.equal((await archive("gus", spare.id)).status, 403);
+  // Someone who cannot open a private channel is told there is none.
+  assert.equal((await archive("mia", hidden.id)).status, 404);
+  // A member of the team who does not manage a public channel cannot put it away.
+  assert.equal((await archive("mia", spare.id)).status, 403);
+  assert.equal((await stored(spare.id))?.status, "active");
+  assert.equal((await archive("max", spare.id)).status, 200);
+  assert.equal((await stored(spare.id))?.status, "archived");
+  // Anyone in a private channel may, since its last person cannot leave it.
+  await add("max", hidden.id, "mia@example.com");
+  assert.equal((await archive("mia", hidden.id)).status, 200);
+  assert.equal((await stored(hidden.id))?.status, "archived");
+  // An admin may archive a public channel they do not manage.
+  const open = await make("max", "Open spare");
+  assert.equal((await archive("ada", open.id)).status, 200);
+});
+
+test("an owner or admin can list every channel, private ones too, and join one to read it", async () => {
+  const lost = await make("max", "Lost plans", "private");
+  const team = await make("max", "Team notes");
+  const directory = async (who: Who) => call(who, "GET", "/api/agent/admin/channels");
+  // Only the people who run the workspace see the list; to anyone else it is not theirs to ask for.
+  assert.equal((await directory("max")).status, 403);
+  assert.equal((await directory("gus")).status, 403);
+  const listed = (await json(await directory("ada"))) as {
+    id: string;
+    visibility: string;
+    count: number;
+    managers: string[];
+    joined: boolean;
+  }[];
+  const row = listed.find((c) => c.id === lost.id);
+  assert.deepEqual(
+    [row?.visibility, row?.count, row?.managers, row?.joined],
+    ["private", 1, ["Max"], false],
+  );
+  assert.ok(listed.some((c) => c.id === team.id));
   assert.equal(
-    (await call("gus", "POST", `/api/agent/channels/${spare.id}/archive`, {})).status,
+    listed.some((c) => c.id === "orchestrator"),
+    false,
+  );
+  // The list is names and numbers: what is said in the channel is still shut to them.
+  assert.equal((await call("ada", "GET", `/api/agent/channels/${lost.id}/threads`)).status, 404);
+  assert.equal(
+    (await call("max", "POST", `/api/agent/admin/channels/${lost.id}/join`)).status,
     403,
   );
+  // Joining names them in it, for the people there to see, and opens it to them.
+  const joined = await call("ada", "POST", `/api/agent/admin/channels/${lost.id}/join`);
+  assert.equal(joined.status, 200);
+  const entry = await json(joined);
+  assert.deepEqual([entry.joined, entry.count], [true, 2]);
+  assert.deepEqual((await stored(lost.id))?.members, ["ada@example.com", "max@example.com"]);
+  assert.equal((await call("ada", "GET", `/api/agent/channels/${lost.id}/threads`)).status, 200);
+  // And archives one they are not in, which would otherwise be left for good.
+  const gone = await make("max", "Gone quiet", "private");
+  const archived = await call("ada", "POST", `/api/agent/admin/channels/${gone.id}/archive`, {});
+  assert.equal(archived.status, 200);
+  assert.equal((await json(archived)).archived, true);
   assert.equal(
-    (await call("mia", "POST", `/api/agent/channels/${hidden.id}/archive`, {})).status,
-    404,
+    (await call("max", "POST", `/api/agent/admin/channels/${team.id}/archive`, {})).status,
+    403,
   );
-  assert.equal(
-    (await call("mia", "POST", `/api/agent/channels/${spare.id}/archive`, {})).status,
-    200,
-  );
-  assert.equal((await stored(spare.id))?.status, "archived");
-  assert.equal((await stored(hidden.id))?.status, "active");
 });
 
 test("a channel changed at the same moment by two people keeps both changes", async () => {

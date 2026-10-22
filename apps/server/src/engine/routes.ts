@@ -122,13 +122,22 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   });
   app.get("/channels", async (c) => {
     const owner = c.get("owner");
-    const [channels, person, read] = await Promise.all([
+    const [channels, person, read, prefs] = await Promise.all([
       service.listChannels(owner),
       service.access.person(owner),
       service.readMarks(owner),
+      service.notificationPrefs(owner),
     ]);
-    return c.json(channels.map((channel) => service.access.view(person, channel, read)));
+    const muted = new Set(prefs.muted);
+    return c.json(channels.map((channel) => service.access.view(person, channel, read, muted)));
   });
+  /** What this person wants to be told about, and the channels they have muted. */
+  app.get("/notification-prefs", async (c) =>
+    c.json(await service.notificationPrefs(c.get("owner"))),
+  );
+  app.put("/notification-prefs", async (c) =>
+    c.json(await service.setNotificationPrefs(c.get("owner"), await c.req.json())),
+  );
   /** The people who can be mentioned in the channel, by the handle typed after the @. */
   app.get("/channels/:id/mentionable", async (c) =>
     c.json(await service.mentionable(c.get("owner"), c.req.param("id"))),
@@ -163,6 +172,17 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   app.post("/channels/:id/archive", async (c) =>
     c.json(await service.archiveChannel(c.get("owner"), c.req.param("id"))),
   );
+  // Every channel, private ones too, for an owner or admin: what exists, not what is said in it.
+  app.get("/admin/channels", async (c) => c.json(await service.people.directory(c.get("owner"))));
+  app.post("/admin/channels/:id/join", async (c) =>
+    c.json(await service.people.enter(c.get("owner"), c.req.param("id"))),
+  );
+  app.post("/admin/channels/:id/archive", async (c) => {
+    await service.archiveChannel(c.get("owner"), c.req.param("id"));
+    return c.json(
+      (await service.people.directory(c.get("owner"))).find((e) => e.id === c.req.param("id")),
+    );
+  });
   app.get("/channels/:id/files", async (c) => {
     const query = z
       .object({
