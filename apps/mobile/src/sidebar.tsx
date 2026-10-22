@@ -6,7 +6,6 @@ import {
   LogOut,
   Monitor,
   Plus,
-  Search,
   SquarePen,
   X,
 } from "lucide-react-native";
@@ -264,7 +263,6 @@ export function Sidebar({
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [find, setFind] = useState("");
-  const [menu, setMenu] = useState(false);
 
   const load = useCallback(
     async (quiet = false) => {
@@ -426,10 +424,7 @@ export function Sidebar({
       label="Find a conversation"
       placeholder="Find a conversation…"
       value={find}
-      onChangeText={(text) => {
-        setFind(text);
-        setMenu(false);
-      }}
+      onChangeText={setFind}
     />
   );
 
@@ -464,7 +459,7 @@ export function Sidebar({
             accessibilityRole="button"
             accessibilityLabel="New channel"
             hitSlop={6}
-            onPress={() => (hosted ? setMenu((open) => !open) : setCreating(true))}
+            onPress={() => setCreating(true)}
             {...newChannelTip.props}
             style={({ pressed, hovered }: WebPressState) => ({
               width: 28,
@@ -480,29 +475,6 @@ export function Sidebar({
           </Pressable>
         )}
       </View>
-      {menu && !creating && (
-        <>
-          <SidebarRow
-            dense={dense}
-            icon={Plus}
-            label="New channel"
-            onPress={() => {
-              setMenu(false);
-              setCreating(true);
-            }}
-          />
-          <SidebarRow
-            dense={dense}
-            icon={Search}
-            label="Browse channels"
-            onPress={() => {
-              setMenu(false);
-              onNavigate?.();
-              open({ type: "browseChannels" });
-            }}
-          />
-        </>
-      )}
       <ErrorNotice error={error} />
       {!!error && (
         <Pressable
