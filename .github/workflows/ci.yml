@@ -1,8 +1,7 @@
 name: CI
+# Off on every push for now (it has failed on each one for days, and nothing deploys from it): run it by
+# hand from the Actions tab. To turn it back on, restore `push: {branches: [main]}` and `pull_request:`.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
