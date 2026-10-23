@@ -7,7 +7,7 @@ What the automated checks cover, how to run them, and what has not been verified
 - **`pnpm test`** runs 776 tests across the API, task engine, OpenCode integration, tools, integrations, conversation queue, browser address handling, domain, and date handling, and the hosted control plane, its provisioners, the edge, the tools that make a Droplet image and try a provisioner, the workspace supervisor and the app's client for them.
 - **`pnpm test:browser`** runs the real Chromium lifecycle test: public page navigation and read, failed profile cleanup, reopening the same session, text truncation, and localStorage and profile persistence after a restart.
 - **The platform exports** build the web, iOS Hermes and Android Hermes bundles. They do not produce signed native binaries.
-- **CI** (`.github/workflows/ci.yml`) runs lint, types, the tests, the server build, the three exports, the Chromium lifecycle test and a browser-container suite, on Node 22.
+- **There is no CI.** Nothing runs these checks on a push: run them before one (`pnpm lint`, `pnpm typecheck`, `pnpm test`, the exports above). The only workflow is `.github/workflows/workspace-image.yml`, which builds the workspace image and is how a release reaches workspaces.
 
 ## The agent under test
 
@@ -66,4 +66,4 @@ pnpm exec tsx apps/workspace/tests/run-docker.ts
 pnpm exec tsx apps/workspace/tests/run-vm.ts
 ```
 
-The [demo guide](DEMO.md) describes the native walkthrough. The CI workflow defines these validation categories for a fresh Linux environment. No check sends real mail, makes a purchase, or connects a private Google account.
+The [demo guide](DEMO.md) describes the native walkthrough. No check sends real mail, makes a purchase, or connects a private Google account.
