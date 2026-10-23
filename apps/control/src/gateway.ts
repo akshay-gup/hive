@@ -9,9 +9,29 @@ import type { ControlStore } from "./store.ts";
  * member can read it).
  *
  * It is a pass-through. It reads the request's headers to learn which workspace is asking and to
- * put the real key in, and then hands the body to the provider and the provider's answer back, as
- * streams it never reads, keeps or logs. What it knows of a request is the workspace and the time.
+ * put the real key in, and hands the provider's answer back as a stream it never reads, keeps or
+ * logs. The one thing it does to what was asked is the model: a workspace names whatever model it was
+ * set up with, and the gateway puts its own (`GATEWAY_MODEL`) in that place, so which model the
+ * product runs on is decided here and changes for every workspace at once, those made long ago
+ * included. It does that by reading a request's JSON for its `model` field and nothing else, and
+ * keeps none of it. What it knows of a request is the workspace and the time.
  */
+
+/** What a workspace calls the model, whatever it really is. The gateway swaps in the real one. */
+export const MODEL_ALIAS = "hive-default";
+
+/** The calls that name a model: the rest of the provider's API (listing models, say) is passed on untouched. */
+const NAMES_A_MODEL = /(^|\/)(messages|chat\/completions|completions|responses)$/;
+
+/** What the agent is told of the alias when `GATEWAY_MODEL_CONFIG` does not say better. */
+const DEFAULT_MODEL_CONFIG = {
+  name: "Hive",
+  reasoning: true,
+  tool_call: true,
+  attachment: true,
+  temperature: true,
+  limit: { context: 200_000, output: 32_000 },
+};
 
 export interface GatewayProvider {
   /** The provider's API address as its SDK takes it (`https://api.openai.com/v1`), no trailing slash. */
@@ -26,10 +46,10 @@ export interface GatewaySettings {
   /** The `provider/model-id` every workspace runs the agent on; the provider is one of `providers`. */
   model: string;
   /**
-   * What the agent should know of `model` when its own list does not have it yet (a model released
-   * this week): OpenCode's model settings, such as `{"name":…,"tool_call":true,"reasoning":true,
-   * "interleaved":{"field":"reasoning_content"},"limit":{"context":…,"output":…}}`. Left out, the
-   * model is used as the agent already knows it.
+   * What the agent is told of the model, which it knows by the name `hive-default` and not its own:
+   * OpenCode's model settings, such as `{"name":…,"tool_call":true,"reasoning":true,
+   * "interleaved":{"field":"reasoning_content"},"limit":{"context":…,"output":…}}`. Left out, a
+   * general description is used (it reasons, calls tools, takes files, has room for 200k tokens).
    */
   modelConfig?: Record<string, unknown>;
   /** Counts requests per workspace. Left out, each process counts for itself (120 a minute). */
@@ -176,16 +196,17 @@ export class ModelGateway {
   environmentFor(workspaceId: string): Record<string, string> {
     const token = this.tokenFor(workspaceId);
     const provider: Record<string, unknown> = {};
-    const [modelProvider = "", ...modelPath] = this.settings.model.split("/");
+    const modelProvider = this.modelProvider;
     for (const id of Object.keys(this.settings.providers))
       provider[id] = {
         options: { baseURL: `${this.publicUrl}/v1/gateway/${id}`, apiKey: token },
-        ...(id === modelProvider && this.settings.modelConfig
-          ? { models: { [modelPath.join("/")]: this.settings.modelConfig } }
+        // The model has one name here whatever it is; the gateway puts the real one in its place.
+        ...(id === modelProvider
+          ? { models: { [MODEL_ALIAS]: this.settings.modelConfig ?? DEFAULT_MODEL_CONFIG } }
           : {}),
       };
     return {
-      MODEL: this.settings.model,
+      MODEL: `${modelProvider}/${MODEL_ALIAS}`,
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider }),
     };
   }
@@ -205,9 +226,40 @@ export class ModelGateway {
     return true;
   }
 
+  private get modelProvider(): string {
+    return this.settings.model.slice(0, this.settings.model.indexOf("/"));
+  }
+  private get modelId(): string {
+    return this.settings.model.slice(this.settings.model.indexOf("/") + 1);
+  }
+
+  /**
+   * The request's body with the model it names swapped for the gateway's. A body that is not JSON, has
+   * no model, or is for a call that does not name one goes on as it came, byte for byte.
+   */
+  private async withModel(request: Request, rest: string): Promise<ArrayBuffer | string> {
+    const bytes = await request.arrayBuffer();
+    if (!NAMES_A_MODEL.test(rest)) return bytes;
+    try {
+      const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        !Array.isArray(body) &&
+        typeof (body as { model?: unknown }).model === "string"
+      )
+        return JSON.stringify({ ...body, model: this.modelId });
+    } catch {
+      // Not JSON: the provider will say so.
+    }
+    return bytes;
+  }
+
   async handle(request: Request, providerId: string): Promise<Response> {
-    const provider = this.settings.providers[providerId];
-    if (!provider) return failure(404, "not_found_error", "No such model provider.");
+    // A workspace may call by any provider's name it was made with; the model that answers is the gateway's.
+    if (!this.settings.providers[providerId])
+      return failure(404, "not_found_error", "No such model provider.");
+    const provider = this.settings.providers[this.modelProvider] as GatewayProvider;
     if (request.method !== "POST" && request.method !== "GET")
       return failure(405, "invalid_request_error", "Method not allowed.");
 
@@ -245,12 +297,13 @@ export class ModelGateway {
       upstream = await this.fetcher(target, {
         method: request.method,
         headers,
-        // The body goes on as the stream it arrived as. It is never read here.
-        body: request.method === "GET" ? undefined : request.body,
+        body:
+          request.method === "GET"
+            ? undefined
+            : await this.withModel(request, new URL(request.url).pathname),
         // The caller going away (the agent stopped a run) ends the provider's work and the cost.
         signal: request.signal,
-        duplex: "half",
-      } as RequestInit);
+      });
     } catch {
       return failure(502, "api_error", "The model service could not be reached. Try again.");
     }

@@ -118,7 +118,8 @@ const ask = (
 test("a new workspace is given the model and a key for the gateway, and never the provider's key", async () => {
   const control = makeControl(settings());
   const { spec, key, id } = await workspaceWith(control);
-  assert.equal(spec?.modelEnv?.MODEL, "anthropic/claude-test");
+  // The workspace knows the model by a name of its own; the gateway puts the real one in its place.
+  assert.equal(spec?.modelEnv?.MODEL, "anthropic/hive-default");
   const given = JSON.parse(spec?.modelEnv?.OPENCODE_CONFIG_CONTENT ?? "{}");
   assert.equal(given.provider.anthropic.options.baseURL, `${PUBLIC_URL}/v1/gateway/anthropic`);
   assert.equal(given.provider.openai.options.baseURL, `${PUBLIC_URL}/v1/gateway/openai`);
@@ -145,7 +146,7 @@ test("a new workspace is given the model and a key for the gateway, and never th
   assert.equal(machine.OPENAI_API_KEY, "x");
 });
 
-test("a model the agent does not know yet is described to it, for that model only", async () => {
+test("the agent is told what the model can do, under the name the workspace knows it by", async () => {
   const info = { name: "Newest", tool_call: true, interleaved: { field: "reasoning_content" } };
   const control = makeControl(
     settings({
@@ -155,17 +156,53 @@ test("a model the agent does not know yet is described to it, for that model onl
   );
   const { spec } = await workspaceWith(control);
   const given = JSON.parse(spec?.modelEnv?.OPENCODE_CONFIG_CONTENT ?? "{}");
-  assert.equal(spec?.modelEnv?.MODEL, "openai/vendor/new-model-1017");
-  // The model id is everything after the provider, slashes included.
-  assert.deepEqual(given.provider.openai.models, { "vendor/new-model-1017": info });
+  assert.equal(spec?.modelEnv?.MODEL, "openai/hive-default");
+  // Described for the model's own provider only, and not under the model's real id.
+  assert.deepEqual(given.provider.openai.models, { "hive-default": info });
   assert.equal(given.provider.anthropic.models, undefined);
   assert.equal(given.provider.openai.options.baseURL, `${PUBLIC_URL}/v1/gateway/openai`);
-  // Not described, nothing is added.
+  // Not described, a general description is used.
   const plain = await workspaceWith(makeControl(settings()));
-  assert.equal(
-    JSON.parse(plain.spec?.modelEnv?.OPENCODE_CONFIG_CONTENT ?? "{}").provider.anthropic.models,
-    undefined,
-  );
+  const models = JSON.parse(plain.spec?.modelEnv?.OPENCODE_CONFIG_CONTENT ?? "{}").provider
+    .anthropic.models;
+  assert.equal(models["hive-default"].tool_call, true);
+});
+
+test("whatever model a workspace asks for, the gateway's is the one that answers", async () => {
+  const control = makeControl(settings({ model: "openai/vendor/new-model-1017" }));
+  const { key } = await workspaceWith(control);
+  calls = [];
+  upstream = () => new Response("{}");
+  const send = (path: string, body: BodyInit, type = "application/json") =>
+    ask(control, path, key, { body, headers: { "content-type": type } }, "authorization");
+  const sentBody = async (index: number) =>
+    new Response((calls[index] as Call).init.body as BodyInit).text();
+
+  // A workspace made with the old model's name, and one made with the alias, are answered alike. The
+  // rest of the request is as it was, and it goes to the model's provider with that provider's key.
+  const request = { model: "x", messages: [{ role: "user", content: "hi" }], stream: true };
+  for (const asked of ["accounts/fireworks/models/old-model", "hive-default"]) {
+    await send("openai/chat/completions", JSON.stringify({ ...request, model: asked }));
+  }
+  await send("anthropic/chat/completions", JSON.stringify(request));
+  for (const index of [0, 1, 2]) {
+    assert.deepEqual(JSON.parse(await sentBody(index)), {
+      ...request,
+      model: "vendor/new-model-1017",
+    });
+    const call = calls[index] as Call;
+    assert.equal(new Headers(call.init.headers).get("authorization"), `Bearer ${OPENAI_KEY}`);
+  }
+  assert.equal((calls[2] as Call).url, "https://api.openai.test/v1/chat/completions");
+
+  // Calls that do not name a model, and bodies that are not JSON, are not touched.
+  calls = [];
+  await send("openai/embeddings", JSON.stringify({ model: "asked", input: "a" }));
+  assert.deepEqual(JSON.parse(await sentBody(0)), { model: "asked", input: "a" });
+  await send("openai/chat/completions", "not json {", "text/plain");
+  assert.equal(await sentBody(1), "not json {");
+  await send("openai/chat/completions", JSON.stringify({ messages: [] }));
+  assert.deepEqual(JSON.parse(await sentBody(2)), { messages: [] });
 });
 
 test("without a gateway a workspace is given no model settings and the route is not there", async () => {
@@ -223,8 +260,7 @@ test("the provider gets its own key and the body untouched, and nothing else of 
   const sentValues: string[] = [];
   sent.forEach((value) => void sentValues.push(value));
   assert.ok(!sentValues.join("\n").includes(key), "the workspace's key does not go on");
-  // The body goes on as the stream it came as, and arrives byte for byte.
-  assert.ok(call.init.body instanceof ReadableStream, "the body is passed on, not read");
+  // Not JSON, so it goes on as it came, byte for byte.
   const received = new Uint8Array(await new Response(call.init.body as BodyInit).arrayBuffer());
   assert.deepEqual(received, body);
 });
@@ -259,7 +295,7 @@ test("an answer is passed back as it arrives, not when it is done", async () => 
 });
 
 test("a provider that takes a bearer key gets it that way, and a workspace may send its key that way too", async () => {
-  const control = makeControl(settings());
+  const control = makeControl(settings({ model: "openai/gpt-test" }));
   const { key } = await workspaceWith(control);
   calls = [];
   upstream = () => new Response("{}");

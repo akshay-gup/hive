@@ -111,7 +111,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     maxSize: 64 * 1024,
     onError: (c) => c.json({ error: "Too large" }, 413),
   });
-  // A model request carries the whole conversation, and is not read here: the gateway passes it on.
+  // A model request carries the whole conversation, so it is not held to this size: the gateway passes it on (reading it only for the model it names).
   app.use("*", (c, next) => (c.req.path.startsWith("/v1/gateway/") ? next() : limitBody(c, next)));
   app.onError((error, c) => {
     if (error instanceof HttpError) return c.json({ error: error.message }, error.status as 400);
