@@ -165,6 +165,22 @@ const sandboxEnv = (sandbox: Sandbox): Record<string, string> => ({
 });
 
 /**
+ * The agent's config as the machine was given it (the gateway's providers and model, from
+ * OPENCODE_CONFIG_CONTENT) with the sandboxed shell added. Replacing it would drop the providers.
+ */
+function withShell(given: string | undefined, shell: string): string {
+  let config: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = given ? JSON.parse(given) : {};
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed))
+      config = parsed as Record<string, unknown>;
+  } catch {
+    // A config that is not JSON was never one the agent could read either.
+  }
+  return JSON.stringify({ ...config, shell });
+}
+
+/**
  * What the agent runs with: the machine's settings (its model and provider keys among them),
  * minus the server's own, and a place on the volume to keep its sessions. It is pinned to the
  * version in the image and does not share what it does.
@@ -194,7 +210,7 @@ export function agentEnv(
     ...(sandbox
       ? {
           ...sandboxEnv(sandbox),
-          OPENCODE_CONFIG_CONTENT: JSON.stringify({ shell: sandbox.shell }),
+          OPENCODE_CONFIG_CONTENT: withShell(own.OPENCODE_CONFIG_CONTENT, sandbox.shell),
         }
       : {}),
   };
