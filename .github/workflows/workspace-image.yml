@@ -18,6 +18,7 @@ on:
       - tsconfig*.json
       - .github/workflows/workspace-image.yml
   # Only listed in the Actions tab once this file is on the default branch.
+  # (Run it by hand with the tag empty to rebuild the current main, when a push did not start one.)
   workflow_dispatch:
     inputs:
       tag:
