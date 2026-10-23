@@ -168,7 +168,8 @@ export function ChannelMessage({
           <View style={{ width: 32, alignItems: "center" }}>
             {grouped ? (
               showGutterTime && (
-                <Text style={[s.small, { fontSize: fontSize.micro, lineHeight: 21 }]}>
+                // Same line height as the message text, so showing it on hover cannot make the row taller.
+                <Text style={[s.small, { fontSize: fontSize.micro, lineHeight: 20 }]}>
                   {clock(timestamp, false)}
                 </Text>
               )
