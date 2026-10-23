@@ -314,7 +314,7 @@ export function AgentActivityScreen() {
   const { api } = useWorkspace();
   const { selected: projectFilter } = useActivityProjects();
   const [onlyNeeds, setOnlyNeeds] = useState(false);
-  const [view, setView] = useState<"list" | "board" | "timeline">("list");
+  const [view, setView] = useState<"list" | "board" | "timeline" | "activity">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const projects = data?.projects ?? [];
@@ -338,10 +338,11 @@ export function AgentActivityScreen() {
         { id: "list", label: "List" },
         { id: "board", label: "Board" },
         { id: "timeline", label: "Timeline" },
+        { id: "activity", label: "Activity" },
       ]}
     />
   );
-  const needsChip = (needsYouCount > 0 || onlyNeeds) && (
+  const needsChip = view !== "activity" && (needsYouCount > 0 || onlyNeeds) && (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected: onlyNeeds }}
@@ -379,20 +380,23 @@ export function AgentActivityScreen() {
     <View style={{ gap: 16 }}>
       <AgentStatus />
       {/* One toolbar: how to look at the work, what to narrow it to, and the new button at the right. */}
-      <View style={[s.row, { gap: 12 }]}>
+      {/* On a phone the three views take a row of their own: squeezed beside the buttons they would slide sideways, cut off. */}
+      <View style={narrow ? { gap: 10 } : [s.row, { gap: 12 }]}>
         {viewSwitcher}
-        {needsChip}
-        <View style={{ flex: 1 }} />
-        {newIssue}
+        <View style={[s.row, { gap: 12, flex: 1 }]}>
+          {needsChip}
+          <View style={{ flex: 1 }} />
+          {newIssue}
+        </View>
       </View>
-      {view !== "board" && tasks.length > 0 && (
+      {(view === "list" || view === "timeline") && tasks.length > 0 && (
         <TaskSheet
           tasks={tasks}
           timeline={view === "timeline"}
           onSelect={(task) => setSelectedId(task.id)}
         />
       )}
-      {view !== "board" &&
+      {(view === "list" || view === "timeline") &&
         !tasks.length &&
         (projectTasks.length ? (
           <Empty
@@ -426,8 +430,7 @@ export function AgentActivityScreen() {
         />
       )}
       {creating && <TaskCreate onClose={() => setCreating(false)} />}
-      <SectionHeading title="Reviews & receipts" />
-      <ActivityScreen />
+      {view === "activity" && <ActivityScreen />}
     </View>
   );
 }
