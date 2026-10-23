@@ -55,7 +55,7 @@
     // the flat plan and switched; if that is refused it keeps the flat one and the log says so.
     "DO_BACKUPS": "custom_daily",
     "DO_BACKUP_HOUR": "8",
-    "DO_IMAGE": "251020282",
+    "DO_IMAGE": "251094326",
     // The model that answers every workspace, new and old, through the gateway; the provider's key is the secret GATEWAY_PROVIDERS.
     // Workspaces call it "hive-default" and the gateway puts this one in its place, so changing it here
     // changes it for all of them at once. Keep the provider's name in GATEWAY_PROVIDERS: workspaces made
