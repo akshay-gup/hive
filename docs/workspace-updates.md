@@ -37,6 +37,36 @@
   the workspace restarting is retried by the app itself, twice at most, once the workspace answers
   (`apps/mobile/src/chat.tsx`). This is why the updater needs no idle check.
 
+## Changing a workspace's settings after it was made
+
+A workspace's settings (its model, the key it reaches the gateway with, the shared environment) are
+written to `/etc/hive/workspace.json` once, at first boot. They are changed the same way the build is:
+the machine asks, and the updater on it makes it so.
+
+- Every answer to `GET /v1/release/<id>` carries `config: {v, rev}`. `rev` is a short hash of what to
+  change in this workspace's settings. The updater compares it with the last it applied
+  (`/var/lib/hive/config.rev`).
+- When it differs, the machine fetches `GET /v1/release/<id>/config` with **its own gateway key** as
+  the bearer token (the document can contain that key, so nobody else may read it), validates it,
+  and puts it over the settings it was made with (kept as `/etc/hive/workspace.base.json`). Taking a
+  change away puts the setting back to what it was made with. The identity settings (`WORKSPACE_ID`,
+  `CONTROL_PLANE_PUBLIC_KEY`, `WORKSPACE_MODE`, `HOST`, `PORT`, `DATA_DIR`) are never changed, by the
+  control plane or by the updater.
+- It then waits for idle (as for a build), restarts the workspace, and checks its health; if it
+  does not come up the old settings come back, the revision is marked failed
+  (`/var/lib/hive/config.failed`) and it is not tried again until the control plane says something
+  else. The result is `last-config.json` and shows in `/api/health` under `update.config`.
+- Three layers, later winning: what the control plane works out for the workspace (the gateway's
+  model and key), `PUT /internal/release/config` `{env: {NAME: "value" | null}}` for everyone, and
+  `PUT /internal/release/config/workspaces/<id>` for one (`DELETE` clears it; `GET .../config` and
+  `.../config/workspaces/<id>` show what is set, the latter without values). `null` removes a setting.
+  Changing `GATEWAY_MODEL_CONFIG` on the control plane reaches existing workspaces through the first layer.
+- **Future changes.** The format is versioned (`v`). An updater that meets a version it does not know
+  leaves the settings alone and says so in the log. A new kind of change (files, units) takes a new
+  `v`, handled by an updater shipped in a build; the self-update of the updater means every machine
+  that updates to that build can then take the change. What is not a setting at all goes in
+  `machine/hive-ensure`, which runs from the new build on every update.
+
 ## Design
 
 A workspace is a Droplet made from a snapshot. Nothing changes on a Droplet after it is made

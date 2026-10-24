@@ -513,3 +513,42 @@ test("the settings that turn the gateway on are checked", () => {
     /auth/,
   );
 });
+
+test("a workspace is told its settings by its own key, and sees a changed model setting without being made again", async () => {
+  const app = makeControl(settings({ modelConfig: { name: "First" } }));
+  const key = (id: string) => {
+    const given = JSON.parse(JSON.stringify(app.gateway?.environmentFor(id) ?? {})) as Record<
+      string,
+      string
+    >;
+    return (
+      Object.values(JSON.parse(given.OPENCODE_CONFIG_CONTENT ?? "{}").provider)[0] as {
+        options: { apiKey: string };
+      }
+    ).options.apiKey;
+  };
+  const ask = (id: string, token?: string) =>
+    app.app.request(`/v1/release/${id}/config`, {
+      headers: { "x-client-ip": id, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+  const mine = await ask("wcfgone", key("wcfgone"));
+  assert.equal(mine.status, 200);
+  const doc = await mine.json();
+  assert.equal(doc.v, 1);
+  assert.equal(doc.env.MODEL, "anthropic/hive-default");
+  assert.ok(doc.env.OPENCODE_CONFIG_CONTENT.includes("First"));
+  // Another workspace's key, or none, does not open it.
+  assert.equal((await ask("wcfgone", key("wcfgtwo"))).status, 401);
+  assert.equal((await ask("wcfgone")).status, 401);
+  // The revision in the plain answer is the one the document carries.
+  const plain = await (
+    await app.app.request("/v1/release/wcfgone", { headers: { "x-client-ip": "wcfgone" } })
+  ).json();
+  assert.equal(plain.config.rev, doc.rev);
+  // A different model description, a different revision.
+  const changed = makeControl(settings({ modelConfig: { name: "Second" } }));
+  const next = await (
+    await changed.app.request("/v1/release/wcfgone", { headers: { "x-client-ip": "wcfgone" } })
+  ).json();
+  assert.notEqual(next.config.rev, doc.rev);
+});

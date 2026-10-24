@@ -35,3 +35,21 @@ test("a machine with no updater folder has nothing to say, and a broken record d
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("the health answer says how the last change to the settings went", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "hive-status-"));
+  try {
+    await writeFile(
+      join(dir, "last-config.json"),
+      '{"state":"failed","rev":"abc","message":"did not come up","at":"2026-10-24T07:00:00Z"}',
+    );
+    assert.deepEqual((await readUpdateStatus(dir))?.config, {
+      state: "failed",
+      rev: "abc",
+      message: "did not come up",
+      at: "2026-10-24T07:00:00Z",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

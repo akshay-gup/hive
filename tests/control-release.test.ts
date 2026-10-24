@@ -53,12 +53,17 @@ const operator = (method: string, path: string, body?: unknown, token = TOKEN) =
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-const asked = async (workspace: string) =>
+const askedWithConfig = async (workspace: string, app = control.app) =>
   (
-    await control.app.request(`/v1/release/${workspace}`, {
+    await app.request(`/v1/release/${workspace}`, {
       headers: { "x-client-ip": workspace },
     })
   ).json();
+/** The build a machine is told, without the settings revision that rides along. */
+const asked = async (workspace: string) => {
+  const { config: _config, ...build } = await askedWithConfig(workspace);
+  return build;
+};
 
 test("there is no way to publish a build without a release token", async () => {
   const response = await bare.app.request("/internal/release", {
@@ -152,4 +157,63 @@ test("the machine's first boot writes where it asks, and only when it is told", 
   const written = withUrl.match(/path: \/etc\/hive\/updater.json[\s\S]*?content: (\S+)/)?.[1] ?? "";
   assert.deepEqual(JSON.parse(Buffer.from(written, "base64").toString("utf8")), { wantedUrl: url });
   assert.equal(cloudConfig({ A: "b" }).includes("updater.json"), false);
+});
+
+// Settings: changing what a workspace was made with, after it exists.
+
+const settingsOf = (workspace: string, token?: string, app = control.app) =>
+  app.request(`/v1/release/${workspace}/config`, {
+    headers: { "x-client-ip": workspace, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+
+test("every answer says which revision of its settings a machine should be on", async () => {
+  const answer = await askedWithConfig("wcfg");
+  assert.equal(answer.config.v, 1);
+  assert.match(answer.config.rev, /^[0-9a-f]{24}$/);
+});
+
+test("the revision changes when what is set for everyone changes, and goes back when it is taken away", async () => {
+  const before = (await askedWithConfig("wrev")).config.rev;
+  assert.equal(
+    (await operator("PUT", "/config", { env: { TASK_WORKER_ENABLED: "false" } })).status,
+    200,
+  );
+  const during = (await askedWithConfig("wrev")).config.rev;
+  assert.notEqual(during, before);
+  assert.equal((await askedWithConfig("wother")).config.rev, during, "everyone gets it");
+  assert.equal((await operator("PUT", "/config", { env: {} })).status, 200);
+  assert.equal((await askedWithConfig("wrev")).config.rev, before);
+});
+
+test("a setting for one workspace moves only that one", async () => {
+  const other = (await askedWithConfig("wb")).config.rev;
+  const own = await operator("PUT", "/config/workspaces/wa", { env: { LOG_LEVEL: "debug" } });
+  assert.equal(own.status, 200);
+  assert.notEqual((await askedWithConfig("wa")).config.rev, other);
+  assert.equal((await askedWithConfig("wb")).config.rev, other);
+  const preview = await (await operator("GET", "/config/workspaces/wa")).json();
+  assert.deepEqual(preview.set, ["LOG_LEVEL"]);
+  assert.equal(JSON.stringify(preview).includes("debug"), false, "values are not shown");
+  assert.equal((await operator("DELETE", "/config/workspaces/wa")).status, 200);
+  assert.equal((await askedWithConfig("wa")).config.rev, other);
+});
+
+test("the settings a workspace was made with that its identity rests on cannot be changed", async () => {
+  for (const key of ["WORKSPACE_ID", "CONTROL_PLANE_PUBLIC_KEY", "HOST", "PORT", "DATA_DIR"])
+    assert.equal((await operator("PUT", "/config", { env: { [key]: "x" } })).status, 422, key);
+});
+
+test("a setting that is not well formed is refused, and what was there stays", async () => {
+  assert.equal((await operator("PUT", "/config", { env: { A_B: "1" } })).status, 200);
+  assert.equal((await operator("PUT", "/config", { env: { "bad name": "1" } })).status, 422);
+  assert.equal((await operator("PUT", "/config", { env: { A: 1 } })).status, 422);
+  assert.equal((await operator("PUT", "/config", {})).status, 422);
+  assert.deepEqual((await (await operator("GET", "/config")).json()).default, { A_B: "1" });
+  await operator("PUT", "/config", { env: {} });
+});
+
+test("settings are told only to the workspace they are for, by its own key; without a gateway there is no such key", async () => {
+  assert.equal((await settingsOf("wabc")).status, 401);
+  assert.equal((await settingsOf("wabc", "hwk_wabc.nope")).status, 401);
+  assert.equal((await settingsOf("wabc", "x".repeat(30), bare.app)).status, 401);
 });

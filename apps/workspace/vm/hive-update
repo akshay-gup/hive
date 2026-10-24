@@ -12,6 +12,15 @@
 #   hive-update --to TAG --digest sha256:...   the same, checked against the image's digest.
 #   hive-update --force         does not wait for the workspace to be idle.
 #
+# Besides the build, it keeps the workspace's settings (/etc/hive/workspace.json, which the workspace is
+# made with) as the control plane wants them. The answer carries a short revision of what to change in
+# them; when it is not the one this machine is on, the machine fetches the change with its own key
+# (never without it: it can include that key), puts it over the settings the machine was made with
+# (kept as workspace.base.json, so a change taken away puts the setting back), and restarts the
+# workspace on them, going back if it does not come up. The identity settings are never changed.
+# What it does not understand (a newer kind of change) it leaves alone and says so, and a build that
+# carries a newer updater is how it learns.
+#
 # Settings, if the machine is to ask on its own, are in /etc/hive/updater.json:
 #   {"repo": "ghcr.io/OWNER/hive-workspace", "wantedUrl": "https://...", "tokenFile": "/etc/hive/update-token"}
 # `wantedUrl` answers {"tag": "...", "digest": "sha256:...", "force": false}. Without the file the timer
@@ -56,7 +65,7 @@ if [ -f "$STATE/update.log" ] && [ "$(wc -l <"$STATE/update.log")" -gt 200 ]; th
   tail -n 200 "$STATE/update.log" >"$STATE/update.log.new" && mv "$STATE/update.log.new" "$STATE/update.log" || true
 fi
 
-want_tag= want_digest= force=
+want_tag= want_digest= force= answer=
 while [ $# -gt 0 ]; do
   case "$1" in
     --self-test) echo ok; exit 0 ;;
@@ -89,6 +98,109 @@ if [ -z "$repo" ] && [ -f "$ETC/image.json" ]; then
   repo=$(jq -r '.image // empty' "$ETC/image.json" | sed -E 's/[@:][^/@:]*$//; s/@.*$//')
 fi
 
+# Waits until the workspace is idle, so a restart does not cut off the agent. The check is a command an
+# operator provides (exit 0 means idle); there is none by default, and --force skips it. Fails if it
+# is still busy after IDLE_WAIT.
+wait_idle() {
+  { [ -z "$force" ] && [ -x "$IDLE_CHECK" ]; } || return 0
+  local waited=0
+  until "$IDLE_CHECK"; do
+    [ "$waited" -lt "$IDLE_WAIT" ] || return 1
+    sleep 30
+    waited=$((waited + 30))
+  done
+}
+
+record_config() { # state, revision, message
+  printf '{"state":"%s","rev":"%s","message":"%s","at":"%s"}\n' \
+    "$1" "$2" "${3//\"/\'}" "$(date -u +%FT%TZ)" >"$STATE/last-config.json"
+}
+
+# The settings the control plane wants this workspace to have (see the top). It runs with the update
+# lock held and the answer to the control plane's question in $answer; a machine with no answer, or
+# an old control plane that gives none, leaves the settings as they are.
+PROTECTED='["WORKSPACE_ID","CONTROL_PLANE_PUBLIC_KEY","WORKSPACE_MODE","HOST","PORT","DATA_DIR"]'
+reconcile_config() {
+  [ -n "$answer" ] || return 0
+  local rev v applied live base url token tokenFile doc desired prev have up i
+  rev=$(jq -r '.config.rev // empty' <<<"$answer" 2>/dev/null || true)
+  [ -n "$rev" ] || return 0
+  v=$(jq -r '.config.v // empty' <<<"$answer" 2>/dev/null || true)
+  if [ "$v" != 1 ]; then
+    say "settings come in a form (version $v) this updater does not know; a newer build will"
+    return 0
+  fi
+  [[ "$rev" =~ ^[0-9a-f]{8,64}$ ]] || return 0
+  applied=$(cat "$STATE/config.rev" 2>/dev/null || true)
+  [ "$applied" != "$rev" ] || return 0
+  # One that already failed here is not tried again until the control plane says something else.
+  [ "$(cat "$STATE/config.failed" 2>/dev/null || true)" != "$rev" ] || return 0
+
+  live=$ETC/workspace.json
+  base=$ETC/workspace.base.json
+  [ -f "$live" ] || return 0
+  [ -f "$base" ] || install -m 0600 "$live" "$base"
+
+  url=$(settings .wantedUrl)
+  [ -n "$url" ] || return 0
+  # The workspace's own key: from a file if the machine was given one, else the one it reaches the
+  # model gateway with, which the control plane made for it and nobody else has.
+  tokenFile=$(settings .tokenFile)
+  token=
+  [ -n "$tokenFile" ] && [ -r "$tokenFile" ] && token=$(tr -d '[:space:]' <"$tokenFile")
+  [ -n "$token" ] || token=$(jq -r '[.OPENCODE_CONFIG_CONTENT // empty | fromjson | .provider[]?.options.apiKey // empty] | first // empty' "$base" 2>/dev/null || true)
+  [ -n "$token" ] || { say "settings changed ($rev) but this machine has no key to ask for them with"; return 0; }
+  doc=$(curl -fsS --max-time 20 -H "Authorization: Bearer $token" "$url/config") ||
+    { say "could not ask for settings $rev"; return 0; }
+  if ! jq -e --arg rev "$rev" '
+      .v == 1 and .rev == $rev and (.env | type == "object")
+      and ([.env[] | (type == "string" or . == null)] | all)
+      and ([.env | keys[] | test("^[A-Z][A-Z0-9_]{0,63}$")] | all)' <<<"$doc" >/dev/null 2>&1; then
+    say "the settings it was given ($rev) are not in a form this updater accepts, or have moved on; leaving them"
+    return 0
+  fi
+  desired=$(jq -S --argjson patch "$(jq -c .env <<<"$doc")" --argjson keep "$PROTECTED" '
+      reduce ($patch | to_entries[] | select(.key | IN($keep[]) | not)) as $e (.;
+        if $e.value == null then del(.[$e.key]) else .[$e.key] = $e.value end)' "$base") ||
+    { say "could not work out the settings for $rev"; return 0; }
+  jq -e 'type == "object" and ([.[] | type == "string"] | all)' <<<"$desired" >/dev/null 2>&1 ||
+    { say "settings $rev would not be an object of strings; leaving them"; return 0; }
+
+  if [ "$(jq -S . "$live")" = "$desired" ]; then
+    printf '%s' "$rev" >"$STATE/config.rev"
+    say "settings are already as $rev"
+    return 0
+  fi
+  say "settings ${applied:-as made} -> $rev"
+  wait_idle || { record_config waiting "$rev" "busy; will try again"; say "still busy, will change settings later"; return 0; }
+
+  prev=$live.prev
+  cp -p "$live" "$prev"
+  printf '%s\n' "$desired" >"$live.new"
+  chmod 0600 "$live.new"
+  mv "$live.new" "$live"
+  record_config applying "$rev" "restarting on the new settings"
+  "$SYSTEMCTL" restart "$SERVICE" || true
+  have=$(current)
+  up=
+  for ((i = 0; i < HEALTH_WAIT; i += 2)); do
+    if [ "$(curl -fsS --max-time 3 "$HEALTH" 2>/dev/null | jq -r '.version // empty')" = "$have" ]; then up=1; break; fi
+    sleep 2
+  done
+  if [ -z "$up" ]; then
+    say "did not come up on settings $rev, going back"
+    mv "$prev" "$live"
+    "$SYSTEMCTL" restart "$SERVICE" || true
+    printf '%s' "$rev" >"$STATE/config.failed"
+    record_config failed "$rev" "did not come up; went back to the settings it had"
+    return 0
+  fi
+  printf '%s' "$rev" >"$STATE/config.rev"
+  rm -f "$STATE/config.failed"
+  record_config updated "$rev" "from ${applied:-as made}"
+  say "settings are now $rev"
+}
+
 # An "update now" from the workspace server is a file it drops here (it holds "force" to skip the wait).
 if [ -f "$STATE/update-request" ]; then
   grep -q force "$STATE/update-request" && force=1
@@ -107,7 +219,7 @@ if [ -z "$want_tag" ]; then
   [ "$(jq -r '.force // false' <<<"$answer")" = true ] && force=1
 fi
 
-[ -n "$want_tag" ] || exit 0
+[ -n "$want_tag" ] || { reconcile_config; exit 0; }
 [[ "$want_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || fail "Not a usable tag: $want_tag"
 [ -z "$want_digest" ] || [[ "$want_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "Not a usable digest: $want_digest"
 [ -n "$repo" ] || fail "No image repository: set it in $ETC/updater.json"
@@ -115,20 +227,13 @@ fi
 have=$(current)
 if [ "$have" = "$want_tag" ]; then
   say "already on $have"
+  reconcile_config
   exit 0
 fi
 say "$have -> $want_tag"
 
-# Wait until the workspace is idle, so a restart does not cut off the agent. The check is a command an
-# operator provides (exit 0 means idle); there is none by default, and --force skips it.
-if [ -z "$force" ] && [ -x "$IDLE_CHECK" ]; then
-  waited=0
-  until "$IDLE_CHECK"; do
-    [ "$waited" -lt "$IDLE_WAIT" ] || { record waiting "$have" "busy; will try again"; say "still busy, will try again"; exit 0; }
-    sleep 30
-    waited=$((waited + 30))
-  done
-fi
+# Wait until the workspace is idle, so a restart does not cut off the agent.
+wait_idle || { record waiting "$have" "busy; will try again"; say "still busy, will try again"; exit 0; }
 
 free_mb=$(df -Pm "$(dirname "$APP")" | awk 'NR==2 {print $4}')
 [ "${free_mb:-0}" -ge "$MIN_FREE_MB" ] || { record failed "$have" "only ${free_mb}MB free"; fail "only ${free_mb}MB free, need $MIN_FREE_MB"; }
@@ -220,3 +325,4 @@ this=$(readlink -f "$0")
 [ "$this" = "$(readlink -f "$SELF.good" 2>/dev/null || true)" ] || cp -p "$this" "$SELF.good"
 record updated "$want_tag" "from $have"
 say "now on $want_tag"
+reconcile_config

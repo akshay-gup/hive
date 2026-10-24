@@ -9,6 +9,7 @@ import type { ControlConfig } from "./config.ts";
 import { HttpError } from "./errors.ts";
 import { type GatewaySettings, ModelGateway } from "./gateway.ts";
 import { RateLimiter, type SignInLimiter } from "./limits.ts";
+import { MachineConfigs } from "./machine-config.ts";
 import { consoleMailer, type Mailer } from "./mailer.ts";
 import type { Provisioner } from "./provisioner.ts";
 import { Releases } from "./releases.ts";
@@ -68,6 +69,10 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
         deps.gateway.limiter ?? new RateLimiter(120),
       )
     : undefined;
+  const machineConfigs = new MachineConfigs(
+    db,
+    gateway ? (id) => gateway.environmentFor(id) : undefined,
+  );
   const workspaces = new WorkspaceService({
     db,
     accounts,
@@ -154,7 +159,24 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
   const askers = new RateLimiter(120);
   app.get("/v1/release/:id", async (c) => {
     if (!(await askers.allow(visitorOf(c)))) return c.json({ error: "Too many requests" }, 429);
-    return c.json(await releases.wantedFor(idParam.parse(c.req.param("id"))));
+    const id = idParam.parse(c.req.param("id"));
+    // Which revision of its settings it should be on rides along (nothing secret: a short name). A
+    // machine whose updater does not know about settings leaves it unread.
+    return c.json({
+      ...(await releases.wantedFor(id)),
+      config: await machineConfigs.answerFor(id),
+    });
+  });
+  // The settings themselves: they carry the workspace's key to the model gateway, so only the
+  // workspace they are for may have them, and it proves it with that key.
+  app.get("/v1/release/:id/config", async (c) => {
+    if (!(await askers.allow(visitorOf(c)))) return c.json({ error: "Too many requests" }, 429);
+    const id = idParam.parse(c.req.param("id"));
+    const header = c.req.header("authorization");
+    const given = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+    if (!gateway || gateway.workspaceOf(given) !== id)
+      return c.json({ error: "Unauthorized" }, 401);
+    return c.json(await machineConfigs.documentFor(id));
   });
 
   // Publishing a build, for CI and an operator. They show the release token; without one there is no
@@ -179,6 +201,27 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
   release.delete("/workspaces/:id", async (c) => {
     await releases.unpin(idParam.parse(c.req.param("id")));
     return c.json({ ok: true });
+  });
+  // Settings: what to change in the settings workspaces were made with. What is set for everyone, and
+  // for one workspace over that; a machine takes them up on its next check (see hive-update).
+  release.get("/config", async (c) => c.json(await machineConfigs.overview()));
+  release.put("/config", async (c) => c.json(await machineConfigs.setDefault(await c.req.json())));
+  release.put("/config/workspaces/:id", async (c) =>
+    c.json(await machineConfigs.setWorkspace(idParam.parse(c.req.param("id")), await c.req.json())),
+  );
+  release.delete("/config/workspaces/:id", async (c) => {
+    await machineConfigs.clearWorkspace(idParam.parse(c.req.param("id")));
+    return c.json({ ok: true });
+  });
+  // What a workspace is told, without the values: its revision and the names of what it changes.
+  release.get("/config/workspaces/:id", async (c) => {
+    const doc = await machineConfigs.documentFor(idParam.parse(c.req.param("id")));
+    return c.json({
+      v: doc.v,
+      rev: doc.rev,
+      set: Object.keys(doc.env).filter((k) => doc.env[k] !== null),
+      unset: Object.keys(doc.env).filter((k) => doc.env[k] === null),
+    });
   });
   app.route("/internal/release", release);
 
@@ -350,5 +393,5 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
   );
   app.route("/v1", secure);
 
-  return { app, accounts, workspaces };
+  return { app, accounts, workspaces, gateway };
 }
