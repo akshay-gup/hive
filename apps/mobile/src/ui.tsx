@@ -505,6 +505,8 @@ interface SegmentedProps<T extends string> {
   value: T;
   onChange: (id: T) => void;
   disabled?: boolean;
+  /** Side padding of each tab, when the room is short. */
+  pad?: number;
 }
 
 /**
@@ -517,6 +519,7 @@ export function SegmentedRow<T extends string>({
   value,
   onChange,
   disabled,
+  pad,
 }: SegmentedProps<T>) {
   const dense = useDense();
   const height = dense ? 28 : 34;
@@ -577,7 +580,7 @@ export function SegmentedRow<T extends string>({
               justifyContent: "center",
               gap: 6,
               height,
-              paddingHorizontal: dense ? 14 : 16,
+              paddingHorizontal: pad ?? (dense ? 14 : 16),
               borderRadius: radius.pill,
               backgroundColor:
                 !selected && (hovered || pressed) ? colors.surfaceHover : "transparent",
@@ -633,16 +636,46 @@ function SteadyLabel({
   );
 }
 
+/** How little room each tab keeps at its sides, step by step, before the row has to scroll. */
+const TIGHT_PADS = [10, 7];
+
 /** One choice out of a few, shown together (view switchers, filters, priority). */
 export function Segmented<T extends string>(props: SegmentedProps<T>) {
+  // On a narrow screen the tabs first draw closer together, so that they fit rather than slide
+  // sideways with the chosen one cut off at the edge. A new window width starts over.
+  const { width: windowWidth } = useWindowDimensions();
+  const [tighten, setTighten] = useState(0);
+  const [room, setRoom] = useState({ shown: 0, content: 0 });
+  useEffect(() => {
+    void windowWidth;
+    setTighten(0);
+    setRoom((now) => ({ ...now, content: 0 }));
+  }, [windowWidth]);
+  useEffect(() => {
+    if (room.content > room.shown + 0.5 && tighten < TIGHT_PADS.length) {
+      // What was measured was at the old padding; wait for the row to say how wide it is now.
+      setRoom((now) => ({ ...now, content: 0 }));
+      setTighten((n) => n + 1);
+    }
+  }, [room, tighten]);
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       style={{ flexGrow: 0, maxWidth: "100%", alignSelf: "flex-start" }}
       contentContainerStyle={{ flexGrow: 0 }}
+      onLayout={(event) => {
+        const shown = event.nativeEvent.layout.width;
+        setRoom((now) => ({ ...now, shown }));
+      }}
+      onContentSizeChange={(content) => setRoom((now) => ({ ...now, content }))}
     >
-      <SegmentedRow {...props} />
+      {/* Fresh for each padding, so the outline is drawn from widths measured at that padding. */}
+      <SegmentedRow
+        key={tighten}
+        {...props}
+        pad={tighten > 0 ? TIGHT_PADS[tighten - 1] : props.pad}
+      />
     </ScrollView>
   );
 }
