@@ -1,6 +1,6 @@
 import { MessageCircleQuestion } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useGuest } from "./access";
 import { Button, colors, ErrorNotice, fontSize, radius, s, selectedCard } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -96,13 +96,18 @@ function QuestionCard({
   onDone: () => void;
 }) {
   const { api } = useWorkspace();
+  const { height } = useWindowDimensions();
   const [picks, setPicks] = useState<Pick[]>(() => request.questions.map(() => none));
+  const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const answers = request.questions.map((_, i) => answerOf(picks[i] ?? none));
-  const complete = answers.every((answer) => answer.length > 0);
+  const total = request.questions.length;
+  const last = step >= total - 1;
+  const asked = request.questions[step];
+  const pick = picks[step] ?? none;
 
-  const change = (index: number, next: (pick: Pick) => Pick) =>
-    setPicks((all) => all.map((pick, i) => (i === index ? next(pick) : pick)));
+  const change = (next: (pick: Pick) => Pick) =>
+    setPicks((all) => all.map((one, i) => (i === step ? next(one) : one)));
 
   async function send(body: { answers: string[][] } | { dismiss: true }) {
     setBusy(true);
@@ -117,100 +122,125 @@ function QuestionCard({
     }
   }
 
+  if (!asked) return null;
   return (
     <View
       accessibilityRole="alert"
       style={{
-        gap: 14,
-        padding: 14,
+        gap: 10,
+        padding: 12,
         backgroundColor: colors.surface,
         borderRadius: radius.xl,
         borderWidth: 1,
         borderColor: colors.lineStrong,
       }}
     >
-      {request.questions.map((asked, index) => {
-        const pick = picks[index] ?? none;
-        return (
-          <View key={asked.question} style={{ gap: 8 }}>
-            <View style={[s.row, { gap: 8, alignItems: "center" }]}>
-              <MessageCircleQuestion size={16} color={colors.text} />
-              <Text style={[s.small, { fontWeight: "600", color: colors.text }]}>
-                {asked.header || "Question"}
+      <View style={[s.row, { gap: 8, alignItems: "center" }]}>
+        <MessageCircleQuestion size={16} color={colors.text} />
+        <Text style={[s.small, { flex: 1, fontWeight: "600", color: colors.text }]}>
+          {asked.header || "Question"}
+        </Text>
+        {total > 1 && (
+          <Text style={s.small}>
+            {step + 1} of {total}
+          </Text>
+        )}
+      </View>
+      {/* Only this part scrolls, so a long list of options never pushes the conversation off screen. */}
+      <ScrollView
+        style={{ maxHeight: Math.max(150, Math.min(300, height * 0.34)) }}
+        contentContainerStyle={{ gap: 6 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator
+      >
+        <Text selectable style={[s.text, { fontSize: fontSize.ui, marginBottom: 2 }]}>
+          {asked.question}
+        </Text>
+        {asked.options.map((option) => {
+          const on = pick.chosen.includes(option.label);
+          return (
+            <Pressable
+              key={option.label}
+              accessibilityRole={asked.multiple ? "checkbox" : "radio"}
+              accessibilityState={{ checked: on, disabled: guest }}
+              accessibilityLabel={option.label}
+              disabled={guest || busy}
+              onPress={() =>
+                change((current) => ({
+                  // Picking one thing replaces another and what was written, unless more than one may be picked.
+                  chosen: asked.multiple
+                    ? on
+                      ? current.chosen.filter((label) => label !== option.label)
+                      : [...current.chosen, option.label]
+                    : on
+                      ? []
+                      : [option.label],
+                  own: asked.multiple ? current.own : "",
+                }))
+              }
+              style={[
+                { paddingVertical: 7, paddingHorizontal: 11, borderRadius: radius.lg },
+                selectedCard(on, colors.surface, colors.line),
+              ]}
+            >
+              <Text style={s.text} numberOfLines={3}>
+                <Text style={{ fontWeight: "600" }}>{option.label}</Text>
+                {!!option.description && (
+                  <Text style={{ color: colors.muted, fontSize: fontSize.caption }}>
+                    {"  "}
+                    {option.description}
+                  </Text>
+                )}
               </Text>
-            </View>
-            <Text selectable style={[s.text, { fontSize: fontSize.ui }]}>
-              {asked.question}
-            </Text>
-            {asked.options.map((option) => {
-              const on = pick.chosen.includes(option.label);
-              return (
-                <Pressable
-                  key={option.label}
-                  accessibilityRole={asked.multiple ? "checkbox" : "radio"}
-                  accessibilityState={{ checked: on, disabled: guest }}
-                  accessibilityLabel={option.label}
-                  disabled={guest || busy}
-                  onPress={() =>
-                    change(index, (current) => ({
-                      // Picking one thing replaces another and what was written, unless more than one may be picked.
-                      chosen: asked.multiple
-                        ? on
-                          ? current.chosen.filter((label) => label !== option.label)
-                          : [...current.chosen, option.label]
-                        : on
-                          ? []
-                          : [option.label],
-                      own: asked.multiple ? current.own : "",
-                    }))
-                  }
-                  style={[
-                    {
-                      gap: 2,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderRadius: radius.lg,
-                    },
-                    selectedCard(on, colors.surface, colors.line),
-                  ]}
-                >
-                  <Text style={[s.text, { fontWeight: "600" }]}>{option.label}</Text>
-                  {!!option.description && <Text style={s.small}>{option.description}</Text>}
-                </Pressable>
-              );
-            })}
-            {asked.custom !== false && !guest && (
-              <TextInput
-                accessibilityLabel={`Your own answer to: ${asked.question}`}
-                placeholder={asked.options.length ? "Something else…" : "Your answer…"}
-                placeholderTextColor={colors.muted}
-                value={pick.own}
-                editable={!busy}
-                onChangeText={(own) =>
-                  change(index, (current) => ({
-                    chosen: asked.multiple ? current.chosen : [],
-                    own,
-                  }))
-                }
-                style={s.input}
-              />
-            )}
-          </View>
-        );
-      })}
+            </Pressable>
+          );
+        })}
+        {asked.custom !== false && !guest && (
+          <TextInput
+            accessibilityLabel={`Your own answer to: ${asked.question}`}
+            placeholder={asked.options.length ? "Something else…" : "Your answer…"}
+            placeholderTextColor={colors.muted}
+            value={pick.own}
+            editable={!busy}
+            onChangeText={(own) =>
+              change((current) => ({
+                chosen: asked.multiple ? current.chosen : [],
+                own,
+              }))
+            }
+            style={[s.input, { paddingVertical: 8, minHeight: 36 }]}
+          />
+        )}
+      </ScrollView>
       {guest ? (
         <Text style={s.small}>The agent is paused until a teammate answers.</Text>
       ) : (
         <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-          <Button
-            small
-            primary
-            busy={busy}
-            disabled={!complete}
-            onPress={() => void send({ answers })}
-          >
-            Send answer
-          </Button>
+          {last ? (
+            <Button
+              small
+              primary
+              busy={busy}
+              disabled={!answers.every((answer) => answer.length > 0)}
+              onPress={() => void send({ answers })}
+            >
+              Send answer
+            </Button>
+          ) : (
+            <Button
+              small
+              primary
+              disabled={!answers[step]?.length}
+              onPress={() => setStep((n) => n + 1)}
+            >
+              Next
+            </Button>
+          )}
+          {step > 0 && (
+            <Button small disabled={busy} onPress={() => setStep((n) => n - 1)}>
+              Back
+            </Button>
+          )}
           <Button small disabled={busy} onPress={() => void send({ dismiss: true })}>
             Skip
           </Button>
