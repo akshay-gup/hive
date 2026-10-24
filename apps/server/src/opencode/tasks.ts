@@ -487,6 +487,17 @@ export async function runOpencodeTask(
       }
       return;
     }
+    if (event.type === "question.asked") {
+      // A task has nobody to answer: it says so with TASK_BLOCKED. Its rules keep the tool from being
+      // offered, and this is for one that was offered anyway.
+      const requestID = (event.properties as { id?: string }).id;
+      if (typeof requestID === "string")
+        void runtime.pool
+          .forDirectory(directory)
+          .question.reject({ requestID, directory })
+          .catch(() => undefined);
+      return;
+    }
     if (event.type === "permission.replied") {
       const requestID = (event.properties as { requestID?: string }).requestID;
       if (typeof requestID === "string") runtime.tracker.remove(requestID);

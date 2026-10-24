@@ -56,25 +56,28 @@ export function parsePermissionRules(raw: unknown): PermissionRuleset {
 /**
  * The session base ruleset. In "ask" mode every tool asks unless a later
  * rule says otherwise; in "auto" mode (TUI auto-approve) everything is
- * allowed unless explicitly denied. The native `deny` rules for
- * non-interactive tools (question/plan_*) are preserved in both modes —
- * without them the wildcard would resurrect them as ask-then-TTL-reject
- * instead of an immediate deny.
+ * allowed unless explicitly denied. The agent's own ways of stopping to plan
+ * (plan_enter/plan_exit) are denied in both modes — without that the
+ * wildcard would resurrect them as ask-then-TTL-reject instead of an
+ * immediate deny. Its `question` tool is left on: a chat has a person to
+ * answer it, and Hive shows the question as a card (see approvals.ts).
  */
 export function defaultSessionRuleset(mode: PermissionMode = "ask"): PermissionRuleset {
   return [
     { permission: "*", pattern: "*", action: mode === "auto" ? "allow" : "ask" },
-    ...nonInteractiveTools(),
+    ...nonInteractiveTools(["plan_enter", "plan_exit"]),
   ];
 }
 
 /**
- * The agent's own ways of stopping to ask the person something. Hive has no screen for them, so a
- * run that calls one waits for an answer that can never be given. They are denied outright, which
+ * The agent's own ways of stopping to ask the person something that Hive has no screen for. A run
+ * that calls one waits for an answer that can never be given, so they are denied outright, which
  * also keeps the tools from being offered to the model at all, so it asks in its reply instead.
  */
-function nonInteractiveTools(): PermissionRuleset {
-  return ["question", "plan_enter", "plan_exit"].map((permission) => ({
+function nonInteractiveTools(
+  tools: string[] = ["question", "plan_enter", "plan_exit"],
+): PermissionRuleset {
+  return tools.map((permission) => ({
     permission,
     pattern: "*",
     action: "deny" as const,
@@ -114,7 +117,7 @@ export function invalidRuleLines(rules: string[]): string[] {
  *
  * The tools that stop to ask the person are still denied: with allow-all alone the agent is
  * offered `question`, calls it, and waits for good (a task that needs an answer says so with
- * TASK_BLOCKED instead).
+ * TASK_BLOCKED instead). A chat, which has a person to answer, keeps `question`.
  */
 export function taskSessionRuleset(confinement: PermissionRuleset = []): PermissionRuleset {
   return [

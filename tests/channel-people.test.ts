@@ -176,6 +176,7 @@ test("a private channel is found only by the people in it, whoever else is askin
     ["POST", "/api/copilotkit/agent/default/connect", { threadId: thread.threadId }],
     ["POST", `/api/copilotkit/agent/default/stop/${thread.threadId}`, {}],
     ["GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/pending`],
+    ["GET", `/api/agent/opencode/threads/${thread.threadId}/questions/pending`],
     ["GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/rules`],
     ["GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/mode`],
     ["PUT", `/api/agent/opencode/threads/${thread.threadId}/permissions/mode`, { mode: "auto" }],
@@ -207,6 +208,11 @@ test("a private channel is found only by the people in it, whoever else is askin
   );
   assert.equal(
     (await call("max", "GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/pending`))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await call("max", "GET", `/api/agent/opencode/threads/${thread.threadId}/questions/pending`))
       .status,
     200,
   );

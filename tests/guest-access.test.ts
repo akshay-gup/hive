@@ -370,8 +370,30 @@ test("a guest can see what the agent is waiting to be allowed to do, and cannot 
     ).status,
     404,
   );
+  // The same for a question the agent has asked.
+  assert.equal(
+    (
+      await call(
+        "gus",
+        "GET",
+        `/api/agent/opencode/threads/${w.acmeThread.threadId}/questions/pending`,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call(
+        "gus",
+        "GET",
+        `/api/agent/opencode/threads/${w.hrThread.threadId}/questions/pending`,
+      )
+    ).status,
+    404,
+  );
   for (const [method, path, body] of [
     ["POST", "/api/agent/opencode/permissions/any/reply", { reply: "once" }],
+    ["POST", "/api/agent/opencode/questions/any/reply", { dismiss: true }],
     ["GET", `/api/agent/opencode/channels/${w.acme.id}/permissions`, undefined],
     ["PUT", `/api/agent/opencode/channels/${w.acme.id}/permissions/mode`, { mode: "auto" }],
     [

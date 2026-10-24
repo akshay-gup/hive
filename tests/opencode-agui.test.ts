@@ -381,6 +381,43 @@ describe("RunTranslator", () => {
     assert.equal((events[0].value as Record<string, unknown>).requestId, "req_1");
     assert.ok(!isDone());
   });
+
+  it("tells the person when the agent asks a question, and keeps the run going", () => {
+    const kept: string[] = [];
+    const events: Array<Record<string, unknown>> = [];
+    let done = false;
+    const translator = new RunTranslator(
+      { threadId: "t1", runId: "r1", messages: [] },
+      (event) => events.push(event),
+      () => {
+        done = true;
+      },
+      {
+        onQuestion: (asked) => kept.push(`asked ${asked.id}`),
+        onQuestionDone: (id) => kept.push(`done ${id}`),
+      },
+    );
+    const questions = [{ question: "Who is it for?", header: "Audience", options: [] }];
+    translator.handle({
+      id: "e1",
+      type: "question.asked",
+      properties: { id: "que_1", sessionID: "ses_1", questions },
+    });
+    assert.equal(events[0].name, "question-requested");
+    assert.deepEqual(events[0].value, { requestId: "que_1", questions });
+    translator.handle({
+      id: "e2",
+      type: "question.replied",
+      properties: { requestID: "que_1", sessionID: "ses_1", answers: [["Ada"]] },
+    });
+    translator.handle({
+      id: "e3",
+      type: "question.rejected",
+      properties: { requestID: "que_2", sessionID: "ses_1" },
+    });
+    assert.deepEqual(kept, ["asked que_1", "done que_1", "done que_2"]);
+    assert.ok(!done);
+  });
 });
 
 describe("OpencodeEventBus", () => {
@@ -402,29 +439,6 @@ describe("OpencodeEventBus", () => {
     dispatch(bus, evt("session.status", { sessionID: "ses_new", status: { type: "busy" } }));
     assert.deepEqual(seen, ["session.status"]);
     assert.ok(bus.isBusy("t1"));
-  });
-
-  it("dismisses a question the agent asks, since nobody is there to answer it", () => {
-    const bus = new OpencodeEventBus(testConnection);
-    const dismissed: unknown[] = [];
-    (bus as unknown as { client: unknown }).client = {
-      question: {
-        reject: async (request: unknown) => {
-          dismissed.push(request);
-          return {};
-        },
-      },
-    };
-    dispatch(bus, {
-      directory: "/data/hive/owners/shared/channels/general",
-      payload: { id: "e", type: "question.asked", properties: { id: "que_1", sessionID: "ses_1" } },
-    });
-    assert.deepEqual(dismissed, [
-      { requestID: "que_1", directory: "/data/hive/owners/shared/channels/general" },
-    ]);
-    // Nothing else the agent does is dismissed.
-    dispatch(bus, evt("permission.asked", { id: "per_1", sessionID: "ses_1" }));
-    assert.equal(dismissed.length, 1);
   });
 
   it("derives busy/idle from status events only", () => {

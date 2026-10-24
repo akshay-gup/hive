@@ -64,8 +64,12 @@ test("taskSessionRuleset is allow-all, except for the tools that stop to ask the
     { permission: "plan_enter", pattern: "*", action: "deny" },
     { permission: "plan_exit", pattern: "*", action: "deny" },
   ]);
-  // The same three that a chat thread denies, and after the wildcard, so they are the ones that win.
-  assert.deepEqual(taskSessionRuleset().slice(1), defaultSessionRuleset().slice(1));
+  // A chat thread denies the two plan tools the same way, and keeps `question`: it has a person to answer.
+  assert.deepEqual(taskSessionRuleset().slice(2), defaultSessionRuleset().slice(1));
+  assert.equal(
+    defaultSessionRuleset().some((rule) => rule.permission === "question"),
+    false,
+  );
 });
 
 test("tracker records permission asks, deduped by request id", () => {
@@ -109,6 +113,56 @@ test("tracker.reply answers via the SDK and clears the request", async () => {
   assert.equal(answered.requestId, "req-9");
   assert.deepEqual(calls, [{ requestID: "req-9", directory: "/d/chan-1", reply: "once" }]);
   assert.equal(tracker.get("req-9"), undefined);
+});
+
+test("a question the agent asks is kept until it is answered, then handed back to the agent", async () => {
+  const tracker = new PermissionTracker();
+  const calls: Array<Record<string, unknown>> = [];
+  const pool = {
+    forDirectory: () => ({
+      question: {
+        reply: async (request: Record<string, unknown>) => {
+          calls.push({ ...request, how: "reply" });
+          return {};
+        },
+        reject: async (request: Record<string, unknown>) => {
+          calls.push({ ...request, how: "reject" });
+          return {};
+        },
+      },
+    }),
+  };
+  const deps = { bus: fakeBus(), pool } as never;
+  const asked = {
+    id: "que-1",
+    sessionID: "ses-1",
+    questions: [{ question: "Who is it for?", header: "Audience", options: [] }],
+  };
+  tracker.recordQuestion(scope, asked);
+  assert.equal(tracker.recordQuestion(scope, asked), tracker.getQuestion("que-1"));
+  assert.equal(tracker.questionsForThread("thread-1").length, 1);
+  assert.equal(tracker.questionsForThread("other").length, 0);
+
+  await tracker.answerQuestion(deps, "que-1", [["Ada"]]);
+  assert.deepEqual(calls, [
+    { requestID: "que-1", directory: "/d/chan-1", answers: [["Ada"]], how: "reply" },
+  ]);
+  assert.equal(tracker.getQuestion("que-1"), undefined);
+  await assert.rejects(() => tracker.answerQuestion(deps, "que-1", [["x"]]), /not pending/);
+
+  // Skipping it turns it down, and a run that is cancelled turns down whatever it was waiting on.
+  tracker.recordQuestion(scope, { ...asked, id: "que-2" });
+  await tracker.answerQuestion(deps, "que-2", null);
+  tracker.recordQuestion(scope, { ...asked, id: "que-3" });
+  assert.equal(await tracker.rejectAllForScope(deps, "thread-1"), 1);
+  assert.deepEqual(
+    calls.slice(1).map((call) => [call.requestID, call.how]),
+    [
+      ["que-2", "reject"],
+      ["que-3", "reject"],
+    ],
+  );
+  assert.equal(tracker.questionsForThread("thread-1").length, 0);
 });
 
 test("tracker.reply throws for unknown request ids", async () => {
@@ -206,7 +260,8 @@ test("buildSessionRuleset uses ask base by default and allow base in auto mode",
   // Native denies survive in both modes.
   for (const ruleset of [ask, auto]) {
     const denied = ruleset.filter((r) => r.action === "deny").map((r) => r.permission);
-    assert.ok(denied.includes("question") && denied.includes("plan_enter"));
+    assert.ok(denied.includes("plan_enter") && denied.includes("plan_exit"));
+    assert.ok(!denied.includes("question"));
   }
   // Explicit user denies still win over the auto-allow base (last-wins).
   const { parsePermissionRules } = await import("../apps/server/src/opencode/index.ts");

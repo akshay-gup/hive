@@ -64,6 +64,7 @@ import { JevInteractionContext, JevToolCard } from "./jev-tool-card";
 import { MailToolCard } from "./mail-tool-card";
 import { type MentionOption, MentionPicker, MentionText, useMentionable } from "./mention-ui";
 import { PendingApprovals } from "./opencode-permissions";
+import { PendingQuestions } from "./opencode-questions";
 import PanelResizer from "./PanelResizer";
 import {
   clampPanelWidth,
@@ -1344,6 +1345,7 @@ export function ChatScreen({
           )}
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
             {(richThreads || selection.id !== "local") && <PendingApprovals threadId={threadId} />}
+            {(richThreads || selection.id !== "local") && <PendingQuestions threadId={threadId} />}
             <ErrorNotice error={saveError} />
             {!!saveError && (
               <Button

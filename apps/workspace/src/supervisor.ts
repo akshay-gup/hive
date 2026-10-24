@@ -167,7 +167,7 @@ const sandboxEnv = (sandbox: Sandbox): Record<string, string> => ({
 /**
  * The agent's config as the machine was given it (the gateway's providers and model, from
  * OPENCODE_CONFIG_CONTENT) with the sandboxed shell added. Replacing it would drop the providers.
- * A tool the person turns down (or the server dismisses, as it does the agent's own questions)
+ * A tool the person turns down (or a question they skip)
  * does not end the agent's turn: it carries on and says what it can do without it.
  */
 function withShell(given: string | undefined, shell: string): string {

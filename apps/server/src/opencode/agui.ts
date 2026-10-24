@@ -35,7 +35,7 @@ import type { AgentService } from "../engine/service.ts";
 import { diskOwnerForChannel } from "../engine/threads.ts";
 import { conversationTools } from "../engine/tools.ts";
 import type { JevService } from "../jev/service.ts";
-import type { AskedPermissionProps, PermissionTracker } from "./approvals.ts";
+import type { AskedPermissionProps, AskedQuestionProps, PermissionTracker } from "./approvals.ts";
 import type { OpencodeClientPool } from "./client.ts";
 import { type OpenCodeEvent, type OpencodeEventBus, sessionErrorMessage } from "./events.ts";
 import type { HiveToolBridge } from "./hive-tools.ts";
@@ -299,6 +299,9 @@ type AguiEvent = Record<string, unknown>;
 export interface TranslatorPermissionHooks {
   onAsked?: (props: AskedPermissionProps) => void;
   onReplied?: (requestId: string) => void;
+  /** The agent asked the person a question (see approvals.ts), and later it was answered or turned down. */
+  onQuestion?: (props: AskedQuestionProps) => void;
+  onQuestionDone?: (requestId: string) => void;
 }
 
 /**
@@ -390,6 +393,23 @@ export class RunTranslator {
             metadata: props.metadata,
           },
         });
+        return;
+      }
+      case "question.asked": {
+        const asked = props as unknown as AskedQuestionProps;
+        if (typeof asked.id !== "string") return;
+        this.permissionHooks.onQuestion?.(asked);
+        this.send({
+          type: "CUSTOM",
+          name: "question-requested",
+          value: { requestId: asked.id, questions: asked.questions },
+        });
+        return;
+      }
+      case "question.replied":
+      case "question.rejected": {
+        const requestId = props.requestID as string | undefined;
+        if (requestId) this.permissionHooks.onQuestionDone?.(requestId);
         return;
       }
       case "permission.replied": {
@@ -804,6 +824,20 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       },
       onReplied: (requestId) => {
         deps.tracker.remove(requestId);
+      },
+      onQuestion: (asked) => {
+        deps.tracker.recordQuestion(
+          {
+            scope: input.threadId,
+            threadId: input.threadId,
+            channelId: binding.channelId,
+            directory,
+          },
+          asked,
+        );
+      },
+      onQuestionDone: (requestId) => {
+        deps.tracker.removeQuestion(requestId);
       },
     });
     ctx.translator = translator;

@@ -3,6 +3,8 @@
  *
  * - GET  /threads/:threadId/permissions/pending — pending requests for a thread
  * - POST /permissions/:requestId/reply — { reply: "once" | "always" | "reject" }
+ * - GET  /threads/:threadId/questions/pending — questions the agent is waiting on
+ * - POST /questions/:requestId/reply — { answers: string[][] } (one list per question), or { dismiss: true }
  * - GET  /channels/:channelId/permissions — channel rule strings
  * - PUT  /channels/:channelId/permissions — { rules: string[] }
  * - GET  /channels/:channelId/permissions/mode — { mode: "ask" | "auto" }
@@ -21,6 +23,12 @@ import type { PermissionReply } from "./approvals.ts";
 import { invalidRuleLines, isPermissionMode } from "./permissions.ts";
 
 const replySchema = z.object({ reply: z.enum(["once", "always", "reject"]) });
+const answerSchema = z.union([
+  z.object({
+    answers: z.array(z.array(z.string().max(2000)).max(50)).max(20),
+  }),
+  z.object({ dismiss: z.literal(true) }),
+]);
 const rulesSchema = z.object({ rules: z.array(z.string().max(500)).max(200) });
 const modeSchema = z.object({ mode: z.enum(["ask", "auto"]) });
 const threadModeSchema = z.object({ mode: z.enum(["ask", "auto"]).nullable() });
@@ -73,6 +81,48 @@ export function opencodePermissionRoutes(deps: OpencodeShimDeps) {
         parsed.data.reply as PermissionReply,
       );
       return c.json({ ok: true, ...serialize(answered) });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Reply failed" }, 502);
+    }
+  });
+
+  app.get("/threads/:threadId/questions/pending", async (c) => {
+    const owner = c.get("owner");
+    const threadId = c.req.param("threadId");
+    const binding = await deps.service.channelOfThread(owner, threadId);
+    if (!binding) return c.json({ error: "Thread is not bound to a channel" }, 404);
+    return c.json(
+      deps.tracker.questionsForThread(threadId).map((request) => ({
+        requestId: request.requestId,
+        questions: request.questions,
+        askedAt: request.askedAt,
+        channelId: request.channelId,
+      })),
+    );
+  });
+
+  app.post("/questions/:requestId/reply", async (c) => {
+    const parsed = answerSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success)
+      return c.json({ error: "Body must be { answers: string[][] } or { dismiss: true }" }, 400);
+    const requestId = c.req.param("requestId");
+    const pending = deps.tracker.getQuestion(requestId);
+    if (!pending) return c.json({ error: "Question is not pending" }, 404);
+    // A private channel's agent asks the people in that channel.
+    try {
+      await deps.service.access.assertChannel(c.get("owner"), pending.channelId);
+    } catch {
+      return c.json({ error: "Question is not pending" }, 404);
+    }
+    if ("answers" in parsed.data && parsed.data.answers.length !== pending.questions.length)
+      return c.json({ error: "Answer every question, or skip them" }, 400);
+    try {
+      await deps.tracker.answerQuestion(
+        deps,
+        requestId,
+        "answers" in parsed.data ? parsed.data.answers : null,
+      );
+      return c.json({ ok: true });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Reply failed" }, 502);
     }

@@ -220,8 +220,10 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     if (method !== want) throw refuse();
     return thread(want === "GET" ? c.req.query("threadId") : (await body()).threadId);
   }
-  // They can see what the agent is waiting to be allowed to do, and cannot allow it.
-  const pending = match(/^\/api\/agent\/opencode\/threads\/([^/]+)\/permissions\/pending$/);
+  // They can see what the agent is waiting to be allowed to do or answered on, and cannot do either.
+  const pending = match(
+    /^\/api\/agent\/opencode\/threads\/([^/]+)\/(?:permissions|questions)\/pending$/,
+  );
   if (method === "GET" && pending) return thread(pending[1]);
 
   // The chat runs through this runtime on its way to the agent; the thread is checked again there.
