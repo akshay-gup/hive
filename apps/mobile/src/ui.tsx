@@ -556,8 +556,19 @@ export function SegmentedRow<T extends string>({
           line={colors.selectedLine}
         />
       )}
-      {options.map((option) => {
+      {options.map((option, index) => {
         const selected = option.id === value;
+        // The chosen tab's outline is held back from the tab beside it, so at either end of the row
+        // it is narrower on that side; the label moves half that to stay in the middle of it.
+        const seamGap = dense ? 6 : 8;
+        const shift =
+          !selected || options.length < 2
+            ? 0
+            : index === options.length - 1
+              ? seamGap / 4
+              : index === 0
+                ? -seamGap / 4
+                : 0;
         return (
           <Pressable
             key={option.id}
@@ -591,6 +602,7 @@ export function SegmentedRow<T extends string>({
             )}
             <SteadyLabel
               bold={selected}
+              shift={shift}
               style={{
                 fontSize: fontSize.ui,
                 color: selected ? colors.text : colors.muted,
@@ -612,15 +624,17 @@ export function SegmentedRow<T extends string>({
  */
 function SteadyLabel({
   bold,
+  shift = 0,
   style,
   children,
 }: {
   bold: boolean;
+  shift?: number;
   style: TextStyle;
   children: string;
 }) {
   return (
-    <View>
+    <View style={shift ? { transform: [{ translateX: shift }] } : undefined}>
       <Text
         aria-hidden
         accessible={false}
