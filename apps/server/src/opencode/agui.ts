@@ -739,9 +739,23 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       }
     });
   };
-  ctx.timer = setTimeout(onTimeout, RUN_TIMEOUT_MS);
-  // Don't hold the process open for a run whose client already went away.
-  (ctx.timer as unknown as { unref?: () => void }).unref?.();
+  const armTimer = () => {
+    ctx.timer = setTimeout(onTimeout, RUN_TIMEOUT_MS);
+    // Don't hold the process open for a run whose client already went away.
+    (ctx.timer as unknown as { unref?: () => void }).unref?.();
+  };
+  armTimer();
+  // The bound is for a run that went quiet, not for one waiting on a person: while a question or
+  // permission is open the clock stops, and it starts again once the last one is answered.
+  const waitingOn = new Set<string>();
+  const waiting = (id: string, on: boolean) => {
+    if (ctx.settled) return;
+    const had = waitingOn.size;
+    if (on) waitingOn.add(id);
+    else waitingOn.delete(id);
+    if (had === 0 && waitingOn.size > 0) clearTimeout(ctx.timer);
+    else if (had > 0 && waitingOn.size === 0) armTimer();
+  };
   const onAbort = () => {
     void abortRunSession(ctx).finally(() => {
       // The user walked away mid-run: reject pending permissions so the
@@ -812,6 +826,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
 
     const translator = new RunTranslator(input, send, finish, {
       onAsked: (asked) => {
+        waiting(asked.id, true);
         deps.tracker.record(
           {
             scope: input.threadId,
@@ -823,9 +838,11 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
         );
       },
       onReplied: (requestId) => {
+        waiting(requestId, false);
         deps.tracker.remove(requestId);
       },
       onQuestion: (asked) => {
+        waiting(asked.id, true);
         deps.tracker.recordQuestion(
           {
             scope: input.threadId,
@@ -837,6 +854,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
         );
       },
       onQuestionDone: (requestId) => {
+        waiting(requestId, false);
         deps.tracker.removeQuestion(requestId);
       },
     });
