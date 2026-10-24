@@ -231,6 +231,7 @@ test("the agent's commands run through the sandbox, and the server is told where
   const agent = agentEnv({ PATH: "/usr/bin" }, secrets, "/data", "/home/hive", sandbox);
   assert.deepEqual(JSON.parse(agent.OPENCODE_CONFIG_CONTENT), {
     shell: "/app/machine/hive-sandbox",
+    experimental: { continue_loop_on_deny: true },
   });
   // The providers the machine was given (the model gateway's) stay beside the shell.
   const given = { provider: { "fireworks-ai": { options: { apiKey: "hwk_x" } } } };
@@ -244,6 +245,7 @@ test("the agent's commands run through the sandbox, and the server is told where
   assert.deepEqual(JSON.parse(gateway.OPENCODE_CONFIG_CONTENT), {
     ...given,
     shell: "/app/machine/hive-sandbox",
+    experimental: { continue_loop_on_deny: true },
   });
   assert.equal(agent.HIVE_SANDBOX_POLICY, "/data/hive/sandbox-policy.json");
   assert.equal(agent.HIVE_SANDBOX_VOLUME, "/data");

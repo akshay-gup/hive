@@ -167,6 +167,8 @@ const sandboxEnv = (sandbox: Sandbox): Record<string, string> => ({
 /**
  * The agent's config as the machine was given it (the gateway's providers and model, from
  * OPENCODE_CONFIG_CONTENT) with the sandboxed shell added. Replacing it would drop the providers.
+ * A tool the person turns down (or the server dismisses, as it does the agent's own questions)
+ * does not end the agent's turn: it carries on and says what it can do without it.
  */
 function withShell(given: string | undefined, shell: string): string {
   let config: Record<string, unknown> = {};
@@ -177,7 +179,15 @@ function withShell(given: string | undefined, shell: string): string {
   } catch {
     // A config that is not JSON was never one the agent could read either.
   }
-  return JSON.stringify({ ...config, shell });
+  const experimental =
+    typeof config.experimental === "object" && config.experimental !== null
+      ? (config.experimental as Record<string, unknown>)
+      : {};
+  return JSON.stringify({
+    ...config,
+    shell,
+    experimental: { ...experimental, continue_loop_on_deny: true },
+  });
 }
 
 /**

@@ -404,6 +404,29 @@ describe("OpencodeEventBus", () => {
     assert.ok(bus.isBusy("t1"));
   });
 
+  it("dismisses a question the agent asks, since nobody is there to answer it", () => {
+    const bus = new OpencodeEventBus(testConnection);
+    const dismissed: unknown[] = [];
+    (bus as unknown as { client: unknown }).client = {
+      question: {
+        reject: async (request: unknown) => {
+          dismissed.push(request);
+          return {};
+        },
+      },
+    };
+    dispatch(bus, {
+      directory: "/data/hive/owners/shared/channels/general",
+      payload: { id: "e", type: "question.asked", properties: { id: "que_1", sessionID: "ses_1" } },
+    });
+    assert.deepEqual(dismissed, [
+      { requestID: "que_1", directory: "/data/hive/owners/shared/channels/general" },
+    ]);
+    // Nothing else the agent does is dismissed.
+    dispatch(bus, evt("permission.asked", { id: "per_1", sessionID: "ses_1" }));
+    assert.equal(dismissed.length, 1);
+  });
+
   it("derives busy/idle from status events only", () => {
     const bus = new OpencodeEventBus(testConnection);
     bus.track("t1", "ses_1");

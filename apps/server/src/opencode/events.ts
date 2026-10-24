@@ -154,6 +154,7 @@ export class OpencodeEventBus {
     if (payload.type === "sync") return;
     const sessionID = payload.properties?.sessionID;
     if (typeof sessionID !== "string") return;
+    if (payload.type === "question.asked") this.dismissQuestion(raw, payload);
     for (const track of this.tracks.values()) {
       // Drop stale events from a rotated-out session.
       if (track.sessionId !== sessionID) continue;
@@ -171,6 +172,20 @@ export class OpencodeEventBus {
         }
       }
     }
+  }
+
+  /**
+   * The agent's own question tool waits for an answer Hive has no screen for, so a run that calls one
+   * would sit there for good. Sessions are told not to offer it (see permissions.ts); this is for the
+   * one that was offered anyway: the question is dismissed, and the agent goes on without it.
+   */
+  private dismissQuestion(raw: unknown, payload: OpenCodeEvent): void {
+    const requestID = payload.properties?.id;
+    if (typeof requestID !== "string") return;
+    const directory = (raw as { directory?: unknown })?.directory;
+    void this.client.question
+      .reject({ requestID, ...(typeof directory === "string" ? { directory } : {}) })
+      .catch(() => undefined);
   }
 
   private async runLoop(signal: AbortSignal): Promise<void> {
