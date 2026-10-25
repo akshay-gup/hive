@@ -1,6 +1,6 @@
 import { BellOff, Check, Settings, X } from "lucide-react-native";
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import type { AgentNotification } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { authorTint } from "./channel-message";
@@ -25,7 +25,6 @@ import {
   radius,
   relativeDate,
   s,
-  type WebPressState,
 } from "./ui";
 import { useWorkspace } from "./workspace";
 
@@ -54,9 +53,35 @@ function From({ note, size = 36 }: { note: AgentNotification; size?: number }) {
 }
 
 /**
+ * Whether a pointer is over an element, as the browser says it: `mouseenter` and `mouseleave` do not
+ * fire when the pointer moves onto something inside, which a pressable's own hover state does.
+ */
+function useOver() {
+  const ref = useRef<View>(null);
+  const [over, setOver] = useState(false);
+  useEffect(() => {
+    const el = ref.current as unknown as {
+      addEventListener?: (name: string, run: () => void) => void;
+      removeEventListener?: (name: string, run: () => void) => void;
+    } | null;
+    if (Platform.OS !== "web" || !el?.addEventListener) return;
+    const enter = () => setOver(true);
+    const leave = () => setOver(false);
+    el.addEventListener("mouseenter", enter);
+    el.addEventListener("mouseleave", leave);
+    return () => {
+      el.removeEventListener?.("mouseenter", enter);
+      el.removeEventListener?.("mouseleave", leave);
+    };
+  }, []);
+  return { ref, over };
+}
+
+/**
  * One notice in the list: who, what, a line of it, and when. An unread one has a dot and a heavier
  * title. Where there is a pointer, hovering swaps the time for what can be done with it (mark it read,
- * put it away); on a phone the row is only the notice, and tapping goes where it points.
+ * put it away); on a phone the row is only the notice, and tapping goes where it points. The buttons
+ * sit beside the row's own pressable, not inside it, so reaching for them does not end the hover.
  */
 function Row({
   note,
@@ -69,62 +94,62 @@ function Row({
   onRead?: () => void;
   onDismiss?: () => void;
 }) {
+  const { ref, over } = useOver();
+  const actions = over && !!onDismiss;
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${note.read ? "" : "Unread: "}${note.title}`}
-      onPress={onPress}
-      style={({ pressed, hovered }: WebPressState) => [
-        s.row,
-        {
-          gap: 12,
-          alignItems: "flex-start",
-          paddingVertical: 12,
-          paddingRight: 12,
-          paddingLeft: 4,
-          borderRadius: radius.lg,
-          backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
-        },
-      ]}
-    >
-      {({ hovered }: WebPressState) => (
-        <>
-          <View style={{ width: 8, paddingTop: 14 }}>
-            {!note.read && (
-              <View
-                accessibilityLabel="Unread"
-                style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }}
-              />
-            )}
-          </View>
-          <From note={note} />
-          <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-            <Text style={[s.text, { fontWeight: note.read ? "500" : "700" }]} numberOfLines={1}>
-              {note.title}
+    <View ref={ref}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${note.read ? "" : "Unread: "}${note.title}`}
+        onPress={onPress}
+        style={({ pressed }) => [
+          s.row,
+          {
+            gap: 12,
+            alignItems: "flex-start",
+            paddingVertical: 12,
+            paddingRight: 12,
+            paddingLeft: 4,
+            borderRadius: radius.lg,
+            backgroundColor: pressed || over ? colors.surfaceHover : "transparent",
+          },
+        ]}
+      >
+        <View style={{ width: 8, paddingTop: 14 }}>
+          {!note.read && (
+            <View
+              accessibilityLabel="Unread"
+              style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }}
+            />
+          )}
+        </View>
+        <From note={note} />
+        <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+          <Text style={[s.text, { fontWeight: note.read ? "500" : "700" }]} numberOfLines={1}>
+            {note.title}
+          </Text>
+          {!!note.body && (
+            <Text style={s.muted} numberOfLines={1}>
+              {note.body}
             </Text>
-            {!!note.body && (
-              <Text style={s.muted} numberOfLines={1}>
-                {note.body}
-              </Text>
-            )}
-          </View>
-          {/* The time keeps its place whether or not the buttons show, so nothing under the pointer moves. */}
-          <View style={{ minWidth: onDismiss ? 72 : 0, alignItems: "flex-end" }}>
-            <Text style={[s.small, { lineHeight: 20, opacity: hovered && onDismiss ? 0 : 1 }]}>
-              {relativeDate(note.createdAt)}
-            </Text>
-            {hovered && onDismiss && (
-              <View style={[s.row, { gap: 2, position: "absolute", right: 0, top: -6 }]}>
-                {!note.read && onRead && (
-                  <IconButton icon={Check} label="Mark as read" onPress={onRead} />
-                )}
-                <IconButton icon={X} label="Dismiss" onPress={onDismiss} />
-              </View>
-            )}
-          </View>
-        </>
+          )}
+        </View>
+        {/* The time keeps its place whether or not the buttons show, so nothing under the pointer moves. */}
+        <View style={{ minWidth: onDismiss ? 72 : 0, alignItems: "flex-end" }}>
+          <Text style={[s.small, { lineHeight: 20, opacity: actions ? 0 : 1 }]}>
+            {relativeDate(note.createdAt)}
+          </Text>
+        </View>
+      </Pressable>
+      {actions && (
+        <View style={[s.row, { gap: 2, position: "absolute", right: 12, top: 6 }]}>
+          {!note.read && onRead && (
+            <IconButton icon={Check} label="Mark as read" onPress={onRead} />
+          )}
+          <IconButton icon={X} label="Dismiss" onPress={onDismiss} />
+        </View>
       )}
-    </Pressable>
+    </View>
   );
 }
 
