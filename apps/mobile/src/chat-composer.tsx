@@ -236,9 +236,7 @@ export function ChatComposer({
             value={draft}
             onChangeText={change}
             autoFocus={autoFocus}
-            placeholder={
-              agent && focused ? "Write a message, or @hive to ask the agent" : placeholder
-            }
+            placeholder={agent && focused ? "Type @hive to ask the agent" : placeholder}
             placeholderTextColor={colors.muted}
             selectionColor={colors.primary}
             selection={placeCursor}
@@ -256,7 +254,8 @@ export function ChatComposer({
             style={{
               flex: 1,
               color: colors.text,
-              height,
+              // An empty box is one line, whatever its hint measures: a hint that wraps must not make it taller.
+              height: draft ? height : min,
               minHeight: min,
               maxHeight: 140,
               fontSize: fineInput ? fontSize.body : fontSize.input,
