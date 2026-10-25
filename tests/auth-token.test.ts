@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { Auth } from "../apps/server/src/auth.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import type { Store } from "../apps/server/src/db.ts";
-import { AppError } from "../apps/server/src/errors.ts";
+import { AppError } from "../packages/chat-core/src/errors.ts";
 
 const config = { mode: "sample", publicUrl: "http://localhost:8787" } as Config;
 const auth = new Auth({} as Store, config, "test-signing-key");

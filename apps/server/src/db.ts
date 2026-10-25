@@ -2,8 +2,8 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
+import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { backgroundFailure } from "./log.ts";
-import { SHARED_OWNER } from "./shared.ts";
 
 type Row = { data: Record<string, unknown> };
 interface Database {

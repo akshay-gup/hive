@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Artifact } from "../../../packages/domain/src/index.ts";
 import { fillPdf, inspectPdf } from "../../../packages/integrations/src/pdf.ts";
 import type { Auth } from "./auth.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
-import { AppError } from "./errors.ts";
 
 export class Files {
   constructor(

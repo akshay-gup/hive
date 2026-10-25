@@ -9,6 +9,7 @@
  * one is created and rebound.
  */
 import { mkdir } from "node:fs/promises";
+import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import type { ChannelThread } from "../../../../packages/domain/src/agent.ts";
 import type { Config } from "../config.ts";
 import {
@@ -16,7 +17,6 @@ import {
   diskOwnerForChannel,
   type ThreadBindingStore,
 } from "../engine/threads.ts";
-import { AppError } from "../errors.ts";
 import type { OpencodeClientPool } from "./client.ts";
 import { buildSessionRuleset, type PermissionMode, type PermissionRuleset } from "./permissions.ts";
 

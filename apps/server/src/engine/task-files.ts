@@ -1,11 +1,11 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import {
   type AgentTask,
   attachmentTypes,
   taskBriefLimits,
 } from "../../../../packages/domain/src/agent.ts";
-import { AppError } from "../errors.ts";
 
 /** A task's file as the agent finds it: a path inside the workspace its run works in. */
 export interface StagedFile {

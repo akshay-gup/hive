@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type {
   ActionProposal,
   ActivityEntry,
@@ -14,7 +15,6 @@ import { createSamplePdf } from "../../../packages/integrations/src/pdf.ts";
 import type { ActionService } from "./actions.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
-import { AppError } from "./errors.ts";
 import type { Files } from "./files.ts";
 import type { GoogleAuth } from "./google-auth.ts";
 import { requesterNames, withRequester } from "./requesters.ts";

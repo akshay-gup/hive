@@ -1,3 +1,4 @@
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import {
   verifyRevocation,
   verifyWorkspaceToken,
@@ -7,7 +8,6 @@ import {
 import type { Auth } from "./auth.ts";
 import type { ManagedWorkspace } from "./config.ts";
 import type { Store } from "./db.ts";
-import { AppError } from "./errors.ts";
 
 /**
  * How long a managed workspace keeps someone signed in. The control plane decides who belongs, so

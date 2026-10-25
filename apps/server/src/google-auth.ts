@@ -1,9 +1,9 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { decryptSecret, encryptSecret } from "../../../packages/integrations/src/vault.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
-import { AppError } from "./errors.ts";
 
 const tokenSchema = z.object({
   access_token: z.string().min(1),

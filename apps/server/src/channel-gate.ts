@@ -1,8 +1,8 @@
 import type { Context } from "hono";
+import { canSeeTask, type Scope } from "../../../packages/chat-core/src/access.ts";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { type AgentTask, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent.ts";
-import { canSeeTask, type Scope } from "./access.ts";
 import type { AgentService } from "./engine/service.ts";
-import { AppError } from "./errors.ts";
 
 const NOT_FOR_GUESTS = "Guests can open only the channels they were added to";
 

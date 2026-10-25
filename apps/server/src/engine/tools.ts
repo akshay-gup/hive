@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { RunAgentInput } from "@ag-ui/core";
 import { defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
+import { canSeeTask } from "../../../../packages/chat-core/src/access.ts";
+import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import {
   type AgentTask,
   createTaskSchema,
@@ -17,8 +19,6 @@ import {
   type UploadRequest,
   uploadRequestLimits,
 } from "../../../../packages/domain/src/workspace-files.ts";
-import { canSeeTask } from "../access.ts";
-import { AppError } from "../errors.ts";
 import type { JevService } from "../jev/service.ts";
 import { presentChoicesTool } from "../jev/tools.ts";
 import type { AgentService } from "./service.ts";

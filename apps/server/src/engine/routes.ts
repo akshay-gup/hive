@@ -3,13 +3,13 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
 import { z } from "zod";
+import { isDm } from "../../../../packages/chat-core/src/access.ts";
+import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import type {
   AgentIdentity,
   AgentMemory,
   AgentNotification,
 } from "../../../../packages/domain/src/agent.ts";
-import { isDm } from "../access.ts";
-import { AppError } from "../errors.ts";
 import { byteRange } from "./channel-files.ts";
 import type { AgentService } from "./service.ts";
 

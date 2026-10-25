@@ -1,12 +1,8 @@
-import {
-  type Channel,
-  type ChannelView,
-  ORCHESTRATOR_CHANNEL_ID,
-} from "../../../packages/domain/src/agent.ts";
-import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
-import type { Store } from "./db.ts";
-import { SHARED_OWNER } from "./engine/threads.ts";
+import { type Channel, type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../domain/src/agent.ts";
+import type { WorkspaceRole } from "../../integrations/src/workspace-token.ts";
 import { AppError } from "./errors.ts";
+import { SHARED_OWNER } from "./shared.ts";
+import type { RecordStore } from "./store.ts";
 
 /** Who someone is in this workspace, as far as what they may open goes. */
 export interface Person {
@@ -87,7 +83,7 @@ export interface Scope {
  */
 export class Access {
   constructor(
-    private readonly db: Store,
+    private readonly db: RecordStore,
     private readonly roles: boolean,
   ) {}
 

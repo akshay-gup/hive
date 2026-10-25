@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import type { Channel, DirectMessagePerson } from "../../../packages/domain/src/agent.ts";
+import type { Channel, DirectMessagePerson } from "../../domain/src/agent.ts";
 import type { Access } from "./access.ts";
-import type { Store } from "./db.ts";
-import { SHARED_OWNER } from "./engine/threads.ts";
 import { AppError } from "./errors.ts";
+import { SHARED_OWNER } from "./shared.ts";
+import type { RecordStore } from "./store.ts";
 
 /** The channel two people share, whichever of them opens it first: its name is the same for the pair. */
 export function directMessageId(a: string, b: string): string {
@@ -20,7 +20,7 @@ export function directMessageId(a: string, b: string): string {
  */
 export class DirectMessages {
   constructor(
-    private readonly db: Store,
+    private readonly db: RecordStore,
     private readonly access: Access,
     /** Told when a private channel is made, for whatever keeps the agent out of it. */
     private readonly madePrivate: (channel: Channel) => Promise<void>,

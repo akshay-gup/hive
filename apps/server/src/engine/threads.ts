@@ -1,10 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { SHARED_OWNER } from "../../../../packages/chat-core/src/shared.ts";
 import {
   type ChannelThread,
   ORCHESTRATOR_CHANNEL_ID,
 } from "../../../../packages/domain/src/agent.ts";
-import { SHARED_OWNER } from "../shared.ts";
 
 /** Filesystem-safe channel directory name (also used for permissions.json). */
 export function safeChannelDirName(channelId: string): string {

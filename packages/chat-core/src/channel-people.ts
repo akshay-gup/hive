@@ -5,8 +5,8 @@ import {
   channelPeopleSchema,
   channelSettingsSchema,
   ORCHESTRATOR_CHANNEL_ID,
-} from "../../../packages/domain/src/agent.ts";
-import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
+} from "../../domain/src/agent.ts";
+import type { WorkspaceRole } from "../../integrations/src/workspace-token.ts";
 import {
   type Access,
   canOpen,
@@ -17,9 +17,9 @@ import {
   named,
   type Person,
 } from "./access.ts";
-import type { Store } from "./db.ts";
-import { SHARED_OWNER } from "./engine/threads.ts";
 import { AppError } from "./errors.ts";
+import { SHARED_OWNER } from "./shared.ts";
+import type { RecordStore } from "./store.ts";
 
 const runs = (person: Person) => person.role === "owner" || person.role === "admin";
 const ARCHIVED = "This channel is archived";
@@ -36,7 +36,7 @@ const refused = (reason: string) => new AppError(reason, reason === ARCHIVED ? 4
  */
 export class ChannelPeople {
   constructor(
-    private readonly db: Store,
+    private readonly db: RecordStore,
     private readonly access: Access,
   ) {}
 

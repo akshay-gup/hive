@@ -1,6 +1,7 @@
 import { constants, type Dirent, type Stats } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import type { Channel } from "../../../../packages/domain/src/agent.ts";
 import {
   type ChannelFile,
@@ -10,7 +11,6 @@ import {
   textKinds,
   uploadsFolder,
 } from "../../../../packages/domain/src/workspace-files.ts";
-import { AppError } from "../errors.ts";
 import type { Files } from "../files.ts";
 import { channelWorkspaceDir, diskOwnerForChannel } from "./threads.ts";
 

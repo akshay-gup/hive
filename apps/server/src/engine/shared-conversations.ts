@@ -1,10 +1,10 @@
 import { MessageSchema } from "@ag-ui/core";
+import { SHARED_OWNER } from "../../../../packages/chat-core/src/shared.ts";
 import {
   type ChannelThread,
   ORCHESTRATOR_CHANNEL_ID,
 } from "../../../../packages/domain/src/agent.ts";
 import type { Store } from "../db.ts";
-import { SHARED_OWNER } from "../shared.ts";
 
 export type ChannelMessage = ReturnType<typeof MessageSchema.parse>;
 

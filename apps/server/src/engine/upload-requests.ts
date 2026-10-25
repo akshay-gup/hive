@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent.ts";
 import {
   type UploadedFile,
@@ -7,7 +8,6 @@ import {
   uploadRequestLimits,
 } from "../../../../packages/domain/src/workspace-files.ts";
 import type { Store } from "../db.ts";
-import { AppError } from "../errors.ts";
 import { requesterNames } from "../requesters.ts";
 
 interface Stored extends UploadRequestState {

@@ -1,9 +1,9 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
-import { AppError } from "./errors.ts";
 
 const digest = (value: string) => createHash("sha256").update(value).digest();
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");

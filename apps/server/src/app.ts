@@ -6,6 +6,8 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { z } from "zod";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
+import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { emailDraftSchema, proposalSchema } from "../../../packages/domain/src/index.ts";
 import { ActionService } from "./actions.ts";
 import { makeRuntime } from "./agent.ts";
@@ -22,7 +24,6 @@ import {
   saveSharedConversation,
 } from "./engine/shared-conversations.ts";
 import { LocalDiskThreadStore, type ThreadBindingStore } from "./engine/threads.ts";
-import { AppError } from "./errors.ts";
 import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
 import type { JevAdapter } from "./jev/adapter.ts";
@@ -41,7 +42,6 @@ import {
   PermissionTracker,
 } from "./opencode/index.ts";
 import { mergeMessages, type RecordedMessage } from "./opencode/run-record.ts";
-import { SHARED_OWNER } from "./shared.ts";
 import { readUpdateStatus } from "./update-status.ts";
 import { serveWebFile, webRootDir } from "./web-static.ts";
 import { WorkspaceService } from "./workspace.ts";

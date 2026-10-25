@@ -2,6 +2,18 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { z } from "zod";
 import {
+  Access,
+  canSeeTask,
+  isDm,
+  isIn,
+  isPublic,
+  managesChannel,
+  type Scope,
+} from "../../../../packages/chat-core/src/access.ts";
+import { ChannelPeople } from "../../../../packages/chat-core/src/channel-people.ts";
+import { DirectMessages } from "../../../../packages/chat-core/src/direct-messages.ts";
+import { AppError } from "../../../../packages/chat-core/src/errors.ts";
+import {
   type AgentArtifact,
   type AgentIdentity,
   type AgentMemory,
@@ -44,14 +56,10 @@ import {
   mentionedPeople,
   withHandles,
 } from "../../../../packages/domain/src/mentions.ts";
-import { Access, canSeeTask, isDm, isIn, isPublic, managesChannel, type Scope } from "../access.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
-import { ChannelPeople } from "../channel-people.ts";
 import type { Config } from "../config.ts";
 import type { Store } from "../db.ts";
-import { DirectMessages } from "../direct-messages.ts";
-import { AppError } from "../errors.ts";
 import type { Files } from "../files.ts";
 import { createJevService, type JevService } from "../jev/service.ts";
 import { backgroundFailure } from "../log.ts";

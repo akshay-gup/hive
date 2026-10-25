@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { BrowserSession } from "../../../packages/domain/src/index.ts";
 import type { Auth } from "./auth.ts";
 import { browserConsole } from "./browser-console.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
-import { AppError } from "./errors.ts";
 import type { Files } from "./files.ts";
 
 const sessionSchema = z.object({

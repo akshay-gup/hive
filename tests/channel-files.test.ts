@@ -19,7 +19,7 @@ import type { Config } from "../apps/server/src/config.ts";
 import type { Store } from "../apps/server/src/db.ts";
 import { byteRange, ChannelFiles } from "../apps/server/src/engine/channel-files.ts";
 import { channelWorkspaceDir, diskOwnerForChannel } from "../apps/server/src/engine/threads.ts";
-import { AppError } from "../apps/server/src/errors.ts";
+import { AppError } from "../packages/chat-core/src/errors.ts";
 import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../packages/domain/src/agent.ts";
 import { channelFileLimits } from "../packages/domain/src/workspace-files.ts";
 

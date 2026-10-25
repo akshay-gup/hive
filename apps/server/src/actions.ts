@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import {
   type ActionProposal,
   type CalendarEvent,
@@ -6,7 +7,6 @@ import {
   proposalSchema,
 } from "../../../packages/domain/src/index.ts";
 import type { Store } from "./db.ts";
-import { AppError } from "./errors.ts";
 
 interface Options {
   execute: (
