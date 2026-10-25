@@ -32,6 +32,7 @@ export interface Bucket {
     body: ReadableStream;
     size: number;
     range?: { offset: number; length: number };
+    httpMetadata?: { contentType?: string };
   } | null>;
   delete(keys: string | string[]): Promise<void>;
 }
@@ -198,6 +199,10 @@ async function askRoom(env: Env, workspaceId: string, action: string, body: unkn
   );
 }
 
+/** What a smaller picture may be: the kinds a page draws; anything else is taken for WebP. */
+const pictureType = (type: string | null | undefined) =>
+  /^image\/(webp|jpeg|png)$/i.test(type ?? "") ? (type as string).toLowerCase() : "image/webp";
+
 /** A `Range` header as the bucket takes it, or nothing for one it cannot make sense of (the whole file is sent). */
 function rangeOf(header: string | undefined, size: number) {
   const match = /^bytes=(\d*)-(\d*)$/.exec(header ?? "");
@@ -238,7 +243,10 @@ app.put("/w/:ws/f/up/:id", async (c) => {
         ? new TransformStream<Uint8Array, Uint8Array>()
         : new FixedLengthStream(claims.bytes);
     const piped = c.req.raw.body.pipeTo(writable);
-    const stored = await bucket.put(key, readable, { httpMetadata: { contentType: state.mime } });
+    // A smaller picture says what it is (the phone's may be a JPEG); a file is what it was said to be.
+    const type =
+      claims.variant === "thumb" ? pictureType(c.req.header("content-type")) : state.mime;
+    const stored = await bucket.put(key, readable, { httpMetadata: { contentType: type } });
     await piped;
     size = stored.size;
   } catch {
@@ -282,7 +290,9 @@ app.get("/w/:ws/f/dl/:id", async (c) => {
     });
   const object = await bucket.get(`w/${workspaceId}/${file.key}`, range ? { range } : undefined);
   if (!object) return c.json({ error: "File not found" }, 404);
-  const headers = serveHeaders(file.mime, file.name, object.range?.length ?? object.size);
+  const mime =
+    claims.variant === "thumb" ? pictureType(object.httpMetadata?.contentType) : file.mime;
+  const headers = serveHeaders(mime, file.name, object.range?.length ?? object.size);
   if (range && object.range)
     return new Response(object.body, {
       status: 206,

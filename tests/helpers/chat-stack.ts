@@ -12,12 +12,18 @@ import { memorySql } from "./do-shim.ts";
 /** An R2 bucket in memory. */
 export class FakeBucket implements Bucket {
   readonly objects = new Map<string, Uint8Array>();
+  readonly types = new Map<string, string>();
   /** What the bucket claims a stored object weighs, for a test that wants it to say more than was sent. */
   lie?: (key: string, real: number) => number;
 
-  async put(key: string, value: ReadableStream) {
+  async put(
+    key: string,
+    value: ReadableStream,
+    options?: { httpMetadata?: { contentType?: string } },
+  ) {
     const bytes = new Uint8Array(await new Response(value).arrayBuffer());
     this.objects.set(key, bytes);
+    this.types.set(key, options?.httpMetadata?.contentType ?? "");
     return { size: this.lie ? this.lie(key, bytes.length) : bytes.length };
   }
 
@@ -41,6 +47,7 @@ export class FakeBucket implements Bucket {
     return {
       body: new Response(slice).body as ReadableStream,
       size: all.length,
+      httpMetadata: { contentType: this.types.get(key) },
       ...(range ? { range: { offset, length } } : {}),
     };
   }

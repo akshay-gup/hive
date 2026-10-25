@@ -381,6 +381,47 @@ test("a smaller picture is sent after the file, counted, and offered", async () 
   assert.equal((await maxer.post("/v1/files/nope/link", { variant: "thumb" })).status, 404);
 });
 
+test("a smaller picture is served as the kind it is, a JPEG from a phone included", async () => {
+  const { maxer, channel, bytes } = await setup();
+  const begun = (await (
+    await maxer.post("/v1/files/uploads", {
+      channelId: channel.id,
+      name: "p.jpg",
+      mime: "image/jpeg",
+      bytes: 4000,
+      thumbBytes: 600,
+    })
+  ).json()) as { fileId: string; upload: string; thumbUpload: string };
+  await maxer.put(begun.upload, bytes(4000));
+  assert.equal(
+    (await maxer.put(begun.thumbUpload, bytes(600), { "content-type": "image/jpeg" })).status,
+    200,
+  );
+  const link = (await (
+    await maxer.post(`/v1/files/${begun.fileId}/link`, { variant: "thumb" })
+  ).json()) as { path: string };
+  assert.equal((await maxer.fetch(link.path)).headers.get("content-type"), "image/jpeg");
+});
+
+test("what a smaller picture says it is cannot make it a page", async () => {
+  const { maxer, channel, bytes } = await setup();
+  const begun = (await (
+    await maxer.post("/v1/files/uploads", {
+      channelId: channel.id,
+      name: "p.png",
+      mime: "image/png",
+      bytes: 100,
+      thumbBytes: 50,
+    })
+  ).json()) as { fileId: string; upload: string; thumbUpload: string };
+  await maxer.put(begun.upload, bytes(100));
+  await maxer.put(begun.thumbUpload, bytes(50), { "content-type": "text/html" });
+  const link = (await (
+    await maxer.post(`/v1/files/${begun.fileId}/link`, { variant: "thumb" })
+  ).json()) as { path: string };
+  assert.equal((await maxer.fetch(link.path)).headers.get("content-type"), "image/webp");
+});
+
 test("deleting a channel clears its files and gives back their room", async () => {
   const { stack, maxer, channel, upload, usage } = await setup();
   const { body } = await upload(maxer, 4 * MB);
