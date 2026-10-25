@@ -17,6 +17,13 @@ export interface ControlConfig {
   databaseUrl?: string;
   /** The Expo web export to serve; defaults to apps/mobile/dist/web. */
   webDir?: string;
+  /**
+   * Where the chat service is reached by the app (https://chat.example.com), and, when the control
+   * plane reaches it some other way, where it asks it things (`chatInternalUrl`). Without one there is
+   * no chat service and the workspaces' own servers carry the conversation.
+   */
+  chatUrl?: string;
+  chatInternalUrl?: string;
   /** Web origins besides `publicUrl` that may call the API. */
   allowedOrigins: string[];
   /** How many workspaces one person can have made. */
@@ -77,6 +84,8 @@ export function readControlConfig(env: Env = process.env): ControlConfig {
       .map((origin) => origin.trim())
       .filter(Boolean),
     maxWorkspacesPerAccount: maxWorkspaces,
+    chatUrl: env.CHAT_PUBLIC_URL?.trim().replace(/\/+$/, "") || undefined,
+    chatInternalUrl: env.CHAT_INTERNAL_URL?.trim().replace(/\/+$/, "") || undefined,
     clientIpHeader: env.CONTROL_CLIENT_IP_HEADER?.trim() || undefined,
     edgeToken: env.CONTROL_EDGE_TOKEN?.trim() || undefined,
     releaseToken: env.CONTROL_RELEASE_TOKEN?.trim() || undefined,

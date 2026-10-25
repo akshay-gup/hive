@@ -1,6 +1,11 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
+  CHAT_TOKEN_SECONDS,
   DEFAULT_TOKEN_SECONDS,
+  signChatPeople,
+  signChatPurge,
+  signChatRevocation,
+  signChatToken,
   signRevocation,
   signWorkspaceToken,
   type WorkspaceRole,
@@ -40,6 +45,8 @@ interface WorkspaceRecord {
    * that holds this makes it.
    */
   leaseUntil?: number;
+  /** When the chat service was last told who is in this workspace. */
+  chatSyncedAt?: string;
 }
 /** What a person can be invited as: the owner is the one who made the workspace. */
 export type InvitedRole = "admin" | "member" | "guest";
@@ -135,6 +142,11 @@ export interface WorkspaceServiceOptions {
    * hands the id to a workflow or queue, which calls `provisionNow`.
    */
   startProvisioning?: (workspaceId: string) => void | Promise<void>;
+  /**
+   * The chat service: where the app reaches it, and where this asks it things (the same, unless it
+   * is reached some other way from here). Without one, there is no chat service.
+   */
+  chat?: { url: string; internalUrl: string };
   /** For tests: the `fetch` that reaches a workspace. */
   fetch?: typeof fetch;
 }
@@ -222,6 +234,88 @@ export class WorkspaceService {
   }
 
   /**
+   * A token the app takes to the chat service. Chat does not need the workspace's machine, which may
+   * be stopped, so this works whenever the workspace exists; belonging is still enforced here, and a
+   * person who has been removed cannot get another. It carries the plan's limits on files.
+   */
+  async chatToken(
+    account: Account,
+    id: string,
+  ): Promise<{ token: string; url: string; wsUrl: string; expiresAt: number }> {
+    const chat = this.options.chat;
+    if (!chat) throw new HttpError("Chat is not set up", 404);
+    const { record, member } = await this.require(account, id);
+    if (record.status === "deleting" || record.status === "failed")
+      throw new HttpError("This workspace is not available", 409);
+    // The first time anyone opens chat here, it is told who is in the workspace.
+    if (!record.chatSyncedAt) await this.syncChatPeople(id);
+    const plan = plans[record.plan] ?? plans[DEFAULT_PLAN];
+    const token = signChatToken(this.options.keys.privateKey, {
+      workspaceId: id,
+      sub: account.id,
+      email: account.email,
+      name: account.name,
+      role: member.role,
+      limits: { maxFileBytes: plan.maxFileBytes, storageBytes: plan.storageBytes },
+    });
+    const url = `${chat.url}/w/${id}`;
+    return {
+      token,
+      url,
+      wsUrl: `${url.replace(/^http/, "ws")}/v1/ws`,
+      expiresAt: Date.now() + CHAT_TOKEN_SECONDS * 1000,
+    };
+  }
+
+  /** Ask the chat service for something only the control plane may: best effort, since a person's token runs out soon anyway. */
+  private async askChat(workspaceId: string, action: string, token: string, body?: unknown) {
+    const chat = this.options.chat;
+    if (!chat) return false;
+    try {
+      const response = await (this.options.fetch ?? fetch)(
+        `${chat.internalUrl}/w/${workspaceId}/internal/${action}`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: AbortSignal.timeout(4000),
+        },
+      );
+      return response.ok;
+    } catch (error) {
+      console.error(
+        `[Hive control] could not ${action} chat for ${workspaceId}: ${this.describe(error)}`,
+      );
+      return false;
+    }
+  }
+
+  /** Tell the chat service who is in the workspace, so people can be found for a direct message before they have opened chat. */
+  private async syncChatPeople(workspaceId: string): Promise<void> {
+    if (!this.options.chat) return;
+    const people: { sub: string; email: string; name: string; role: WorkspaceRole }[] = [];
+    for (const row of await this.db.listWhere<MemberRecord>(
+      HOME,
+      "members",
+      "workspaceId",
+      workspaceId,
+    )) {
+      const person = await this.options.accounts.get(row.accountId);
+      if (person)
+        people.push({ sub: person.id, email: person.email, name: person.name, role: row.role });
+    }
+    const token = signChatPeople(this.options.keys.privateKey, { workspaceId });
+    if (await this.askChat(workspaceId, "people", token, { people }))
+      await this.db.compareAndSwap(
+        HOME,
+        "workspaces",
+        workspaceId,
+        {},
+        { chatSyncedAt: new Date().toISOString() },
+      );
+  }
+
+  /**
    * Where the edge connects to reach a workspace. A name nobody has made is answered from the
    * records, so asking for one costs the host nothing, and so is one that failed or is being
    * removed. One being made is looked for, because making it ends when it answers at its public
@@ -278,6 +372,11 @@ export class WorkspaceService {
     const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
     if (record && (record.leaseUntil ?? 0) > Date.now()) return;
     await this.options.provisioner.destroy(id);
+    await this.askChat(
+      id,
+      "purge",
+      signChatPurge(this.options.keys.privateKey, { workspaceId: id }),
+    );
     for (const m of await this.db.listWhere<MemberRecord>(HOME, "members", "workspaceId", id))
       await this.db.remove(HOME, "members", m.id);
     for (const i of await this.db.listWhere<InviteRecord>(HOME, "invites", "workspaceId", id))
@@ -495,6 +594,13 @@ export class WorkspaceService {
    * Best effort: a workspace that is stopped or slow keeps the session until it runs out.
    */
   private async endSessions(workspaceId: string, accountId: string): Promise<void> {
+    // Chat too: their chat token ends now, and the people the chat service knows are made right.
+    await this.askChat(
+      workspaceId,
+      "revoke",
+      signChatRevocation(this.options.keys.privateKey, { workspaceId, sub: accountId }),
+    );
+    await this.syncChatPeople(workspaceId);
     const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", workspaceId);
     if (record?.status !== "ready" || !record.url) return;
     const token = signRevocation(this.options.keys.privateKey, { workspaceId, sub: accountId });
@@ -679,6 +785,7 @@ export class WorkspaceService {
       joinedAt: now,
       invitedBy: invite.createdBy,
     });
+    await this.syncChatPeople(record.id);
     return this.toView(record, invite.role);
   }
 

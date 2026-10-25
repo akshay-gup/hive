@@ -1,0 +1,22 @@
+{
+  "name": "hive-chat",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "chat.vi-ak.com", "custom_domain": true }],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "ChatRoom" }]
+  },
+  // Cloudflare's declaration of the room class (what the object is called and that it uses SQLite),
+  // not a data migration. The class is never renamed once it is deployed.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatRoom"] }],
+  "ratelimits": [
+    { "name": "CHAT_LIMITER", "namespace_id": "1003", "simple": { "limit": 600, "period": 60 } }
+  ],
+  "vars": {
+    "CHAT_ALLOWED_ORIGINS": "https://app.vi-ak.com",
+    // The control plane's public key (not a secret): set it to the value of CONTROL_PUBLIC_KEY the
+    // workspaces are given, which `wrangler secret put` or an edit here provides before the first deploy.
+    "CONTROL_PUBLIC_KEY": ""
+  }
+}

@@ -85,6 +85,9 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     maxWorkspacesPerAccount: config.maxWorkspacesPerAccount,
     modelEnvironment: gateway ? (id) => gateway.environmentFor(id) : undefined,
     startProvisioning: deps.startProvisioning,
+    chat: config.chatUrl
+      ? { url: config.chatUrl, internalUrl: config.chatInternalUrl ?? config.chatUrl }
+      : undefined,
     fetch: deps.fetch,
   });
   const origins = new Set([new URL(config.publicUrl).origin, ...config.allowedOrigins]);
@@ -329,6 +332,10 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
   });
   secure.get("/workspaces/:id", async (c) =>
     c.json(await workspaces.view(c.get("account"), idParam.parse(c.req.param("id")))),
+  );
+  // The chat service: a token for it, which does not need the workspace's machine to be running.
+  secure.post("/workspaces/:id/chat-token", async (c) =>
+    c.json(await workspaces.chatToken(c.get("account"), idParam.parse(c.req.param("id")))),
   );
   secure.post("/workspaces/:id/token", async (c) =>
     c.json(await workspaces.token(c.get("account"), idParam.parse(c.req.param("id")))),

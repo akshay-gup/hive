@@ -126,6 +126,14 @@ export class Access {
     return people;
   }
 
+  /** The address each person's id is known by, for turning who wrote a message into who to show. */
+  async addresses(): Promise<Map<string, string>> {
+    const users = await this.db.list<{ id: string; email?: string }>("system", "users");
+    return new Map(
+      users.filter((user) => user.email).map((user) => [user.id, normalizeEmail(user.email ?? "")]),
+    );
+  }
+
   /** Everyone who has signed in here and may open this channel, with the id they are known by. */
   async openers(
     channel: Channel,

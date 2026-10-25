@@ -9,6 +9,10 @@ export interface Plan {
   volumeGb: number;
   /** Stop the machine when nobody is using it, and start it again on the next request. */
   stopsWhenIdle: boolean;
+  /** The most one file sent in chat may be, in bytes. */
+  maxFileBytes: number;
+  /** The most all of a workspace's files in chat may be, in bytes. */
+  storageBytes: number;
 }
 
 /**
@@ -22,6 +26,8 @@ export const plans: Record<PlanId, Plan> = {
     guest: { cpuKind: "shared", cpus: 2, memoryMb: 4096 },
     volumeGb: 5,
     stopsWhenIdle: true,
+    maxFileBytes: 25 * 1024 ** 2,
+    storageBytes: 10 * 1024 ** 3,
   },
   team: {
     id: "team",
@@ -29,6 +35,8 @@ export const plans: Record<PlanId, Plan> = {
     guest: { cpuKind: "shared", cpus: 2, memoryMb: 4096 },
     volumeGb: 20,
     stopsWhenIdle: false,
+    maxFileBytes: 100 * 1024 ** 2,
+    storageBytes: 100 * 1024 ** 3,
   },
 };
 

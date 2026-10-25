@@ -22,12 +22,24 @@ export interface WorkspaceIdentity {
   role: WorkspaceRole;
 }
 
+/** What a workspace's plan allows it to store, carried in a chat token so the chat service needs no other way to learn it. */
+export interface ChatLimits {
+  /** The most one file may be, in bytes. */
+  maxFileBytes: number;
+  /** The most all of a workspace's files may be, in bytes. */
+  storageBytes: number;
+}
+
 export interface VerifiedWorkspaceToken extends WorkspaceIdentity {
   workspaceId: string;
   /** Unique to this token, so a workspace can refuse to see one twice. */
   id: string;
   /** Milliseconds since the epoch. */
   expiresAt: number;
+  /** When it was made, in milliseconds since the epoch. */
+  issuedAt: number;
+  /** The plan's limits, in a chat token that carries them. */
+  limits?: ChatLimits;
 }
 
 export class WorkspaceTokenError extends Error {
@@ -47,10 +59,28 @@ export const MAX_TOKEN_SECONDS = 15 * 60;
 /** Clocks of the control plane and a workspace may differ a little. */
 const LEEWAY_SECONDS = 30;
 
-/** A token for signing in, or one that ends someone's sessions: each is good for one thing only. */
-type Purpose = "sign-in" | "revoke";
-const audience = (workspaceId: string, purpose: Purpose = "sign-in") =>
-  purpose === "revoke" ? `ws:${workspaceId}:revoke` : `ws:${workspaceId}`;
+/**
+ * A token for signing in to a workspace's server, one that ends someone's sessions there, or the same
+ * two for the chat service, and one that clears a removed workspace out of it: each is good for one
+ * thing only, and one of them is not good for another.
+ */
+export type Purpose = "sign-in" | "revoke" | "chat" | "chat-revoke" | "chat-purge" | "chat-people";
+const audience = (workspaceId: string, purpose: Purpose = "sign-in") => {
+  switch (purpose) {
+    case "revoke":
+      return `ws:${workspaceId}:revoke`;
+    case "chat":
+      return `chat:${workspaceId}`;
+    case "chat-revoke":
+      return `chat:${workspaceId}:revoke`;
+    case "chat-purge":
+      return `chat:${workspaceId}:purge`;
+    case "chat-people":
+      return `chat:${workspaceId}:people`;
+    default:
+      return `ws:${workspaceId}`;
+  }
+};
 const claimsSchema = z.object({
   iss: z.string(),
   aud: z.string(),
@@ -61,6 +91,7 @@ const claimsSchema = z.object({
   iat: z.number().int(),
   exp: z.number().int(),
   jti: z.string().min(8).max(100),
+  lim: z.object({ f: z.number().int().min(0), s: z.number().int().min(0) }).optional(),
 });
 
 /** A fresh signing pair, each key as base64url DER: the private one stays with the control plane. */
@@ -122,6 +153,7 @@ export function signWorkspaceToken(
     ttlSeconds?: number;
     now?: number;
     purpose?: Purpose;
+    limits?: ChatLimits;
   },
 ): string {
   const ttl = input.ttlSeconds ?? DEFAULT_TOKEN_SECONDS;
@@ -138,6 +170,9 @@ export function signWorkspaceToken(
     iat: issued,
     exp: issued + ttl,
     jti: randomUUID(),
+    ...(input.limits
+      ? { lim: { f: input.limits.maxFileBytes, s: input.limits.storageBytes } }
+      : {}),
   })}`;
   return `${body}.${sign(null, Buffer.from(body), parsePrivateKey(privateKey)).toString("base64url")}`;
 }
@@ -188,6 +223,8 @@ export function verifyWorkspaceToken(
     role: claims.role,
     id: claims.jti,
     expiresAt: claims.exp * 1000,
+    issuedAt: claims.iat * 1000,
+    ...(claims.lim ? { limits: { maxFileBytes: claims.lim.f, storageBytes: claims.lim.s } } : {}),
   };
 }
 
@@ -219,4 +256,110 @@ export function verifyRevocation(
   expected: { workspaceId: string; now?: number },
 ): string {
   return verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "revoke" }).sub;
+}
+
+/** How long a chat token lasts: long enough not to be renewed all the time, short enough that a changed role reaches the person soon. */
+export const CHAT_TOKEN_SECONDS = 10 * 60;
+
+/**
+ * A token for the chat service: the same person and role as a sign-in token, for the chat service of
+ * one workspace only. Unlike a sign-in token it is a bearer the app keeps using until it expires, so
+ * it is never remembered as seen; ending someone's access is a revocation (below) or its short life.
+ */
+export function signChatToken(
+  privateKey: string,
+  input: WorkspaceIdentity & {
+    workspaceId: string;
+    limits?: ChatLimits;
+    ttlSeconds?: number;
+    now?: number;
+  },
+): string {
+  return signWorkspaceToken(privateKey, {
+    ...input,
+    ttlSeconds: input.ttlSeconds ?? CHAT_TOKEN_SECONDS,
+    purpose: "chat",
+  });
+}
+
+export function verifyChatToken(
+  publicKey: string,
+  token: string,
+  expected: { workspaceId: string; now?: number },
+): VerifiedWorkspaceToken {
+  return verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "chat" });
+}
+
+/** What the control plane sends the chat service when a person is removed or their role changes. */
+export function signChatRevocation(
+  privateKey: string,
+  input: { workspaceId: string; sub: string; now?: number },
+): string {
+  return signWorkspaceToken(privateKey, {
+    workspaceId: input.workspaceId,
+    sub: input.sub,
+    email: "revoked",
+    name: "",
+    role: "guest",
+    now: input.now,
+    purpose: "chat-revoke",
+  });
+}
+
+/** Whose chat access to end, once the token is known to be the control plane's, for this workspace. */
+export function verifyChatRevocation(
+  publicKey: string,
+  token: string,
+  expected: { workspaceId: string; now?: number },
+): { sub: string; issuedAt: number } {
+  const verified = verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "chat-revoke" });
+  return { sub: verified.sub, issuedAt: verified.issuedAt };
+}
+
+/** What the control plane sends the chat service to clear a removed workspace's data out. */
+export function signChatPurge(
+  privateKey: string,
+  input: { workspaceId: string; now?: number },
+): string {
+  return signWorkspaceToken(privateKey, {
+    workspaceId: input.workspaceId,
+    sub: "control",
+    email: "purge",
+    name: "",
+    role: "guest",
+    now: input.now,
+    purpose: "chat-purge",
+  });
+}
+
+export function verifyChatPurge(
+  publicKey: string,
+  token: string,
+  expected: { workspaceId: string; now?: number },
+): void {
+  verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "chat-purge" });
+}
+
+/** What the control plane sends the chat service when the people of a workspace change: the whole list, so it can offer them to each other. */
+export function signChatPeople(
+  privateKey: string,
+  input: { workspaceId: string; now?: number },
+): string {
+  return signWorkspaceToken(privateKey, {
+    workspaceId: input.workspaceId,
+    sub: "control",
+    email: "people",
+    name: "",
+    role: "guest",
+    now: input.now,
+    purpose: "chat-people",
+  });
+}
+
+export function verifyChatPeople(
+  publicKey: string,
+  token: string,
+  expected: { workspaceId: string; now?: number },
+): void {
+  verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "chat-people" });
 }
