@@ -445,6 +445,8 @@ export class Messaging {
     const where = channel.kind === "dm" ? "a direct message" : `#${channel.name}`;
     // The agent's answer to someone is told as that, and shown with the agent's picture (no address).
     const agent = message.authorKind === "agent";
+    const status = (message.extra as { status?: string } | null)?.status;
+    const ended = status === "failed" || status === "stopped";
     const people = withHandles(
       [...known.values()]
         .filter((p) => p.email)
@@ -458,7 +460,7 @@ export class Messaging {
       by: agent ? "" : (by?.email ?? ""),
       byName: agent ? "" : name,
       title: agent
-        ? `${name} answered you in ${where}`
+        ? `${name} ${ended ? "could not answer" : "answered you"} in ${where}`
         : kind === "mention"
           ? `${name} mentioned you in ${where}`
           : `${name} replied in ${where}`,

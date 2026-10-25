@@ -331,6 +331,21 @@ test("the person who asked is told when the run is over, unless they stopped it"
   await call("max", "POST", `/v1/runs/${runOf(second.id).id}/stop`);
   const after = (await (await call("max", "GET", "/v1/notifications")).json()) as unknown[];
   assert.equal(after.length, 1);
+  const third = await post("max", room.id, "@hive three");
+  await fromMachine({ t: "run.ack", runId: runOf(third.id).id });
+  await fromMachine({
+    t: "run.end",
+    runId: runOf(third.id).id,
+    n: 1,
+    status: "failed",
+    body: "",
+    steps: [],
+  });
+  const last = (await (await call("max", "GET", "/v1/notifications")).json()) as {
+    title: string;
+  }[];
+  assert.equal(last.length, 2);
+  assert.ok(last.some((n) => /Hive could not answer in #Design/.test(n.title)));
 });
 
 test("a run is sent to the machine in order, one at a time in a thread, and at most as many as it can take", async () => {
