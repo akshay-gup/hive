@@ -1685,8 +1685,14 @@ export function ChatScreen({
                   </Pressable>
                 </View>
               </GlassBar>
-              {(channelId || threadParent) && (focused || !!draft) && (
-                <Text style={[s.small, { paddingTop: 6, paddingHorizontal: 8 }]}>
+              {/* The line is always there, so the box does not move when the hint shows. */}
+              {(channelId || threadParent) && (
+                <Text
+                  style={[
+                    s.small,
+                    { paddingTop: 6, paddingHorizontal: 8, opacity: focused || draft ? 1 : 0 },
+                  ]}
+                >
                   Mention @hive for an agent reply
                   {Platform.OS === "web" ? " · Shift+Enter for a new line" : ""}
                 </Text>

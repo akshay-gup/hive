@@ -324,9 +324,15 @@ export function ChatComposer({
           </Pressable>
         </View>
       </View>
-      {(focused || !!draft) && Platform.OS === "web" && (
-        <Text style={[s.small, { paddingTop: 6, paddingHorizontal: 8 }]}>
-          Shift+Enter for a new line
+      {/* The line is always there, so the box does not move when the hint shows. */}
+      {Platform.OS === "web" && (
+        <Text
+          style={[
+            s.small,
+            { paddingTop: 6, paddingHorizontal: 8, opacity: focused || draft ? 1 : 0 },
+          ]}
+        >
+          {agent ? "Type @hive to ask the agent" : "Shift+Enter for a new line"}
         </Text>
       )}
     </View>
