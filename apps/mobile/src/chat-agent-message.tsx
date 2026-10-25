@@ -21,8 +21,9 @@ function Waiting({ text }: { text: string }) {
 
 /**
  * The agent's reply to a mention, in its place in the conversation: what it did (the steps), what it
- * says, what it is waiting for people to decide, and how it ended when that was not well. Stopping it is
- * done from the box a reply is written in (`ChatComposer`), as in any other chat.
+ * asked people to decide (part-way through, so before its words), what it says, and how it ended when
+ * that was not well. Stopping it is done from the box a reply is written in (`ChatComposer`), as in any
+ * other chat.
  */
 export function ChatAgentBody({
   view,
@@ -44,14 +45,6 @@ export function ChatAgentBody({
     <View style={{ gap: 2 }}>
       {view.queued && <Waiting text="Starting up the workspace…" />}
       {!!view.steps.length && <RunProgress steps={view.steps} />}
-      {going && !view.queued && !text && !view.stepMoving && !view.waiting && (
-        <Waiting text="Thinking" />
-      )}
-      {!!text && (
-        <View style={{ maxWidth: 720 }}>
-          <AssistantResponse content={text} />
-        </View>
-      )}
       {view.prompts.map((state) => (
         <ChatAgentPrompt
           key={state.prompt.id}
@@ -60,6 +53,14 @@ export function ChatAgentBody({
           onAnswer={(choice) => onAnswer(state.prompt.id, choice)}
         />
       ))}
+      {going && !view.queued && !text && !view.stepMoving && !view.waiting && (
+        <Waiting text="Thinking" />
+      )}
+      {!!text && (
+        <View style={{ maxWidth: 720 }}>
+          <AssistantResponse content={text} />
+        </View>
+      )}
       {!!endedLine && <Text style={[s.small, { color: colors.muted }]}>{endedLine}</Text>}
     </View>
   );
