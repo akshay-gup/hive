@@ -48,6 +48,8 @@ export function conversationTools(
      * machine the agent runs on.
      */
     toolset?: "chat" | "chat-private";
+    /** In a channel run: put a file of the channel's workspace in the agent's reply. */
+    shareFile?: (path: string) => Promise<{ sent: true } | { sent: false; error: string }>;
   },
 ) {
   const {
@@ -60,6 +62,7 @@ export function conversationTools(
     latestText = "",
     guest = false,
     toolset,
+    shareFile,
   } = options;
   const key = (name: string, value: unknown) =>
     `${requestKey}:${name}:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
@@ -339,11 +342,17 @@ export function conversationTools(
                 422,
               );
           }
+          if (shareFile) {
+            // In a channel the file goes into the reply itself, through the chat service.
+            if (content !== undefined) await files.write(owner, channel, relative, content);
+            const shared = await shareFile(relative);
+            if (!shared.sent) return shared;
+          }
           const {
             url: _link,
             excerpt: _start,
             ...file
-          } = content === undefined
+          } = content === undefined || shareFile
             ? await files.info(owner, channel, relative)
             : await files.write(owner, channel, relative, content);
           return { sent: true, channelId: channel, file, ...(caption ? { caption } : {}) };
@@ -463,10 +472,10 @@ export function conversationTools(
     : offered;
 }
 
-/** What the agent has in a shared channel: read a page, put an item on the channel's board. */
-export const chatTools: ReadonlySet<string> = new Set(["browse_web", "create_issue"]);
-/** In a private channel: what it makes is not kept apart for the people in it, so only reading. */
-export const privateChatTools: ReadonlySet<string> = new Set(["browse_web"]);
+/** What the agent has in a shared channel: read a page, put an item on the channel's board, share a file. */
+export const chatTools: ReadonlySet<string> = new Set(["browse_web", "create_issue", "send_file"]);
+/** In a private channel: what it makes is not kept apart for the people in it, so only reading and sharing into the reply. */
+export const privateChatTools: ReadonlySet<string> = new Set(["browse_web", "send_file"]);
 
 /**
  * What the agent may be asked to do for a guest: show choices, put an item on their channel's board,

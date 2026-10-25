@@ -720,3 +720,106 @@ test("a refused run for a person who has since left shows the right words", asyn
   assert.equal(extraOf(await replyTo(asked.id)).reason, "access");
   assert.equal(started().length, 0);
 });
+
+// Files the agent puts in its reply
+
+const begin = (runId: string, reqId: string, bytes = 100, name = "report.pdf") =>
+  fromMachine({ t: "file.begin", runId, reqId, name, mime: "application/pdf", bytes });
+const sentToMachine = (type: string) =>
+  (machine?.frames ?? []).filter((f) => f.t === type) as Record<string, string>[];
+/** The bytes arrive, as the Worker would tell the room. */
+const arrive = (fileId: string, bytes: number) => core.filing.uploaded(fileId, "file", bytes);
+
+test("the agent can put a file in its reply: the room says where to send it, then attaches it", async () => {
+  const room = await make("max", "Design");
+  connectMachine();
+  await hello();
+  const asked = await post("max", room.id, "@hive make a report");
+  const runId = runOf(asked.id).id;
+  await fromMachine({ t: "run.ack", runId });
+  await begin(runId, "q1", 100);
+  const [upload] = sentToMachine("file.upload");
+  assert.ok(upload?.fileId);
+  assert.match(upload?.path ?? "", /^\/w\/ws_1\/f\/up\//);
+  // Nothing is attached until it has arrived and the machine says so.
+  await fromMachine({ t: "file.done", runId, reqId: "q1", fileId: upload?.fileId ?? "" });
+  assert.deepEqual(
+    sentToMachine("file.refused").map((f) => f.error),
+    ["That file did not arrive"],
+  );
+  arrive(upload?.fileId ?? "", 100);
+  await fromMachine({ t: "file.done", runId, reqId: "q1", fileId: upload?.fileId ?? "" });
+  assert.equal(sentToMachine("file.attached").length, 1);
+  const reply = await replyTo(asked.id);
+  assert.deepEqual(
+    reply.files.map((f) => [f.name, f.bytes]),
+    [["report.pdf", 100]],
+  );
+  // It is the asker's file in the workspace's storage.
+  assert.equal(core.files.usage().bytesUsed >= 100, true);
+});
+
+test("a file for a run that is over, in too great a number, or too large is refused", async () => {
+  const room = await make("max", "Design");
+  connectMachine();
+  await hello();
+  const asked = await post("max", room.id, "@hive many files");
+  const runId = runOf(asked.id).id;
+  await fromMachine({ t: "run.ack", runId });
+  for (let i = 0; i < RUN_LIMITS.filesPerRun; i++) {
+    await begin(runId, `r${i}`);
+    const up = sentToMachine("file.upload").at(-1);
+    arrive(up?.fileId ?? "", 100);
+    await fromMachine({ t: "file.done", runId, reqId: `r${i}`, fileId: up?.fileId ?? "" });
+  }
+  assert.equal(sentToMachine("file.attached").length, RUN_LIMITS.filesPerRun);
+  await begin(runId, "one-too-many");
+  assert.match(sentToMachine("file.refused").at(-1)?.error ?? "", /At most 5 files/);
+  // A file larger than the plan allows is refused by the room's own rules.
+  const other = await post("mia", room.id, "@hive big one");
+  const otherRun = runOf(other.id).id;
+  await fromMachine({ t: "run.ack", runId: otherRun });
+  await begin(otherRun, "big", 10 * 1024 ** 4);
+  assert.equal(sentToMachine("file.refused").length >= 2, true);
+  // And once the run has ended, nothing.
+  await fromMachine({ t: "run.end", runId, n: 1, status: "done", body: "ok", steps: [] });
+  await begin(runId, "late");
+  assert.equal(sentToMachine("file.refused").at(-1)?.error, "This run is over");
+});
+
+test("a file someone else sent, or one in another channel, cannot be put in the reply", async () => {
+  const room = await make("max", "Design");
+  const elsewhere = await make("max", "Elsewhere");
+  connectMachine();
+  await hello();
+  const asked = await post("max", room.id, "@hive a file");
+  const runId = runOf(asked.id).id;
+  await fromMachine({ t: "run.ack", runId });
+  // Mia's own upload, ready in this channel.
+  const theirs = (await (
+    await call("mia", "POST", "/v1/files/uploads", {
+      channelId: room.id,
+      name: "mine.txt",
+      mime: "text/plain",
+      bytes: 10,
+    })
+  ).json()) as { fileId: string };
+  arrive(theirs.fileId, 10);
+  await fromMachine({ t: "file.done", runId, reqId: "x", fileId: theirs.fileId });
+  // Max's own, but in another channel.
+  const away = (await (
+    await call("max", "POST", "/v1/files/uploads", {
+      channelId: elsewhere.id,
+      name: "away.txt",
+      mime: "text/plain",
+      bytes: 10,
+    })
+  ).json()) as { fileId: string };
+  arrive(away.fileId, 10);
+  await fromMachine({ t: "file.done", runId, reqId: "y", fileId: away.fileId });
+  assert.deepEqual(
+    sentToMachine("file.refused").map((f) => f.error),
+    ["That file did not arrive", "That file did not arrive"],
+  );
+  assert.equal((await replyTo(asked.id)).files.length, 0);
+});

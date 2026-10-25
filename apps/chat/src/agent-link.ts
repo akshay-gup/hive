@@ -27,6 +27,7 @@ import {
   runnerFrameSchema,
 } from "../../../packages/domain/src/chat-agent.ts";
 import { withHandles } from "../../../packages/domain/src/mentions.ts";
+import type { Filing } from "./filing.ts";
 import { signedPath } from "./uploads.ts";
 
 /** The agent's machine, as the room can reach it: the one connection it holds. */
@@ -58,6 +59,7 @@ export interface AgentLinkDeps {
   messages: Messages;
   runs: Runs;
   files: Files;
+  filing: Filing;
   /** The machine's connection, if there is one. The room may sleep, so this is asked for each time. */
   runner: () => RunnerLink | null;
   /** A message as the app is shown it, with the agent's name on it. */
@@ -131,6 +133,10 @@ export class AgentLink {
       case "beat":
         this.deps.runs.beat(frame.runIds);
         return;
+      case "file.begin":
+        return this.fileBegin(frame);
+      case "file.done":
+        return this.fileDone(frame);
       case "renew":
         return; // The connection's token is the Durable Object's to renew; see room.ts.
     }
@@ -175,6 +181,63 @@ export class AgentLink {
     );
     // Said even if it had already ended here, so the machine can let go of it.
     this.send({ t: "ack", runId: frame.runId });
+  }
+
+  // Files the agent puts in its reply
+
+  /** The agent may send a file for a run that is going, as the person who asked would: their rights, their room. */
+  private async fileBegin(frame: Extract<RunnerFrame, { t: "file.begin" }>) {
+    const refuse = (error: string) =>
+      void this.send({ t: "file.refused", reqId: frame.reqId, error });
+    const run = this.deps.runs.get(frame.runId);
+    const workspace = this.deps.workspaceId();
+    if (!run || !isActive(run) || !workspace) return refuse("This run is over");
+    const have = this.deps.files.ofMessages([run.replyId]).get(run.replyId)?.length ?? 0;
+    if (have >= RUN_LIMITS.filesPerRun)
+      return refuse(`At most ${RUN_LIMITS.filesPerRun} files go in one reply`);
+    try {
+      const begun = await this.deps.filing.begin(run.askedBy, workspace, {
+        channelId: run.channelId,
+        name: frame.name,
+        mime: frame.mime || "application/octet-stream",
+        bytes: frame.bytes,
+      });
+      this.send({
+        t: "file.upload",
+        reqId: frame.reqId,
+        fileId: begun.fileId,
+        path: `/w/${workspace}${begun.upload}`,
+      });
+    } catch (error) {
+      refuse(error instanceof AppError ? error.message : "The file could not be sent");
+    }
+  }
+
+  private async fileDone(frame: Extract<RunnerFrame, { t: "file.done" }>) {
+    const refuse = (error: string) =>
+      void this.send({ t: "file.refused", reqId: frame.reqId, error });
+    const { runs, files, messages } = this.deps;
+    const run = runs.get(frame.runId);
+    if (!run || !isActive(run)) return refuse("This run is over");
+    const file = files.get(frame.fileId);
+    // Only a file this run was given room for, by the person who asked, in this channel, and still unattached.
+    if (
+      !file ||
+      file.state !== "ready" ||
+      file.uploaderId !== run.askedBy ||
+      file.channelId !== run.channelId ||
+      file.messageId
+    )
+      return refuse("That file did not arrive");
+    const reply = messages.get(run.replyId);
+    if (!reply || reply.deletedAt) return refuse("The reply is gone");
+    try {
+      files.attach([file.id], reply.id, run.channelId, run.askedBy);
+    } catch (error) {
+      return refuse(error instanceof AppError ? error.message : "The file could not be added");
+    }
+    this.deps.edited(await this.deps.show(messages.get(reply.id) as Message));
+    this.send({ t: "file.attached", reqId: frame.reqId });
   }
 
   // The reply message

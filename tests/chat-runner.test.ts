@@ -78,7 +78,14 @@ async function wired(t: TestContext, behave: (turn: FakeTurn) => void | Promise<
     queueMicrotask(() => sock.onopen?.({}));
     return sock;
   };
-  const fetcher = (async (url: string | URL | Request) => {
+  const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+    // The Worker's side of sending a file: the bytes arrive, and the room is told how many.
+    const upload = /^https:\/\/chat\.test\/w\/w1\/f\/up\/([^/?]+)\?/.exec(String(url));
+    if (upload && init?.method === "PUT") {
+      const bytes = (init.body as Uint8Array).length;
+      core.filing.uploaded(decodeURIComponent(upload[1] ?? ""), "file", bytes);
+      return Response.json({ ok: true, bytes });
+    }
     asked.push(String(url));
     return Response.json({
       token: "runner-token",
@@ -247,7 +254,7 @@ test("what the agent does with its tools is shown as steps, and a board item it 
   assert.equal(task?.channelId, room.id);
 });
 
-test("the tools depend on the channel and the person: a private channel only reads, a guest only what a guest may", async (t) => {
+test("the tools depend on the channel and the person: a private channel has no board, a guest only what a guest may", async (t) => {
   const offered: string[][] = [];
   const f = await wired(t, ({ tools, say }) => {
     offered.push([...tools].sort());
@@ -265,7 +272,11 @@ test("the tools depend on the channel and the person: a private channel only rea
   await f.finished(second.id);
   const third = await f.post("gus", secret.id, "@hive c");
   await f.finished(third.id, "gus");
-  assert.deepEqual(offered, [["browse_web", "create_issue"], ["browse_web"], ["browse_web"]]);
+  assert.deepEqual(offered, [
+    ["browse_web", "create_issue", "send_file"],
+    ["browse_web", "send_file"],
+    ["browse_web", "send_file"],
+  ]);
   // The machine was told the private channel is private, and nothing of who is in it but those who can ask.
   const stub = await f.db.get<Channel>(SHARED_OWNER, "channels", secret.id);
   assert.equal(stub?.visibility, "private");
@@ -422,4 +433,37 @@ test("a mention the room has not sent is not run: only the room starts runs", as
   assert.equal(f.extra(reply).reason, "disabled");
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(f.opencode.prompts.length, 0);
+});
+
+test("a file the agent shares from its folder is put in its reply, in a public channel and a private one", async (t) => {
+  const f = await wired(t, async ({ call, say }) => {
+    await call("send_file", { path: "reports/q3.md", content: "# Q3\n\nAll good.\n" });
+    say("Here is the report.");
+  });
+  const room = await f.channel("max", "Design");
+  const asked = await f.post("max", room.id, "@hive write the q3 report");
+  const reply = await f.finished(asked.id);
+  assert.equal(f.extra(reply).status, "done");
+  assert.deepEqual(
+    reply.files.map((file) => [file.name, file.bytes]),
+    [["q3.md", 16]],
+  );
+  const secret = await f.channel("max", "Payroll", "private");
+  await f.call("max", "PATCH", `/v1/channels/${secret.id}`, { agent: true });
+  const second = await f.post("max", secret.id, "@hive and again");
+  const again = await f.finished(second.id);
+  assert.equal(again.files.length, 1);
+});
+
+test("a file that is not there is reported to the agent and nothing is added", async (t) => {
+  let result: unknown;
+  const f = await wired(t, async ({ call, say }) => {
+    result = await call("send_file", { path: "nope/missing.pdf" });
+    say("Could not find it.");
+  });
+  const room = await f.channel("max", "Design");
+  const asked = await f.post("max", room.id, "@hive send the missing file");
+  const reply = await f.finished(asked.id);
+  assert.equal(reply.files.length, 0);
+  assert.equal((result as { sent: boolean }).sent, false);
 });

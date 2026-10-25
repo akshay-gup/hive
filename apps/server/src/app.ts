@@ -417,6 +417,7 @@ export async function createApp(
           launcher: shim,
           tracker,
           replies: { bus, pool },
+          channelFiles: agent.channelFiles,
           origin: () => link.origin,
           directoryOf: (channelId, owner) => sessionDirectory(config, owner, channelId),
           marks: {

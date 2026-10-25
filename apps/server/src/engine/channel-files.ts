@@ -1,5 +1,5 @@
 import { constants, type Dirent, type Stats } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import type { Channel } from "../../../../packages/domain/src/agent.ts";
@@ -289,6 +289,22 @@ export class ChannelFiles {
     const file = this.describe(segments, info);
     const excerpt = file.kind && textKinds.has(file.kind) ? await excerptOf(real) : undefined;
     return this.withLink(owner, channelId, { ...file, ...(excerpt ? { excerpt } : {}) });
+  }
+
+  /** A file's bytes, for a run to send on: no larger than `limit`, from inside the workspace only. */
+  async read(
+    owner: string,
+    channelId: string,
+    path: string,
+    limit: number,
+  ): Promise<{ file: ChannelFile; bytes: Uint8Array }> {
+    const root = await this.root(owner, channelId);
+    const segments = segmentsOf(path);
+    const real = await this.resolve(root, segments);
+    const info = await stat(real);
+    if (!info.isFile()) throw new AppError("That is not a file", 400);
+    if (info.size > limit) throw new AppError("That file is too large to share here", 413);
+    return { file: this.describe(segments, info), bytes: await readFile(real) };
   }
 
   /**

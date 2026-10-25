@@ -153,6 +153,22 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     error: text(500).optional(),
   }),
   z.object({ t: z.literal("beat"), runIds: z.array(text(100)).max(16) }),
+  /** The agent has a file to put in its reply: the room says where to send the bytes. */
+  z.object({
+    t: z.literal("file.begin"),
+    runId: text(100),
+    reqId: text(100),
+    name: text(500).min(1),
+    mime: text(200),
+    bytes: z.number().int().positive(),
+  }),
+  /** The bytes were sent: the room puts the file in the reply. */
+  z.object({
+    t: z.literal("file.done"),
+    runId: text(100),
+    reqId: text(100),
+    fileId: text(100),
+  }),
 ]);
 export type RunnerFrame = z.infer<typeof runnerFrameSchema>;
 
@@ -191,4 +207,8 @@ export type RoomFrame =
     }
   | { t: "run.stop"; runId: string; by: string; reason: "user" | "access" | "timeout" }
   | { t: "ack"; runId: string }
+  /** Where to send a file's bytes: an address on the chat service, good for a few minutes. */
+  | { t: "file.upload"; reqId: string; fileId: string; path: string }
+  | { t: "file.attached"; reqId: string }
+  | { t: "file.refused"; reqId: string; error: string }
   | { t: "closing"; reason: string };

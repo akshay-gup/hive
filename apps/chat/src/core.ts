@@ -161,6 +161,7 @@ export class ChatCore {
       messages: this.messages,
       runs: this.runs,
       files: this.files,
+      filing: this.filing,
       runner: () => options.runner?.() ?? null,
       show: (message) => this.messaging.show(message),
       stream: (channelId, message) => options.stream?.(channelId, message),

@@ -28,6 +28,8 @@ export const RUN_LIMITS = {
   /** The least between two snapshots of a reply that are kept; the others are only shown. */
   saveEveryMs: 1_000,
   maxUpdates: 4_000,
+  /** Files the agent may put in one reply. */
+  filesPerRun: 5,
 } as const;
 
 export interface Run {

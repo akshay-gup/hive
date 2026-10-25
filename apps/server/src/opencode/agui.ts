@@ -82,6 +82,8 @@ export interface ChatOrigin {
   text: string;
   /** Pictures that came with them. */
   files: PromptFilePart[];
+  /** Put a file of the channel's folder in the reply. */
+  shareFile: (path: string) => Promise<{ sent: true } | { sent: false; error: string }>;
 }
 
 const runInputSchema = z.object({
@@ -841,7 +843,12 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
           jevOwner: jevHome,
           latestText: stripped,
           guest,
-          ...(chat ? { toolset: chat.privateChannel ? "chat-private" : "chat" } : {}),
+          ...(chat
+            ? {
+                toolset: chat.privateChannel ? "chat-private" : "chat",
+                shareFile: chat.shareFile,
+              }
+            : {}),
         }),
         toolAbort.signal,
         chat ? { chat: true } : undefined,

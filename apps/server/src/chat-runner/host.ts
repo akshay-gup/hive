@@ -5,6 +5,7 @@ import type {
   RunPrompt,
   RunStart,
 } from "../../../../packages/domain/src/chat-agent.ts";
+import type { ChannelFiles } from "../engine/channel-files.ts";
 import type { AgentService } from "../engine/service.ts";
 import { type ChatOrigin, stripMention } from "../opencode/agui.ts";
 import type { PermissionTracker, TrackerReplyDeps } from "../opencode/approvals.ts";
@@ -34,6 +35,8 @@ export interface HostDeps {
   origin: () => string | null;
   /** The folder a channel's work is in. */
   directoryOf: (channelId: string, owner: string) => string;
+  /** Reads a file of a channel's folder, to put it in the agent's reply. */
+  channelFiles: Pick<ChannelFiles, "read">;
   /** How many runs may go at once. */
   maxRuns?: number;
   /** The name the agent goes by in the chat. */
@@ -65,6 +68,8 @@ interface Active {
   prompts: Map<string, { kind: RunPrompt["kind"]; requestId: string }>;
 }
 
+/** The most of one file the agent may put in a reply; the plan's own limit is applied by the room. */
+const SHARE_MAX_BYTES = 100 * 1024 * 1024;
 const SAY_EVERY_MS = 250;
 const BEAT_EVERY_MS = 15_000;
 const BODY_MAX = 40_000;
@@ -87,6 +92,8 @@ export class ChatRunnerHost {
   /** How runs ended, kept until the room confirms them. */
   private readonly finals = new Map<string, Extract<RunnerFrame, { t: "run.end" }>>();
   private beat: ReturnType<typeof setInterval> | null = null;
+  /** Files being sent: what the room answered to each request, awaited by the one who asked. */
+  private readonly asking = new Map<string, (frame: RoomFrame) => void>();
 
   constructor(private readonly deps: HostDeps) {}
 
@@ -150,6 +157,11 @@ export class ChatRunnerHost {
       }
       case "ack":
         this.finals.delete(frame.runId);
+        return;
+      case "file.upload":
+      case "file.attached":
+      case "file.refused":
+        this.asking.get(frame.reqId)?.(frame);
         return;
       case "closing":
         return;
@@ -238,6 +250,7 @@ export class ChatRunnerHost {
         context: (toolNotes) => buildRunContext(start, toolNotes, files.saved) + missing,
         text: stripMention(start.text, "@hive") || start.text,
         files: files.parts,
+        shareFile: (path) => this.shareFile(run, path),
       };
       done = this.deps.launcher.launch(
         start.asker.id,
@@ -270,6 +283,83 @@ export class ChatRunnerHost {
     };
     this.finals.set(start.id, frame);
     this.deps.send(frame);
+  }
+
+  /** One request to the room and its answer, or a failure in time. */
+  private request(
+    frame: Extract<RunnerFrame, { t: "file.begin" | "file.done" }>,
+    ms = 30_000,
+  ): Promise<RoomFrame> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.asking.delete(frame.reqId);
+        reject(new Error("The chat service did not answer"));
+      }, ms);
+      this.asking.set(frame.reqId, (answer) => {
+        clearTimeout(timer);
+        this.asking.delete(frame.reqId);
+        resolve(answer);
+      });
+      if (!this.deps.send(frame)) {
+        clearTimeout(timer);
+        this.asking.delete(frame.reqId);
+        reject(new Error("Not connected to the chat service"));
+      }
+    });
+  }
+
+  /**
+   * Put a file from the channel's folder in the run's reply: the room says where to send the bytes, the
+   * bytes go there, and the room attaches the file. It is the asker's file as far as quota and size go.
+   */
+  private async shareFile(
+    run: Active,
+    path: string,
+  ): Promise<{ sent: true } | { sent: false; error: string }> {
+    const origin = this.deps.origin();
+    if (!origin) return { sent: false, error: "Not connected to the chat service" };
+    try {
+      const { file, bytes } = await this.deps.channelFiles.read(
+        run.start.asker.id,
+        run.start.channel.id,
+        path,
+        SHARE_MAX_BYTES,
+      );
+      if (!bytes.length) return { sent: false, error: "That file is empty" };
+      const reqId = crypto.randomUUID();
+      const began = await this.request({
+        t: "file.begin",
+        runId: run.runId,
+        reqId,
+        name: file.name,
+        mime: file.mimeType || "application/octet-stream",
+        bytes: bytes.length,
+      });
+      if (began.t === "file.refused") return { sent: false, error: began.error };
+      if (began.t !== "file.upload")
+        return { sent: false, error: "The chat service did not answer" };
+      const put = await (this.deps.fetcher ?? fetch)(`${origin}${began.path}`, {
+        method: "PUT",
+        headers: { "content-length": String(bytes.length) },
+        body: bytes as BodyInit,
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!put.ok) {
+        const reason = ((await put.json().catch(() => ({}))) as { error?: string }).error;
+        return { sent: false, error: reason ?? "The file could not be sent" };
+      }
+      const done = await this.request({
+        t: "file.done",
+        runId: run.runId,
+        reqId,
+        fileId: began.fileId,
+      });
+      return done.t === "file.attached"
+        ? { sent: true }
+        : { sent: false, error: done.t === "file.refused" ? done.error : "The file was not added" };
+    } catch (error) {
+      return { sent: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private snapshot(run: Active): { body: string; steps: unknown[] } {
