@@ -190,14 +190,65 @@ try {
   const fresh = await api("mia", "GET", "/v1/channels", undefined, token("mia", Date.now() + 3000));
   void fresh;
 
-  // Files need the bucket
-  const upload = await api("max", "POST", "/v1/files/uploads", {
+  // Files: sent to the bucket, fetched back, counted, and cleared out
+  const bytes = new Uint8Array(70_000).map((_, i) => i % 251);
+  const begun = await api("max", "POST", "/v1/files/uploads", {
     channelId: channel,
-    name: "a.txt",
-    mime: "text/plain",
-    bytes: 5,
+    name: "smoke.bin",
+    mime: "application/pdf",
+    bytes: bytes.length,
   });
-  console.log(`info files: ${upload.status} ${JSON.stringify(upload.json).slice(0, 120)}`);
+  check(begun.status === 201, "a file is given an address to be sent to", begun);
+  if (begun.status === 201) {
+    const put = await fetch(`${base}/w/${ws}${begun.json.upload}`, { method: "PUT", body: bytes });
+    check(put.status === 200, "the file is sent to the bucket", await put.text());
+    const wrong = await fetch(
+      `${base}/w/${ws}${begun.json.upload.replace(/sig=[0-9a-f]+/, "sig=" + "0".repeat(64))}`,
+      { method: "PUT", body: bytes },
+    );
+    check(wrong.status === 403, "a forged address is refused");
+    const posted = await api("max", "POST", `/v1/channels/${channel}/messages`, {
+      body: "a file",
+      fileIds: [begun.json.fileId],
+    });
+    check(
+      posted.status === 201 && posted.json.files?.[0]?.bytes === bytes.length,
+      "it goes on a message",
+      posted,
+    );
+    const link = await api("max", "POST", `/v1/files/${begun.json.fileId}/link`, {});
+    const got = await fetch(`${base}/w/${ws}${link.json.path}`);
+    const back = new Uint8Array(await got.arrayBuffer());
+    check(
+      got.status === 200 && back.length === bytes.length && back[1000] === bytes[1000],
+      "it is fetched back whole",
+      got.status,
+    );
+    const part = await fetch(`${base}/w/${ws}${link.json.path}`, {
+      headers: { range: "bytes=10-19" },
+    });
+    check(
+      part.status === 206 && (await part.arrayBuffer()).byteLength === 10,
+      "part of it can be fetched",
+    );
+    const usage = await api("max", "GET", "/v1/usage");
+    check(
+      usage.json.bytesUsed === bytes.length && usage.json.files === 1,
+      "it is counted",
+      usage.json,
+    );
+    const gone = await api("max", "DELETE", `/v1/messages/${posted.json.id}`);
+    check(gone.status === 200, "deleting the message deletes the file");
+    const after = await api("max", "GET", "/v1/usage");
+    check(after.json.bytesUsed === 0, "and gives back its room", after.json);
+  }
+
+  // A file left in the workspace, which clearing the workspace out must take from the bucket too.
+  const left = await api("max", "POST", "/v1/files/uploads", { channelId: channel, name: "left.bin", mime: "application/pdf", bytes: 1234 });
+  if (left.status === 201) {
+    await fetch(`${base}/w/${ws}${left.json.upload}`, { method: "PUT", body: new Uint8Array(1234) });
+    console.log(`left in the bucket: w/${ws}/f/${left.json.fileId}`);
+  }
 
   max.close();
   back.close();

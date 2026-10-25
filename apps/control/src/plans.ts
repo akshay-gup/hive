@@ -27,7 +27,7 @@ export const plans: Record<PlanId, Plan> = {
     volumeGb: 5,
     stopsWhenIdle: true,
     maxFileBytes: 25 * 1024 ** 2,
-    storageBytes: 10 * 1024 ** 3,
+    storageBytes: 5 * 1024 ** 3,
   },
   team: {
     id: "team",

@@ -38,7 +38,14 @@ interface Attachment {
  * hibernation API, so it can sleep (and cost nothing) between messages while they stay connected.
  */
 interface RoomEnv {
-  FILES?: { delete(keys: string | string[]): Promise<void> };
+  FILES?: {
+    delete(keys: string | string[]): Promise<void>;
+    list(options: { prefix: string; cursor?: string; limit?: number }): Promise<{
+      objects: { key: string }[];
+      truncated: boolean;
+      cursor?: string;
+    }>;
+  };
   FILE_LINK_KEY?: string;
 }
 
@@ -48,7 +55,19 @@ export class ChatRoom extends DurableObject<RoomEnv> {
   constructor(ctx: ConstructorParameters<typeof DurableObject>[0], env: RoomEnv) {
     super(ctx, env);
     this.room = new RoomLogic(durableSql(ctx.storage), {
-      purge: () => ctx.storage.deleteAll(),
+      purge: async () => {
+        // The workspace's files in the bucket go first, while the room still knows which they are.
+        const workspace = this.room.workspaceId();
+        if (workspace && env.FILES) {
+          let cursor: string | undefined;
+          do {
+            const page = await env.FILES.list({ prefix: `w/${workspace}/`, cursor, limit: 500 });
+            if (page.objects.length) await env.FILES.delete(page.objects.map((o) => o.key));
+            cursor = page.truncated ? page.cursor : undefined;
+          } while (cursor);
+        }
+        await ctx.storage.deleteAll();
+      },
       peers: () => this.peers(),
       keepAlive: (work) => ctx.waitUntil(work),
       linkKey: () => env.FILE_LINK_KEY,

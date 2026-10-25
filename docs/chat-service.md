@@ -37,7 +37,7 @@ allowance (counting what is already on its way) and returns an address good for 
 bytes. The bytes go to the Worker, which streams them to R2 and tells the room how many arrived; more than was said
 throws the file away. Downloads come from a five-minute link the room gives anyone who may open the channel. A
 message's or channel's files go with it, and the room's alarm deletes them from R2 and expires uploads that were
-never finished. Free plan: 25 MB a file, 10 GB in all (`apps/control/src/plans.ts`); only files count, not text.
+never finished. Free plan: 25 MB a file, 5 GB in all (`apps/control/src/plans.ts`); only files count, not text.
 
 ## Deploying
 

@@ -120,7 +120,7 @@ test("a member gets a chat token for the chat service, with their role and the p
     storageBytes: plans.free.storageBytes,
   });
   assert.equal(plans.free.maxFileBytes, 25 * 1024 ** 2);
-  assert.equal(plans.free.storageBytes, 10 * 1024 ** 3);
+  assert.equal(plans.free.storageBytes, 5 * 1024 ** 3);
 });
 
 test("someone who is not in the workspace gets no chat token", async () => {
