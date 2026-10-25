@@ -215,3 +215,14 @@ test("a chat service that cannot be reached does not stop people being removed",
     chatDown = false;
   }
 });
+
+test("the key the control plane's tokens are checked with is public, and is the one it signs with", async () => {
+  const response = await control.app.request("/v1/public-key");
+  assert.equal(response.status, 200);
+  const { publicKey } = (await response.json()) as { publicKey: string };
+  assert.equal(publicKey, keys.publicKey);
+  assert.equal(
+    JSON.stringify(await (await control.app.request("/v1/public-key")).json()).includes("PRIVATE"),
+    false,
+  );
+});

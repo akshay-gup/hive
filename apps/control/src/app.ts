@@ -297,6 +297,8 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     );
   });
   /** Public: what an invitation link is for, so the page can say so before anyone signs in. */
+  // The key workspaces and the chat service check this control plane's tokens with. It is public: it only verifies.
+  app.get("/v1/public-key", (c) => c.json({ publicKey: deps.keys.publicKey }));
   app.get("/v1/invites/:token", async (c) =>
     c.json(await workspaces.previewInvite(idParam.parse(c.req.param("token")))),
   );
