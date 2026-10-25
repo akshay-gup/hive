@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Sql } from "../../../packages/chat-core/src/sql.ts";
 import { ChatCore, type ChatIdentity } from "./core.ts";
 import { IDENTITY_HEADER, INTERNAL_HEADER } from "./headers.ts";
+import { type Peer, Realtime } from "./realtime.ts";
 
 const peopleSchema = z.object({
   people: z
@@ -24,18 +25,31 @@ const peopleSchema = z.object({
  */
 export class RoomLogic {
   readonly core: ChatCore;
+  readonly realtime: Realtime;
 
   constructor(
     private readonly sql: Sql,
-    private readonly hooks: { purge(): Promise<void>; clock?: () => number },
+    private readonly hooks: {
+      purge(): Promise<void>;
+      clock?: () => number;
+      /** Who is connected right now. */
+      peers?: () => Peer[];
+      /** Keep the room running until this is done, which a response ending would otherwise cut short. */
+      keepAlive?: (work: Promise<unknown>) => void;
+    },
   ) {
-    this.core = new ChatCore(sql);
+    this.core = new ChatCore(sql, {
+      clock: hooks.clock,
+      publish: (event) => {
+        const sent = this.realtime.publish(event);
+        hooks.keepAlive?.(sent);
+      },
+    });
+    this.realtime = new Realtime(this.core, () => hooks.peers?.() ?? [], hooks.clock);
   }
 
-  async fetch(request: Request): Promise<Response> {
-    const internal = request.headers.get(INTERNAL_HEADER);
-    if (internal) return this.control(internal, request);
-
+  /** Who is asking, from what the Worker said; or the answer to give a person who is not (or is no longer) signed in. */
+  identityOf(request: Request): ChatIdentity | Response {
     const header = request.headers.get(IDENTITY_HEADER);
     if (!header) return Response.json({ error: "Not signed in" }, { status: 401 });
     const identity = JSON.parse(header) as ChatIdentity;
@@ -45,6 +59,14 @@ export class RoomLogic {
     )[0];
     if (gone && identity.issuedAt < gone.before)
       return Response.json({ error: "This sign-in has ended. Sign in again." }, { status: 401 });
+    return identity;
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const internal = request.headers.get(INTERNAL_HEADER);
+    if (internal) return this.control(internal, request);
+    const identity = this.identityOf(request);
+    if (identity instanceof Response) return identity;
     return this.core.handle(request, identity);
   }
 

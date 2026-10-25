@@ -214,3 +214,58 @@ test("the control plane tells a workspace who is in it, so they can be found bef
   );
   assert.deepEqual(await list(), ["Max", "Ada"]);
 });
+
+test("the live connection takes its token from the subprotocol, and passes on only what was checked", async () => {
+  const seen: Request[] = [];
+  const spy: Env = {
+    ...env(),
+    ROOMS: {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: async (request: Request) => {
+          seen.push(request);
+          return new Response("up");
+        },
+      }),
+    },
+  };
+  const connect = (headers: Record<string, string>) =>
+    app.request("https://chat.test/w/w1/v1/ws", { headers }, spy);
+  assert.equal((await connect({})).status, 426, "not a WebSocket");
+  assert.equal((await connect({ upgrade: "websocket" })).status, 401, "no token");
+  assert.equal(
+    (await connect({ upgrade: "websocket", "sec-websocket-protocol": "hive.v1" })).status,
+    401,
+  );
+  assert.equal(
+    (await connect({ upgrade: "websocket", "sec-websocket-protocol": "hive.v1, garbage" })).status,
+    401,
+  );
+  assert.equal(
+    (await connect({ upgrade: "websocket", "sec-websocket-protocol": `other, ${token()}` })).status,
+    401,
+    "only the protocol this speaks",
+  );
+  assert.equal(seen.length, 0);
+  const good = await connect({
+    upgrade: "websocket",
+    connection: "Upgrade",
+    "sec-websocket-key": "abc",
+    "sec-websocket-version": "13",
+    "sec-websocket-protocol": `hive.v1, ${token()}`,
+    "x-hive-identity": JSON.stringify({ ...ada, issuedAt: 0, role: "owner" }),
+    cookie: "session=secret",
+  });
+  assert.equal(good.status, 200);
+  const forwarded = seen[0];
+  assert.equal(forwarded?.headers.get("upgrade"), "websocket");
+  assert.equal(forwarded?.headers.get("cookie"), null, "nothing else of the caller's");
+  const identity = JSON.parse(forwarded?.headers.get("x-hive-identity") ?? "{}");
+  assert.deepEqual([identity.email, identity.role], ["max@example.com", "member"]);
+  assert.ok(identity.expiresAt > Date.now(), "the connection ends when the token does");
+  assert.equal(
+    forwarded?.headers.get("sec-websocket-protocol"),
+    "hive.v1",
+    "the token is not passed on",
+  );
+});

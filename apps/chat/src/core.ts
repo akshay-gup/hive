@@ -5,15 +5,18 @@ import { ChannelPeople } from "../../../packages/chat-core/src/channel-people.ts
 import { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { DirectMessages } from "../../../packages/chat-core/src/direct-messages.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
-import { Events } from "../../../packages/chat-core/src/events.ts";
+import { type ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
 import { Messages } from "../../../packages/chat-core/src/messages.ts";
 import { Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import { Reactions } from "../../../packages/chat-core/src/reactions.ts";
 import { Reads } from "../../../packages/chat-core/src/reads.ts";
 import { migrate } from "../../../packages/chat-core/src/schema.ts";
+import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
+import type { Channel } from "../../../packages/domain/src/agent.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
+import { Messaging } from "./messaging.ts";
 
 /** Who is asking, as the Worker verified it from the control plane's token. */
 export interface ChatIdentity {
@@ -24,6 +27,8 @@ export interface ChatIdentity {
   /** When the token was made, in milliseconds. */
   issuedAt: number;
   limits?: { maxFileBytes: number; storageBytes: number };
+  /** When the token runs out, in milliseconds: the end of a connection made with it. */
+  expiresAt?: number;
 }
 
 interface Variables {
@@ -49,12 +54,26 @@ export class ChatCore {
   readonly notices: Notifications;
   readonly events: Events;
   readonly channels: ChatChannels;
+  readonly messaging: Messaging;
+  private readonly publishEvent: (event: ChatEvent) => void;
   readonly app: Hono<{ Bindings: Bindings; Variables: Variables }>;
 
   constructor(
     readonly sql: Sql,
-    options: { now?: () => string; clock?: () => number } = {},
+    options: {
+      now?: () => string;
+      clock?: () => number;
+      /** Told of each event once what it is about has been written, for whoever is listening. */
+      publish?: (event: ChatEvent) => void;
+    } = {},
   ) {
+    this.publishEvent = (event) => {
+      try {
+        options.publish?.(event);
+      } catch (error) {
+        console.error(`[Hive chat] could not send an event: ${String(error)}`);
+      }
+    };
     const now = options.now ?? (() => new Date().toISOString());
     migrate(sql);
     this.store = new SqliteRecordStore(sql, now);
@@ -68,6 +87,18 @@ export class ChatCore {
     this.notices = new Notifications(sql, now);
     this.events = new Events(sql, options.clock);
     this.channels = new ChatChannels(this.store, this.access, this.messages, this.reads, now);
+    this.messaging = new Messaging({
+      sql,
+      store: this.store,
+      access: this.access,
+      channels: this.channels,
+      messages: this.messages,
+      reactions: this.reactions,
+      reads: this.reads,
+      notices: this.notices,
+      events: this.events,
+      publish: this.publishEvent,
+    });
     this.app = this.routes();
   }
 
@@ -89,6 +120,30 @@ export class ChatCore {
     return { id: identity.sub, email, name: identity.name, role: identity.role };
   }
 
+  /** Write an event down and tell whoever is listening. */
+  emit(type: string, data: unknown, scope: { channelId?: string | null; userId?: string | null }) {
+    this.publishEvent(this.events.append(type, data, scope));
+  }
+
+  /** The ids of the people who may open a channel now; none for one that does not exist. */
+  private async audience(channelId: string): Promise<Set<string>> {
+    const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
+    if (!channel) return new Set();
+    return new Set((await this.access.openers(channel)).map((who) => who.owner));
+  }
+
+  /** A channel was made: those who can open it are told. */
+  private announce(type: "channel.new" | "channel.updated", channelId: string) {
+    this.emit(type, { id: channelId }, { channelId });
+  }
+
+  private async announceChange(channelId: string, before: Set<string>) {
+    const after = await this.audience(channelId);
+    this.emit("channel.updated", { id: channelId }, { channelId });
+    for (const userId of before)
+      if (!after.has(userId)) this.emit("channel.removed", { id: channelId }, { userId });
+  }
+
   /**
    * Make the workspace's people exactly these: the control plane says who is in the workspace, so
    * they can be found for a direct message before they have opened chat. Anyone it no longer names is
@@ -101,6 +156,11 @@ export class ChatCore {
     for (const existing of await this.store.list<{ id: string }>("system", "users"))
       if (!wanted.has(existing.id)) await this.store.remove("system", "users", existing.id);
     for (const p of wanted.values()) await this.remember({ ...p, issuedAt: 0 } as ChatIdentity);
+  }
+
+  /** Note who this is, as their token says. */
+  async syncPerson(identity: ChatIdentity): Promise<void> {
+    await this.remember(identity);
   }
 
   handle(request: Request, identity: ChatIdentity): Promise<Response> | Response {
@@ -145,50 +205,162 @@ export class ChatCore {
 
     // Channels
     app.get("/v1/channels", async (c) => c.json(await this.channels.list(c.get("owner"))));
-    app.post("/v1/channels", async (c) =>
-      c.json(await this.channels.create(c.get("owner"), await body(c)), 201),
-    );
+    app.post("/v1/channels", async (c) => {
+      const channel = await this.channels.create(c.get("owner"), await body(c));
+      this.announce("channel.new", channel.id);
+      return c.json(channel, 201);
+    });
     app.get("/v1/channels/:id", async (c) =>
       c.json(await this.channels.get(c.get("owner"), c.req.param("id"))),
     );
     app.get("/v1/channels/:id/members", async (c) =>
       c.json(await this.people.get(c.get("owner"), c.req.param("id"))),
     );
-    app.post("/v1/channels/:id/members", async (c) =>
-      c.json(
-        (await this.people.change(c.get("owner"), c.req.param("id"), await body(c))) ?? {
-          left: true,
-        },
-      ),
-    );
-    app.post("/v1/channels/:id/managers", async (c) =>
-      c.json(await this.people.managers(c.get("owner"), c.req.param("id"), await body(c))),
-    );
-    app.patch("/v1/channels/:id", async (c) =>
-      c.json(await this.people.settings(c.get("owner"), c.req.param("id"), await body(c))),
-    );
-    app.post("/v1/channels/:id/archive", async (c) =>
-      c.json(await this.channels.archive(c.get("owner"), c.req.param("id"))),
-    );
+    app.post("/v1/channels/:id/members", async (c) => {
+      const id = c.req.param("id");
+      const before = await this.audience(id);
+      const result = (await this.people.change(c.get("owner"), id, await body(c))) ?? {
+        left: true,
+      };
+      await this.announceChange(id, before);
+      return c.json(result);
+    });
+    app.post("/v1/channels/:id/managers", async (c) => {
+      const id = c.req.param("id");
+      const before = await this.audience(id);
+      const result = await this.people.managers(c.get("owner"), id, await body(c));
+      await this.announceChange(id, before);
+      return c.json(result);
+    });
+    app.patch("/v1/channels/:id", async (c) => {
+      const id = c.req.param("id");
+      const before = await this.audience(id);
+      const result = await this.people.settings(c.get("owner"), id, await body(c));
+      await this.announceChange(id, before);
+      return c.json(result);
+    });
+    app.post("/v1/channels/:id/archive", async (c) => {
+      const id = c.req.param("id");
+      const before = await this.audience(id);
+      const result = await this.channels.archive(c.get("owner"), id);
+      await this.announceChange(id, before);
+      return c.json(result);
+    });
     app.get("/v1/channels/:id/mentionable", async (c) =>
       c.json(await this.channels.mentionable(c.get("owner"), c.req.param("id"))),
     );
     app.post("/v1/channels/:id/read", async (c) => {
       const { seq } = z.object({ seq: z.number().int().min(0).optional() }).parse(await body(c));
-      const at = await this.channels.markRead(c.get("owner"), c.req.param("id"), seq);
+      const at = await this.messaging.markRead(c.get("owner"), c.req.param("id"), seq);
       return c.json({ ok: true, seq: at });
     });
 
+    // What is said in a channel
+    const number = (value: string | undefined) => {
+      if (value === undefined || value === "") return undefined;
+      const n = Number(value);
+      if (!Number.isFinite(n)) throw new AppError("That is not a number", 422);
+      return n;
+    };
+    app.get("/v1/channels/:id/messages", async (c) =>
+      c.json(
+        await this.messaging.page(c.get("owner"), c.req.param("id"), {
+          before: number(c.req.query("before")),
+          limit: number(c.req.query("limit")),
+        }),
+      ),
+    );
+    app.get("/v1/channels/:id/since", async (c) =>
+      c.json(
+        await this.messaging.since(
+          c.get("owner"),
+          c.req.param("id"),
+          number(c.req.query("seq")) ?? 0,
+        ),
+      ),
+    );
+    app.post("/v1/channels/:id/messages", async (c) =>
+      c.json(await this.messaging.post(c.get("owner"), c.req.param("id"), await body(c)), 201),
+    );
+    app.get("/v1/channels/:id/threads", async (c) =>
+      c.json(await this.messaging.threads(c.get("owner"), c.req.param("id"))),
+    );
+    app.get("/v1/messages/:id/replies", async (c) =>
+      c.json(
+        await this.messaging.replies(c.get("owner"), c.req.param("id"), {
+          after: number(c.req.query("after")),
+          limit: number(c.req.query("limit")),
+        }),
+      ),
+    );
+    app.patch("/v1/messages/:id", async (c) =>
+      c.json(await this.messaging.edit(c.get("owner"), c.req.param("id"), await body(c))),
+    );
+    app.delete("/v1/messages/:id", async (c) =>
+      c.json(await this.messaging.remove(c.get("owner"), c.req.param("id"))),
+    );
+    app.put("/v1/messages/:id/reactions/:emoji", async (c) =>
+      c.json(
+        await this.messaging.react(
+          c.get("owner"),
+          c.req.param("id"),
+          decodeURIComponent(c.req.param("emoji")),
+          true,
+        ),
+      ),
+    );
+    app.delete("/v1/messages/:id/reactions/:emoji", async (c) =>
+      c.json(
+        await this.messaging.react(
+          c.get("owner"),
+          c.req.param("id"),
+          decodeURIComponent(c.req.param("emoji")),
+          false,
+        ),
+      ),
+    );
+
+    // What a person is told
+    app.get("/v1/notifications", async (c) =>
+      c.json(
+        await this.messaging.notices(c.get("owner"), { unreadOnly: c.req.query("unread") === "1" }),
+      ),
+    );
+    const noticeAction =
+      (action: "read" | "unread" | "dismiss") =>
+      async (c: {
+        get(key: "owner"): string;
+        req: { param(name: string): string };
+        json(value: unknown): Response;
+      }) =>
+        c.json({
+          changed: this.messaging.noticeState(c.get("owner"), action, [c.req.param("id")]),
+        });
+    app.post("/v1/notifications/read-all", async (c) =>
+      c.json({ changed: this.messaging.noticeState(c.get("owner"), "read") }),
+    );
+    app.post("/v1/notifications/dismiss-all", async (c) =>
+      c.json({ changed: this.messaging.noticeState(c.get("owner"), "dismiss") }),
+    );
+    app.post("/v1/notifications/:id/read", noticeAction("read"));
+    app.post("/v1/notifications/:id/unread", noticeAction("unread"));
+    app.post("/v1/notifications/:id/dismiss", noticeAction("dismiss"));
+
     // Owners and admins: what channels exist, private ones too, and not what is said in them.
     app.get("/v1/admin/channels", async (c) => c.json(await this.people.directory(c.get("owner"))));
-    app.post("/v1/admin/channels/:id/join", async (c) =>
-      c.json(await this.people.enter(c.get("owner"), c.req.param("id"))),
-    );
+    app.post("/v1/admin/channels/:id/join", async (c) => {
+      const id = c.req.param("id");
+      const before = await this.audience(id);
+      const result = await this.people.enter(c.get("owner"), id);
+      await this.announceChange(id, before);
+      return c.json(result);
+    });
     app.post("/v1/admin/channels/:id/archive", async (c) => {
-      await this.channels.archive(c.get("owner"), c.req.param("id"));
-      return c.json(
-        (await this.people.directory(c.get("owner"))).find((e) => e.id === c.req.param("id")),
-      );
+      const id = c.req.param("id");
+      const before = await this.audience(id);
+      await this.channels.archive(c.get("owner"), id);
+      await this.announceChange(id, before);
+      return c.json((await this.people.directory(c.get("owner"))).find((e) => e.id === id));
     });
 
     // Direct messages
@@ -197,6 +369,7 @@ export class ChatCore {
       const owner = c.get("owner");
       const { email } = (await body(c)) as { email?: unknown };
       const channel = await this.dms.open(owner, email);
+      this.announce("channel.new", channel.id);
       return c.json(await this.channels.get(owner, channel.id), 201);
     });
 

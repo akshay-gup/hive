@@ -126,6 +126,21 @@ export class Access {
     return people;
   }
 
+  /** Everyone who has signed in here, by the id they are known by. */
+  async byId(): Promise<Map<string, { email: string; name: string; role: WorkspaceRole }>> {
+    const users = await this.db.list<{ id: string; email?: string; name?: string; role?: string }>(
+      "system",
+      "users",
+    );
+    const people = new Map<string, { email: string; name: string; role: WorkspaceRole }>();
+    for (const user of users) {
+      const role = (["owner", "admin", "member", "guest"] as const).find((r) => r === user.role);
+      if (user.email && role)
+        people.set(user.id, { email: normalizeEmail(user.email), name: user.name ?? "", role });
+    }
+    return people;
+  }
+
   /** The address each person's id is known by, for turning who wrote a message into who to show. */
   async addresses(): Promise<Map<string, string>> {
     const users = await this.db.list<{ id: string; email?: string }>("system", "users");
