@@ -1,4 +1,4 @@
-import { MessageCircleQuestion, ShieldCheck } from "lucide-react-native";
+import { Check, MessageCircleQuestion, ShieldCheck, X } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import type { PromptChoice, PromptState, RunPrompt } from "../../../packages/domain/src/chat-agent";
@@ -18,15 +18,45 @@ const answerOf = (pick: Pick): string[] => {
   return own ? [...pick.chosen, own] : pick.chosen;
 };
 
-/** How an answered prompt reads: who decided what. */
-function resolution(state: PromptState): string {
-  const answered = state.answered;
-  if (!answered) return "";
-  const who = answered.byName || "Someone";
-  if ("reply" in answered.choice)
-    return answered.choice.reply === "once" ? `Allowed by ${who}` : `Turned down by ${who}`;
-  if ("answers" in answered.choice) return `Answered by ${who}`;
-  return answered.by === "agent" ? "No longer needed" : `Skipped by ${who}`;
+/** What an answered prompt leaves behind: one line with what was decided, not the card it came from. */
+function settled(state: PromptState): { ok: boolean; parts: { label: string; value: string }[] } {
+  const { prompt, answered } = state;
+  const choice = answered?.choice;
+  if (prompt.kind === "approval" && choice && "reply" in choice)
+    return {
+      ok: choice.reply === "once",
+      parts: [{ label: prompt.title, value: choice.reply === "once" ? "Allowed" : "Turned down" }],
+    };
+  if (prompt.kind === "question" && choice && "answers" in choice)
+    return {
+      ok: true,
+      parts: prompt.questions.map((asked, i) => ({
+        label: asked.header || asked.question,
+        value: choice.answers[i]?.join(", ") || "Skipped",
+      })),
+    };
+  return {
+    ok: false,
+    parts: [{ label: "", value: answered?.by === "agent" ? "No longer needed" : "Skipped" }],
+  };
+}
+
+function SettledPrompt({ state }: { state: PromptState }) {
+  const { ok, parts } = settled(state);
+  const Mark = ok ? Check : X;
+  return (
+    <View style={{ marginTop: 4, gap: 2, alignSelf: "stretch", maxWidth: 560 }}>
+      {parts.map((part) => (
+        <View key={`${part.label}:${part.value}`} style={[s.row, { gap: 6, alignItems: "center" }]}>
+          <Mark size={14} color={colors.muted} />
+          <Text numberOfLines={2} style={[s.small, { flex: 1 }]}>
+            {!!part.label && `${part.label} · `}
+            <Text style={{ color: colors.text, fontWeight: "600" }}>{part.value}</Text>
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 /**
@@ -56,21 +86,21 @@ export function ChatAgentPrompt({
       setBusy(false);
     }
   }
-  const waiting = !state.answered;
+  if (state.answered) return <SettledPrompt state={state} />;
   const frame = {
     gap: 8,
     padding: 12,
     marginTop: 6,
     borderRadius: radius.xl,
     borderWidth: 1,
-    backgroundColor: waiting ? colors.warningBg : colors.surface,
-    borderColor: waiting ? colors.warningLine : colors.line,
+    backgroundColor: colors.warningBg,
+    borderColor: colors.warningLine,
     alignSelf: "stretch" as const,
     maxWidth: 560,
   };
   if (prompt.kind === "approval")
     return (
-      <View accessibilityRole={waiting ? "alert" : undefined} style={frame}>
+      <View accessibilityRole="alert" style={frame}>
         <View style={[s.row, { gap: 8, alignItems: "flex-start" }]}>
           <ShieldCheck size={16} color={colors.text} />
           <Text selectable style={[s.text, { flex: 1, fontWeight: "600" }]}>
@@ -78,35 +108,27 @@ export function ChatAgentPrompt({
           </Text>
         </View>
         {!!prompt.detail && (
-          <Text
-            selectable
-            numberOfLines={waiting ? 8 : 2}
-            style={[s.small, { fontFamily: "monospace" }]}
-          >
+          <Text selectable numberOfLines={8} style={[s.small, { fontFamily: "monospace" }]}>
             {prompt.detail}
           </Text>
         )}
-        {waiting ? (
-          canAnswer ? (
-            <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-              <Button
-                small
-                primary
-                busy={busy}
-                disabled={busy}
-                onPress={() => void send({ reply: "once" })}
-              >
-                Allow once
-              </Button>
-              <Button small danger disabled={busy} onPress={() => void send({ reply: "reject" })}>
-                Turn down
-              </Button>
-            </View>
-          ) : (
-            <Text style={s.small}>The agent is paused until a teammate decides.</Text>
-          )
+        {canAnswer ? (
+          <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+            <Button
+              small
+              primary
+              busy={busy}
+              disabled={busy}
+              onPress={() => void send({ reply: "once" })}
+            >
+              Allow once
+            </Button>
+            <Button small danger disabled={busy} onPress={() => void send({ reply: "reject" })}>
+              Turn down
+            </Button>
+          </View>
         ) : (
-          <Text style={s.small}>{resolution(state)}</Text>
+          <Text style={s.small}>The agent is paused until a teammate decides.</Text>
         )}
         <ErrorNotice error={error} />
       </View>
@@ -115,7 +137,6 @@ export function ChatAgentPrompt({
     <QuestionCard
       frame={frame}
       questions={prompt.questions}
-      state={state}
       canAnswer={canAnswer}
       busy={busy}
       error={error}
@@ -127,7 +148,6 @@ export function ChatAgentPrompt({
 function QuestionCard({
   frame,
   questions,
-  state,
   canAnswer,
   busy,
   error,
@@ -135,21 +155,19 @@ function QuestionCard({
 }: {
   frame: object;
   questions: Asked[];
-  state: PromptState;
   canAnswer: boolean;
   busy: boolean;
   error: string;
   onSend: (choice: PromptChoice) => Promise<void>;
 }) {
   const [picks, setPicks] = useState<Pick[]>(() => questions.map(() => ({ chosen: [], own: "" })));
-  const waiting = !state.answered;
-  const may = waiting && canAnswer;
+  const may = canAnswer;
   const change = (at: number, next: (pick: Pick) => Pick) =>
     setPicks((all) => all.map((one, i) => (i === at ? next(one) : one)));
   const answers = questions.map((_, i) => answerOf(picks[i] ?? { chosen: [], own: "" }));
   const ready = answers.every((a) => a.length > 0);
   return (
-    <View accessibilityRole={waiting ? "alert" : undefined} style={frame}>
+    <View accessibilityRole="alert" style={frame}>
       {questions.map((asked, at) => (
         <View key={asked.question} style={{ gap: 6 }}>
           <View style={[s.row, { gap: 8, alignItems: "center" }]}>
@@ -233,9 +251,7 @@ function QuestionCard({
           </Button>
         </View>
       ) : (
-        <Text style={s.small}>
-          {waiting ? "The agent is paused until a teammate answers." : resolution(state)}
-        </Text>
+        <Text style={s.small}>The agent is paused until a teammate answers.</Text>
       )}
       <ErrorNotice error={error} />
     </View>
