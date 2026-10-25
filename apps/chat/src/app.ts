@@ -10,6 +10,7 @@ import {
 } from "../../../packages/integrations/src/workspace-token.ts";
 import type { ChatIdentity } from "./core.ts";
 import { IDENTITY_HEADER, INTERNAL_HEADER } from "./headers.ts";
+import { readSignedLink, serveHeaders, type Variant } from "./uploads.ts";
 
 /** The part of a Durable Object namespace this uses. */
 export interface RoomNamespace {
@@ -17,8 +18,30 @@ export interface RoomNamespace {
   get(id: unknown): { fetch(request: Request): Promise<Response> };
 }
 
+/** The part of an R2 bucket this uses. */
+export interface Bucket {
+  put(
+    key: string,
+    value: ReadableStream,
+    options?: { httpMetadata?: { contentType?: string } },
+  ): Promise<{ size: number }>;
+  get(
+    key: string,
+    options?: { range?: { offset: number; length?: number } | { suffix: number } },
+  ): Promise<{
+    body: ReadableStream;
+    size: number;
+    range?: { offset: number; length: number };
+  } | null>;
+  delete(keys: string | string[]): Promise<void>;
+}
+
 export interface Env {
   ROOMS: RoomNamespace;
+  /** Where people's files are kept, under `w/<workspace>/`. */
+  FILES?: Bucket;
+  /** What addresses for sending and fetching files are signed with. */
+  FILE_LINK_KEY?: string;
   /** The control plane's public key, as the workspaces have it: the Worker knows tokens are the control plane's by it. */
   CONTROL_PUBLIC_KEY: string;
   /** The origins of the app, separated by commas. */
@@ -110,6 +133,7 @@ app.post("/w/:ws/internal/:action", async (c) => {
 });
 
 const identityOf = (verified: VerifiedWorkspaceToken): ChatIdentity => ({
+  workspaceId: verified.workspaceId,
   sub: verified.sub,
   email: verified.email,
   name: verified.name,
@@ -160,6 +184,114 @@ app.get("/w/:ws/v1/ws", async (c) => {
   headers.set(IDENTITY_HEADER, JSON.stringify(identity));
   const stub = c.env.ROOMS.get(c.env.ROOMS.idFromName(workspaceId));
   return stub.fetch(new Request("https://room/v1/ws", { method: "GET", headers }));
+});
+
+/** What the Worker asks of a workspace's room once it has checked an address: the room says whether it still stands. */
+async function askRoom(env: Env, workspaceId: string, action: string, body: unknown) {
+  const stub = env.ROOMS.get(env.ROOMS.idFromName(workspaceId));
+  return stub.fetch(
+    new Request("https://room/internal", {
+      method: "POST",
+      headers: { [INTERNAL_HEADER]: action, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** A `Range` header as the bucket takes it, or nothing for one it cannot make sense of (the whole file is sent). */
+function rangeOf(header: string | undefined, size: number) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header ?? "");
+  if (!match || (!match[1] && !match[2])) return undefined;
+  if (!match[1]) return { suffix: Math.min(Number(match[2]), size) };
+  const offset = Number(match[1]);
+  if (offset >= size) return "unsatisfiable" as const;
+  const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  return end < offset ? undefined : { offset, length: end - offset + 1 };
+}
+
+/**
+ * A file is sent here, to the address the room gave its sender: good for that file and that many
+ * bytes, once. The bytes go straight to the bucket; the room is told how many arrived, and throws the
+ * file away if that is not what was said.
+ */
+app.put("/w/:ws/f/up/:id", async (c) => {
+  const workspaceId = c.req.param("ws");
+  const fileId = c.req.param("id");
+  const bucket = c.env.FILES;
+  const secret = c.env.FILE_LINK_KEY;
+  if (!bucket || !secret) return c.json({ error: "Sending files is not set up here" }, 503);
+  const claims = readSignedLink(secret, workspaceId, "up", fileId, new URL(c.req.url).searchParams);
+  if (!claims || claims.bytes === undefined)
+    return c.json({ error: "This upload address is not good any more" }, 403);
+  const declared = Number(c.req.header("content-length"));
+  if (!Number.isInteger(declared) || declared !== claims.bytes || !c.req.raw.body)
+    return c.json({ error: `Send exactly ${claims.bytes} bytes` }, 400);
+  const open = await askRoom(c.env, workspaceId, "file-state", { fileId, variant: claims.variant });
+  if (!open.ok) return c.json({ error: "This upload is not open" }, 409);
+  const state = (await open.json()) as { mime: string; bytes: number; key: string };
+  if (state.bytes !== claims.bytes) return c.json({ error: "This upload is not open" }, 409);
+  const key = `w/${workspaceId}/${state.key}`;
+  let size: number;
+  try {
+    const { readable, writable } =
+      typeof FixedLengthStream === "undefined"
+        ? new TransformStream<Uint8Array, Uint8Array>()
+        : new FixedLengthStream(claims.bytes);
+    const piped = c.req.raw.body.pipeTo(writable);
+    const stored = await bucket.put(key, readable, { httpMetadata: { contentType: state.mime } });
+    await piped;
+    size = stored.size;
+  } catch {
+    await bucket.delete(key).catch(() => undefined);
+    return c.json({ error: "The file did not arrive whole. Try again." }, 400);
+  }
+  const done = await askRoom(c.env, workspaceId, "file-done", {
+    fileId,
+    variant: claims.variant,
+    bytes: size,
+  });
+  if (!done.ok) {
+    // The room refused it (it was not what was said): what was stored is not kept.
+    await bucket.delete(key).catch(() => undefined);
+    const error = ((await done.json().catch(() => ({}))) as { error?: string }).error;
+    return c.json({ error: error ?? "That file could not be kept" }, done.status as 409);
+  }
+  return c.json({ ok: true, bytes: size });
+});
+
+/** A file is fetched from the address the room gave someone who may open its channel, for a few minutes. */
+app.get("/w/:ws/f/dl/:id", async (c) => {
+  const workspaceId = c.req.param("ws");
+  const fileId = c.req.param("id");
+  const bucket = c.env.FILES;
+  const secret = c.env.FILE_LINK_KEY;
+  if (!bucket || !secret) return c.json({ error: "Files are not set up here" }, 503);
+  const claims = readSignedLink(secret, workspaceId, "dl", fileId, new URL(c.req.url).searchParams);
+  if (!claims) return c.json({ error: "This link is not good any more" }, 403);
+  const found = await askRoom(c.env, workspaceId, "file-download", {
+    fileId,
+    variant: claims.variant as Variant,
+  });
+  if (!found.ok) return c.json({ error: "File not found" }, 404);
+  const file = (await found.json()) as { key: string; mime: string; name: string; bytes: number };
+  const range = rangeOf(c.req.header("range"), file.bytes);
+  if (range === "unsatisfiable")
+    return new Response(null, {
+      status: 416,
+      headers: { "content-range": `bytes */${file.bytes}` },
+    });
+  const object = await bucket.get(`w/${workspaceId}/${file.key}`, range ? { range } : undefined);
+  if (!object) return c.json({ error: "File not found" }, 404);
+  const headers = serveHeaders(file.mime, file.name, object.range?.length ?? object.size);
+  if (range && object.range)
+    return new Response(object.body, {
+      status: 206,
+      headers: {
+        ...headers,
+        "content-range": `bytes ${object.range.offset}-${object.range.offset + object.range.length - 1}/${object.size}`,
+      },
+    });
+  return new Response(object.body, { headers });
 });
 
 /** What the app asks. */

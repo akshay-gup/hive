@@ -10,6 +10,8 @@
   // Cloudflare's declaration of the room class (what the object is called and that it uses SQLite),
   // not a data migration. The class is never renamed once it is deployed.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatRoom"] }],
+  // People's files, under w/<workspace>/. Make it once: `wrangler r2 bucket create hive-chat-files`.
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "hive-chat-files" }],
   "ratelimits": [
     { "name": "CHAT_LIMITER", "namespace_id": "1003", "simple": { "limit": 600, "period": 60 } }
   ],
@@ -18,5 +20,7 @@
     // The control plane's public key (not a secret): set it to the value of CONTROL_PUBLIC_KEY the
     // workspaces are given, which `wrangler secret put` or an edit here provides before the first deploy.
     "CONTROL_PUBLIC_KEY": ""
+    // Also set, as a secret: FILE_LINK_KEY, what the addresses for sending and fetching files are signed with
+    // (`wrangler secret put FILE_LINK_KEY`).
   }
 }

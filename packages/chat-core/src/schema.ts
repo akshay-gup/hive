@@ -68,7 +68,8 @@ const STEPS: string[][] = [
     `CREATE TABLE files (
        id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, message_id TEXT, uploader_id TEXT NOT NULL,
        name TEXT NOT NULL, mime TEXT NOT NULL, bytes INTEGER NOT NULL, r2_key TEXT NOT NULL,
-       thumb_key TEXT, thumb_bytes INTEGER NOT NULL DEFAULT 0, width INTEGER, height INTEGER,
+       thumb_key TEXT, thumb_bytes INTEGER NOT NULL DEFAULT 0, thumb_ready INTEGER NOT NULL DEFAULT 0,
+       width INTEGER, height INTEGER,
        state TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT
      )`,
     `CREATE INDEX files_channel ON files (channel_id, created_at DESC)`,

@@ -1,5 +1,9 @@
 // The part of Cloudflare's Workers runtime that apps/chat uses, declared here so the Node build can
 // check the files without Cloudflare's type package. Cloudflare provides the module at run time.
+declare class FixedLengthStream extends TransformStream<Uint8Array, Uint8Array> {
+  constructor(expectedLength: number | bigint);
+}
+
 declare module "cloudflare:workers" {
   export interface SqlStorageCursor<T> {
     toArray(): T[];

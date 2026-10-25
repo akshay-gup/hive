@@ -37,15 +37,25 @@ interface Attachment {
  * One workspace's chat: a Durable Object that owns its data. It keeps people's connections through the
  * hibernation API, so it can sleep (and cost nothing) between messages while they stay connected.
  */
-export class ChatRoom extends DurableObject<unknown> {
+interface RoomEnv {
+  FILES?: { delete(keys: string | string[]): Promise<void> };
+  FILE_LINK_KEY?: string;
+}
+
+export class ChatRoom extends DurableObject<RoomEnv> {
   private readonly room: RoomLogic;
 
-  constructor(ctx: ConstructorParameters<typeof DurableObject>[0], env: unknown) {
+  constructor(ctx: ConstructorParameters<typeof DurableObject>[0], env: RoomEnv) {
     super(ctx, env);
     this.room = new RoomLogic(durableSql(ctx.storage), {
       purge: () => ctx.storage.deleteAll(),
       peers: () => this.peers(),
       keepAlive: (work) => ctx.waitUntil(work),
+      linkKey: () => env.FILE_LINK_KEY,
+      deleteObjects: async (keys) => {
+        await env.FILES?.delete(keys);
+      },
+      wakeIn: (ms) => ctx.waitUntil(this.wakeIn(ms)),
     });
     // A heartbeat from the app is answered without waking the object.
     ctx.setWebSocketAutoResponse(
@@ -55,6 +65,18 @@ export class ChatRoom extends DurableObject<unknown> {
         }
       ).WebSocketRequestResponsePair("ping", "pong"),
     );
+  }
+
+  /** Ask to be woken for upkeep in `ms`, unless an earlier wake is already asked for. */
+  private async wakeIn(ms: number): Promise<void> {
+    const at = Date.now() + ms;
+    const set = await this.ctx.storage.getAlarm();
+    if (set === null || set > at) await this.ctx.storage.setAlarm(at);
+  }
+
+  async alarm(): Promise<void> {
+    const { nextInMs } = await this.room.maintain();
+    await this.ctx.storage.setAlarm(Date.now() + nextInMs);
   }
 
   private peer(ws: WebSocket): Peer {

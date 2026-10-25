@@ -3,6 +3,7 @@ import { isIn, managesChannel } from "../../../packages/chat-core/src/access.ts"
 import type { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
+import type { FileRow, Files } from "../../../packages/chat-core/src/files.ts";
 import { MAX_BODY, type Message, type Messages } from "../../../packages/chat-core/src/messages.ts";
 import type { Notice, Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import type { Reactions } from "../../../packages/chat-core/src/reactions.ts";
@@ -20,6 +21,16 @@ import type {
 } from "../../../packages/domain/src/chat.ts";
 import { editMessageSchema, postMessageSchema } from "../../../packages/domain/src/chat.ts";
 import { mentionedPeople, withHandles } from "../../../packages/domain/src/mentions.ts";
+
+const fileView = (file: FileRow) => ({
+  id: file.id,
+  name: file.name,
+  mime: file.mime,
+  bytes: file.bytes,
+  thumb: file.thumbReady,
+  ...(file.width ? { width: file.width } : {}),
+  ...(file.height ? { height: file.height } : {}),
+});
 
 type Known = Map<string, { email: string; name: string }>;
 
@@ -44,6 +55,9 @@ export class Messaging {
       channels: ChatChannels;
       messages: Messages;
       reactions: Reactions;
+      files: Files;
+      /** There is work for the bucket to do soon. */
+      workQueued: () => void;
       reads: Reads;
       notices: Notifications;
       events: Events;
@@ -83,6 +97,7 @@ export class Messaging {
   /** Messages as the app is shown them, with their reactions. */
   private views(messages: Message[], known: Known): ChatMessage[] {
     const reactions = this.deps.reactions.summary(messages.map((m) => m.id));
+    const files = this.deps.files.ofMessages(messages.map((m) => m.id));
     return messages.map((m) => ({
       id: m.id,
       channelId: m.channelId,
@@ -97,7 +112,7 @@ export class Messaging {
       editedAt: m.editedAt,
       deleted: m.deletedAt !== null,
       reactions: reactions.get(m.id) ?? [],
-      files: [],
+      files: (files.get(m.id) ?? []).map(fileView),
       ...(m.extra ? { extra: m.extra } : {}),
     }));
   }
@@ -157,7 +172,8 @@ export class Messaging {
     const channel = await this.open(owner, channelId);
     this.takePart(person, channel);
     const text = input.body.trim();
-    if (!text) throw new AppError("Write something to send", 422);
+    const fileIds = input.fileIds ?? [];
+    if (!text && fileIds.length === 0) throw new AppError("Write something to send", 422);
     if (text.length > MAX_BODY) throw new AppError("That message is too long", 422);
 
     const known = await this.deps.access.byId();
@@ -178,6 +194,8 @@ export class Messaging {
         threadRoot: input.threadRoot ?? null,
         clientId: input.clientId ?? null,
       });
+      if (created && fileIds.length > 0)
+        this.deps.files.attach(fileIds, message.id, channelId, owner);
       const [made] = this.views([message], known) as [ChatMessage];
       if (!created) return made;
       // Having written it, you have read as far as it.
@@ -262,10 +280,12 @@ export class Messaging {
       );
     const known = await this.deps.access.byId();
     const sent: ChatEvent[] = [];
+    let queued = false;
     this.deps.sql.transaction(() => {
       const gone = this.deps.messages.remove(messageId);
       if (!gone) return;
       this.deps.notices.removeForMessage(messageId);
+      if (this.deps.files.removeOfMessage(messageId) > 0) queued = true;
       this.emit(
         sent,
         "message.deleted",
@@ -280,6 +300,7 @@ export class Messaging {
           });
       }
     });
+    if (queued) this.deps.workQueued();
     this.send(sent);
     return { ok: true };
   }
@@ -308,6 +329,17 @@ export class Messaging {
     });
     this.send(sent);
     return view;
+  }
+
+  /** A message changed in a way only its screens show (a file left it): they are told. */
+  async refresh(messageId: string): Promise<void> {
+    const message = this.deps.messages.get(messageId);
+    if (!message || message.deletedAt) return;
+    const sent: ChatEvent[] = [];
+    this.emit(sent, "message.edited", this.views([message], await this.deps.access.byId())[0], {
+      channelId: message.channelId,
+    });
+    this.send(sent);
   }
 
   /** The person has read a channel up to a place: their other screens are told. */

@@ -1,11 +1,17 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { Access, type Person } from "../../../packages/chat-core/src/access.ts";
+import {
+  Access,
+  isDm,
+  managesChannel,
+  type Person,
+} from "../../../packages/chat-core/src/access.ts";
 import { ChannelPeople } from "../../../packages/chat-core/src/channel-people.ts";
 import { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { DirectMessages } from "../../../packages/chat-core/src/direct-messages.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { type ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
+import { Files } from "../../../packages/chat-core/src/files.ts";
 import { Messages } from "../../../packages/chat-core/src/messages.ts";
 import { Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import { Reactions } from "../../../packages/chat-core/src/reactions.ts";
@@ -16,6 +22,7 @@ import type { Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
 import type { Channel } from "../../../packages/domain/src/agent.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
+import { Filing } from "./filing.ts";
 import { Messaging } from "./messaging.ts";
 
 /** Who is asking, as the Worker verified it from the control plane's token. */
@@ -27,6 +34,8 @@ export interface ChatIdentity {
   /** When the token was made, in milliseconds. */
   issuedAt: number;
   limits?: { maxFileBytes: number; storageBytes: number };
+  /** The workspace this is for, which the Worker knows from the address. */
+  workspaceId?: string;
   /** When the token runs out, in milliseconds: the end of a connection made with it. */
   expiresAt?: number;
 }
@@ -54,8 +63,11 @@ export class ChatCore {
   readonly notices: Notifications;
   readonly events: Events;
   readonly channels: ChatChannels;
+  readonly files: Files;
+  readonly filing: Filing;
   readonly messaging: Messaging;
   private readonly publishEvent: (event: ChatEvent) => void;
+  private readonly workQueued: () => void;
   readonly app: Hono<{ Bindings: Bindings; Variables: Variables }>;
 
   constructor(
@@ -65,6 +77,10 @@ export class ChatCore {
       clock?: () => number;
       /** Told of each event once what it is about has been written, for whoever is listening. */
       publish?: (event: ChatEvent) => void;
+      /** The key the addresses for sending and fetching files are signed with. */
+      linkKey?: () => string | undefined;
+      /** There is something for the bucket to do soon (files to delete, uploads to expire). */
+      workQueued?: () => void;
     } = {},
   ) {
     this.publishEvent = (event) => {
@@ -87,7 +103,32 @@ export class ChatCore {
     this.notices = new Notifications(sql, now);
     this.events = new Events(sql, options.clock);
     this.channels = new ChatChannels(this.store, this.access, this.messages, this.reads, now);
+    this.files = new Files(sql, now, options.clock);
+    const workQueued = () => {
+      try {
+        options.workQueued?.();
+      } catch (error) {
+        console.error(`[Hive chat] could not queue work: ${String(error)}`);
+      }
+    };
+    this.workQueued = workQueued;
+    this.filing = new Filing({
+      store: this.store,
+      access: this.access,
+      files: this.files,
+      events: this.events,
+      publish: this.publishEvent,
+      linkKey: options.linkKey ?? (() => undefined),
+      workQueued,
+      fileGone: (file) => {
+        if (!file.messageId) return;
+        const message = this.messages.get(file.messageId);
+        if (message) void this.messaging.refresh(message.id);
+      },
+    });
     this.messaging = new Messaging({
+      files: this.files,
+      workQueued,
       sql,
       store: this.store,
       access: this.access,
@@ -123,6 +164,38 @@ export class ChatCore {
   /** Write an event down and tell whoever is listening. */
   emit(type: string, data: unknown, scope: { channelId?: string | null; userId?: string | null }) {
     this.publishEvent(this.events.append(type, data, scope));
+  }
+
+  /**
+   * Take a channel away with everything in it: its messages, what was said to whom, and its files (the
+   * bucket's copies go when the room next clears them). For the channel's managers, an admin or the owner
+   * who can open it; a direct message is never deleted.
+   */
+  async deleteChannel(owner: string, channelId: string): Promise<{ ok: true }> {
+    const person = await this.access.person(owner);
+    const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
+    if (!person || !channel) throw new AppError("Channel not found", 404);
+    if (isDm(channel)) throw new AppError("A direct message can't be deleted", 409);
+    if (!managesChannel(person, channel))
+      throw new AppError("Only a channel manager, an admin or the owner can delete a channel", 403);
+    const audience = await this.audience(channelId);
+    this.sql.transaction(() => {
+      this.files.removeOfChannel(channelId);
+      this.sql.run("DELETE FROM reactions WHERE channel_id = ?", channelId);
+      this.sql.run("DELETE FROM notifications WHERE channel_id = ?", channelId);
+      this.sql.run("DELETE FROM reads WHERE channel_id = ?", channelId);
+      this.sql.run("DELETE FROM messages WHERE channel_id = ?", channelId);
+      this.sql.run("DELETE FROM channel_state WHERE channel_id = ?", channelId);
+      this.sql.run(
+        "DELETE FROM records WHERE owner = ? AND kind = 'channels' AND id = ?",
+        SHARED_OWNER,
+        channelId,
+      );
+    });
+    // Whoever could open it is told it is gone (the channel itself no longer says who they were).
+    for (const userId of audience) this.emit("channel.removed", { id: channelId }, { userId });
+    this.workQueued();
+    return { ok: true };
   }
 
   /** The ids of the people who may open a channel now; none for one that does not exist. */
@@ -180,6 +253,8 @@ export class ChatCore {
     app.use("*", async (c, next) => {
       const identity = c.env.identity;
       await this.remember(identity);
+      // The plan's numbers come with the token, and a newer token's win.
+      if (identity.limits) this.files.setLimits(identity.limits, identity.issuedAt);
       c.set("identity", identity);
       c.set("owner", identity.sub);
       await next();
@@ -239,6 +314,9 @@ export class ChatCore {
       await this.announceChange(id, before);
       return c.json(result);
     });
+    app.delete("/v1/channels/:id", async (c) =>
+      c.json(await this.deleteChannel(c.get("owner"), c.req.param("id"))),
+    );
     app.post("/v1/channels/:id/archive", async (c) => {
       const id = c.req.param("id");
       const before = await this.audience(id);
@@ -319,6 +397,44 @@ export class ChatCore {
         ),
       ),
     );
+
+    // Files
+    app.post("/v1/files/uploads", async (c) =>
+      c.json(
+        await this.filing.begin(c.get("owner"), c.get("identity").workspaceId ?? "", await body(c)),
+        201,
+      ),
+    );
+    app.post("/v1/files/:id/link", async (c) => {
+      const { variant } = z
+        .object({ variant: z.enum(["file", "thumb"]).optional() })
+        .parse(await body(c));
+      return c.json(
+        await this.filing.link(
+          c.get("owner"),
+          c.get("identity").workspaceId ?? "",
+          c.req.param("id"),
+          variant ?? "file",
+        ),
+      );
+    });
+    app.delete("/v1/files/:id", async (c) =>
+      c.json(await this.filing.remove(c.get("owner"), c.req.param("id"))),
+    );
+    app.get("/v1/channels/:id/files", async (c) =>
+      c.json(
+        (await this.filing.inChannel(c.get("owner"), c.req.param("id"))).map((f) => ({
+          id: f.id,
+          name: f.name,
+          mime: f.mime,
+          bytes: f.bytes,
+          thumb: f.thumbReady,
+          messageId: f.messageId,
+          createdAt: f.createdAt,
+        })),
+      ),
+    );
+    app.get("/v1/usage", async (c) => c.json(this.files.usage()));
 
     // What a person is told
     app.get("/v1/notifications", async (c) =>

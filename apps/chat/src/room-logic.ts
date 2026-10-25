@@ -1,8 +1,15 @@
 import { z } from "zod";
+import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Sql } from "../../../packages/chat-core/src/sql.ts";
 import { ChatCore, type ChatIdentity } from "./core.ts";
 import { IDENTITY_HEADER, INTERNAL_HEADER } from "./headers.ts";
 import { type Peer, Realtime } from "./realtime.ts";
+
+const fileCallSchema = z.object({
+  fileId: z.string().min(1).max(100),
+  variant: z.enum(["file", "thumb"]),
+  bytes: z.number().int().min(0).optional(),
+});
 
 const peopleSchema = z.object({
   people: z
@@ -36,10 +43,18 @@ export class RoomLogic {
       peers?: () => Peer[];
       /** Keep the room running until this is done, which a response ending would otherwise cut short. */
       keepAlive?: (work: Promise<unknown>) => void;
+      /** The key files' addresses are signed with. */
+      linkKey?: () => string | undefined;
+      /** Delete these objects from the bucket. The bucket is only touched here, never inside a change to the room. */
+      deleteObjects?: (keys: string[]) => Promise<void>;
+      /** Ask to be woken in this many milliseconds to do the room's upkeep, unless sooner is already asked for. */
+      wakeIn?: (ms: number) => void;
     },
   ) {
     this.core = new ChatCore(sql, {
       clock: hooks.clock,
+      linkKey: hooks.linkKey,
+      workQueued: () => hooks.wakeIn?.(5_000),
       publish: (event) => {
         const sent = this.realtime.publish(event);
         hooks.keepAlive?.(sent);
@@ -53,6 +68,7 @@ export class RoomLogic {
     const header = request.headers.get(IDENTITY_HEADER);
     if (!header) return Response.json({ error: "Not signed in" }, { status: 401 });
     const identity = JSON.parse(header) as ChatIdentity;
+    if (identity.workspaceId) this.rememberWorkspace(identity.workspaceId);
     const gone = this.sql.all<{ before: number }>(
       "SELECT before FROM revoked WHERE user_id = ?",
       identity.sub,
@@ -60,6 +76,43 @@ export class RoomLogic {
     if (gone && identity.issuedAt < gone.before)
       return Response.json({ error: "This sign-in has ended. Sign in again." }, { status: 401 });
     return identity;
+  }
+
+  /** Which workspace this room is, kept so upkeep can name its files in the bucket without anyone asking. */
+  private rememberWorkspace(id: string) {
+    this.sql.run(
+      "INSERT INTO meta (key, value) VALUES ('workspace', ?) ON CONFLICT (key) DO NOTHING",
+      id,
+    );
+  }
+
+  workspaceId(): string | null {
+    return (
+      this.sql.all<{ value: string }>("SELECT value FROM meta WHERE key = 'workspace'")[0]?.value ??
+      null
+    );
+  }
+
+  /**
+   * The room's upkeep: uploads that were never finished give their room back, what the bucket is to
+   * delete is deleted, old events are let go, and the count of stored bytes is checked against the
+   * files. Returns when to do it next.
+   */
+  async maintain(): Promise<{ nextInMs: number }> {
+    const files = this.core.files;
+    files.expire();
+    const workspace = this.workspaceId();
+    for (;;) {
+      const keys = files.pendingDeletes(100);
+      if (keys.length === 0) break;
+      if (!workspace || !this.hooks.deleteObjects) break;
+      await this.hooks.deleteObjects(keys.map((key) => `w/${workspace}/${key}`));
+      files.deleted(keys);
+    }
+    this.core.events.prune();
+    files.reconcile();
+    // Soon again while an upload is waiting out its time, otherwise once a day.
+    return { nextInMs: files.hasWork() ? 60_000 : 24 * 3600_000 };
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -83,6 +136,28 @@ export class RoomLogic {
         before,
       );
       return Response.json({ ok: true });
+    }
+    if (action === "file-state" || action === "file-done" || action === "file-download") {
+      const { fileId, variant, bytes } = fileCallSchema.parse(await request.json());
+      const filing = this.core.filing;
+      if (action === "file-state") {
+        const state = filing.uploadState(fileId, variant);
+        return state ? Response.json(state) : Response.json({ error: "Not open" }, { status: 409 });
+      }
+      if (action === "file-download") {
+        const found = filing.download(fileId, variant);
+        return found
+          ? Response.json(found)
+          : Response.json({ error: "Not found" }, { status: 404 });
+      }
+      try {
+        filing.uploaded(fileId, variant, bytes ?? 0);
+        return Response.json({ ok: true });
+      } catch (error) {
+        if (error instanceof AppError)
+          return Response.json({ error: error.message }, { status: error.status });
+        throw error;
+      }
     }
     if (action === "people") {
       const { people } = peopleSchema.parse(await request.json());
