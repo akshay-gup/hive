@@ -23,6 +23,9 @@ export const normalizeEmail = (email: string) => email.trim().toLowerCase();
 export const named = (channel: Channel, email: string) =>
   !!email && (channel.members ?? []).includes(email);
 
+/** Whether the channel is a direct message: two people's, found by their names. */
+export const isDm = (channel: Channel) => channel.kind === "dm";
+
 /** Whether the channel is one anyone in the workspace but a guest may find. */
 export const isPublic = (channel: Channel) => (channel.visibility ?? "public") === "public";
 
@@ -192,12 +195,24 @@ export class Access {
     channel: Channel,
     read?: Record<string, string>,
     muted?: ReadonlySet<string>,
+    known?: ReadonlyMap<string, { name: string }>,
   ): ChannelView {
     if (!person) return channel;
     const joined = isIn(person, channel);
     const quiet = muted?.has(channel.id) ?? false;
+    // A direct message goes by the other person's name, which is not the same for the two of them.
+    const other = isDm(channel)
+      ? ((channel.members ?? []).find((email) => email !== person.email) ?? person.email)
+      : undefined;
+    const label = other ? known?.get(other)?.name || other : "";
     return {
       ...channel,
+      ...(other
+        ? {
+            name: other === person.email ? `${label} (you)` : label,
+            dm: { email: other, name: label },
+          }
+        : {}),
       joined,
       muted: quiet,
       unread:

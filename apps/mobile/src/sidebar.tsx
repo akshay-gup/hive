@@ -7,6 +7,7 @@ import {
   Monitor,
   Plus,
   SquarePen,
+  User,
   X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
@@ -364,10 +365,12 @@ export function Sidebar({
   const needle = find.trim().toLowerCase();
   const agentName = data?.identity.name || "Hive";
   const showAgent = !guest && (!needle || agentName.toLowerCase().includes(needle));
-  const userChannels = (channels ?? [])
+  const listedMatching = (channels ?? [])
     .filter(isListed)
     .filter((channel) => !needle || channel.name.toLowerCase().includes(needle))
     .sort((a, b) => a.name.localeCompare(b.name));
+  const userChannels = listedMatching.filter((channel) => channel.kind !== "dm");
+  const directMessages = listedMatching.filter((channel) => channel.kind === "dm");
   // Searching finds the public channels the person is not in as well: opening one
   // shows it with a Join button.
   const unjoined = needle
@@ -384,6 +387,7 @@ export function Sidebar({
     : [];
 
   const newChannelTip = useHoverTip("New channel");
+  const newMessageTip = useHoverTip("New message");
   const dense = !compact;
   const personName = workspace.profile.name || "You";
   const initial = personName.slice(0, 1).toUpperCase();
@@ -549,11 +553,64 @@ export function Sidebar({
           ))}
         </>
       )}
-      {!!needle && !loading && userChannels.length === 0 && unjoined.length === 0 && !showAgent && (
-        <Text style={[s.small, { paddingHorizontal: 8, paddingVertical: 6 }]}>
-          No conversation by that name.
-        </Text>
+      {/* Direct messages are the team's, so they are where people are known, and not a guest's. */}
+      {hosted && !guest && (!needle || directMessages.length > 0) && (
+        <>
+          <View style={[s.row, { marginTop: 16, marginBottom: 2, paddingLeft: 8 }]}>
+            <Text
+              style={[
+                s.text,
+                { flex: 1, fontSize: fontSize.ui, fontWeight: "500", color: colors.muted },
+              ]}
+            >
+              Direct messages
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="New message"
+              hitSlop={6}
+              onPress={() => {
+                onNavigate?.();
+                open({ type: "newMessage" });
+              }}
+              {...newMessageTip.props}
+              style={({ pressed, hovered }: WebPressState) => ({
+                width: 28,
+                height: 28,
+                borderRadius: radius.sm,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
+              })}
+            >
+              <Plus size={16} strokeWidth={1.75} color={colors.muted} />
+              {newMessageTip.tip}
+            </Pressable>
+          </View>
+          {directMessages.map((channel) => (
+            <SidebarRow
+              dense={dense}
+              key={channel.id}
+              icon={User}
+              label={channel.name}
+              accessibilityLabel={`Open direct message: ${channel.name}`}
+              unread={channel.unread && activeChannelId !== channel.id}
+              active={section === "chat" && !isMainActive && activeChannelId === channel.id}
+              onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
+            />
+          ))}
+        </>
       )}
+      {!!needle &&
+        !loading &&
+        userChannels.length === 0 &&
+        directMessages.length === 0 &&
+        unjoined.length === 0 &&
+        !showAgent && (
+          <Text style={[s.small, { paddingHorizontal: 8, paddingVertical: 6 }]}>
+            No conversation by that name.
+          </Text>
+        )}
     </>
   );
 

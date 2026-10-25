@@ -31,7 +31,12 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /** The channels a guest can be put in: the ones that are open, that the person asking can see. */
 const choosable = (channels: ChannelView[]) =>
   channels
-    .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && channel.status !== "archived")
+    .filter(
+      (channel) =>
+        channel.id !== ORCHESTRATOR_CHANNEL_ID &&
+        channel.status !== "archived" &&
+        channel.kind !== "dm",
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 
 /**

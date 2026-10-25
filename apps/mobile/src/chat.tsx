@@ -19,6 +19,7 @@ import {
   Plus,
   RotateCcw,
   Square,
+  User,
   Users,
   X,
 } from "lucide-react-native";
@@ -174,7 +175,11 @@ export function ChannelChatBanner({ channelId }: { channelId: string }) {
   return (
     <View style={[s.row, { gap: 12 }]}>
       <View style={[s.row, { gap: 12, flexShrink: 1 }]}>
-        {channel?.visibility === "private" && <Lock size={16} color={colors.muted} />}
+        {channel?.kind === "dm" ? (
+          <User size={16} color={colors.muted} />
+        ) : (
+          channel?.visibility === "private" && <Lock size={16} color={colors.muted} />
+        )}
         <Text style={[s.heading, { fontSize: fontSize.title, flexShrink: 1 }]} numberOfLines={1}>
           {channel?.visibility === "private" ? "" : "# "}
           {name ?? "channel"}
@@ -198,7 +203,7 @@ export function ChannelChatBanner({ channelId }: { channelId: string }) {
           {narrow ? "Join" : "Join channel"}
         </Button>
       )}
-      {hosted && (
+      {hosted && channel?.kind !== "dm" && (
         <Button
           small
           icon={Users}
@@ -399,6 +404,23 @@ export function ChatScreen({
   // treats `channel:<id>` runs as chat-only no-ops. Threads auto-create from
   // replies and @hive mentions.
   const channelId = channelIdOf(selection);
+  // A direct message goes by the other person's name, in the box and the empty page.
+  const [directName, setDirectName] = useState<string | null>(null);
+  useEffect(() => {
+    setDirectName(null);
+    if (!channelId) return;
+    let live = true;
+    api
+      .request<ChannelView[]>("/api/agent/channels")
+      .then((all) => {
+        const found = all.find((c) => c.id === channelId);
+        if (live && found?.kind === "dm") setDirectName(found.name);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [api, channelId]);
   const [channelThreads, setChannelThreads] = useState<ChannelThread[] | null>(null);
   const { width } = useWindowDimensions();
   const [replyPanel, setReplyPanel] = useState<{
@@ -1110,12 +1132,14 @@ export function ChatScreen({
                     maxWidth: 350,
                   }}
                 >
-                  {channelId ? "Start the conversation" : "Message Hive"}
+                  {directName ? directName : channelId ? "Start the conversation" : "Message Hive"}
                 </Text>
                 <Text style={[s.muted, { maxWidth: 320, textAlign: "center", lineHeight: 23 }]}>
-                  {channelId
-                    ? "Post a message to the channel. Use Reply in thread to keep each discussion together."
-                    : "Ask a question, share a task, or work with your connected apps."}
+                  {directName
+                    ? "Only the two of you can see this. Mention @hive to bring the agent in."
+                    : channelId
+                      ? "Post a message to the channel. Use Reply in thread to keep each discussion together."
+                      : "Ask a question, share a task, or work with your connected apps."}
                 </Text>
                 <View
                   style={{
@@ -1503,7 +1527,9 @@ export function ChatScreen({
                     threadParent
                       ? "Reply in thread"
                       : channelId
-                        ? "Message channel"
+                        ? directName
+                          ? `Message ${directName}`
+                          : "Message channel"
                         : "Message Hive"
                   }
                   value={draft}
@@ -1541,7 +1567,9 @@ export function ChatScreen({
                         : threadParent
                           ? "Reply in thread…"
                           : channelId
-                            ? "Message channel…"
+                            ? directName
+                              ? `Message ${directName}…`
+                              : "Message channel…"
                             : "Message…"
                   }
                   placeholderTextColor={colors.muted}

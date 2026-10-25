@@ -23,6 +23,7 @@ export type Detail =
   | { type: "channelFile"; channelId: string; path: string }
   | { type: "channelMembers"; channelId: string; name?: string }
   | { type: "newChannel" }
+  | { type: "newMessage" }
   | { type: "delegate"; threadId?: string }
   | { type: "notifications" }
   | { type: "computer" }

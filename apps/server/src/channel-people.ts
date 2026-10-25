@@ -10,6 +10,7 @@ import type { WorkspaceRole } from "../../../packages/integrations/src/workspace
 import {
   type Access,
   canOpen,
+  isDm,
   isIn,
   isPublic,
   managesChannel,
@@ -22,6 +23,7 @@ import { AppError } from "./errors.ts";
 
 const runs = (person: Person) => person.role === "owner" || person.role === "admin";
 const ARCHIVED = "This channel is archived";
+const DM = "A direct message is between the people in it";
 /** An archived channel is not changed; anything else a person may not do is forbidden to them. */
 const refused = (reason: string) => new AppError(reason, reason === ARCHIVED ? 409 : 403);
 
@@ -63,6 +65,7 @@ export class ChannelPeople {
     email: string,
     role: WorkspaceRole | null,
   ): string | null {
+    if (isDm(channel)) return DM;
     if (channel.status === "archived") return ARCHIVED;
     if (person.role === "guest")
       return email === person.email
@@ -81,6 +84,7 @@ export class ChannelPeople {
 
   /** Why this person may not leave the channel, if they may not. */
   private leaveDenied(person: Person, channel: Channel): string | null {
+    if (isDm(channel)) return DM;
     if (channel.status === "archived") return ARCHIVED;
     if (person.role !== "guest" && isPublic(channel) && channel.everyone !== false)
       return "Everyone in the workspace is in this channel";
@@ -93,6 +97,7 @@ export class ChannelPeople {
 
   /** Why this person may not take this address out of the channel, if they may not. */
   private removeDenied(person: Person, channel: Channel, email: string): string | null {
+    if (isDm(channel)) return DM;
     if (email === person.email) return this.leaveDenied(person, channel);
     if (channel.status === "archived") return ARCHIVED;
     if (person.role === "guest") return "A guest can't remove people from a channel";
@@ -129,6 +134,30 @@ export class ChannelPeople {
       .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
     const manager = managesChannel(person, channel);
     const inIt = isIn(person, channel);
+    if (isDm(channel))
+      return {
+        id: channel.id,
+        name: channel.name,
+        visibility: "private",
+        archived: false,
+        everyone: false,
+        topic: "",
+        people,
+        candidates: [],
+        you: {
+          in: inIt,
+          manager: false,
+          join: false,
+          leave: false,
+          add: false,
+          remove: false,
+          archive: false,
+          makePrivate: false,
+          makePublic: false,
+          setEveryone: false,
+          topic: false,
+        },
+      };
     return {
       id: channel.id,
       name: channel.name,
@@ -242,19 +271,22 @@ export class ChannelPeople {
     if (!runs(person)) throw refused("Only an owner or admin can see every channel");
     const known = await this.access.known();
     const channels = await this.db.list<Channel>(SHARED_OWNER, "channels");
-    return channels
-      .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID)
-      .map((channel) => ({
-        id: channel.id,
-        name: channel.name,
-        visibility: channel.visibility ?? "public",
-        archived: channel.status === "archived",
-        everyone: isPublic(channel) && channel.everyone !== false,
-        count: (channel.members ?? []).length,
-        managers: (channel.managers ?? []).map((email) => known.get(email)?.name || email),
-        joined: isIn(person, channel),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return (
+      channels
+        // Direct messages are between the two people; no list shows them to anyone else.
+        .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && !isDm(channel))
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          visibility: channel.visibility ?? "public",
+          archived: channel.status === "archived",
+          everyone: isPublic(channel) && channel.everyone !== false,
+          count: (channel.members ?? []).length,
+          managers: (channel.managers ?? []).map((email) => known.get(email)?.name || email),
+          joined: isIn(person, channel),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
   }
 
   private async entry(owner: string, channelId: string): Promise<ChannelDirectoryEntry> {
@@ -269,7 +301,7 @@ export class ChannelPeople {
     if (!runs(person)) throw refused("Only an owner or admin can join any channel");
     for (let attempt = 0; attempt < 5; attempt++) {
       const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
-      if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID)
+      if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID || isDm(channel))
         throw new AppError("Channel not found", 404);
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
       if (isIn(person, channel)) return this.entry(owner, channelId);
@@ -298,6 +330,7 @@ export class ChannelPeople {
     const person = await this.actor(owner);
     const known = await this.access.known();
     const saved = await this.update(person, channelId, (channel) => {
+      if (isDm(channel)) throw new AppError(DM, 409);
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
       if (!managesChannel(person, channel))
         throw new AppError(
@@ -328,6 +361,7 @@ export class ChannelPeople {
     const person = await this.actor(owner);
     const known = await this.access.known();
     const saved = await this.update(person, channelId, (channel) => {
+      if (isDm(channel)) throw new AppError(DM, 409);
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
       if (
         input.topic !== undefined &&

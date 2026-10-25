@@ -44,12 +44,13 @@ import {
   mentionedPeople,
   withHandles,
 } from "../../../../packages/domain/src/mentions.ts";
-import { Access, canSeeTask, isIn, isPublic, managesChannel, type Scope } from "../access.ts";
+import { Access, canSeeTask, isDm, isIn, isPublic, managesChannel, type Scope } from "../access.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
 import { ChannelPeople } from "../channel-people.ts";
 import type { Config } from "../config.ts";
 import type { Store } from "../db.ts";
+import { DirectMessages } from "../direct-messages.ts";
 import { AppError } from "../errors.ts";
 import type { Files } from "../files.ts";
 import { createJevService, type JevService } from "../jev/service.ts";
@@ -105,6 +106,8 @@ export class AgentService {
   readonly people: ChannelPeople;
   /** What keeps the agent out of a private channel's folder (see opencode/sandbox.ts). */
   readonly sandbox: SandboxPolicy;
+  /** Direct messages between two people: private channels found by the other's name. */
+  readonly dms: DirectMessages;
   constructor(
     readonly db: Store,
     readonly config: Config,
@@ -126,6 +129,13 @@ export class AgentService {
       () => db.list<Channel>(SHARED_OWNER, "channels"),
     );
     this.people = new ChannelPeople(db, this.access, () => this.sandbox.sync());
+    this.dms = new DirectMessages(db, this.access, async (channel) => {
+      await this.sandbox.sync();
+      // Best-effort, as for any channel: it must not fail the message.
+      await mkdir(channelWorkspaceDir(config.dataDir, SHARED_OWNER, channel.id), {
+        recursive: true,
+      }).catch(() => undefined);
+    });
     this.taskFiles = new TaskFiles(config.dataDir);
     this.channelFiles = new ChannelFiles(config, files, (owner, id) => this.getChannel(owner, id));
     this.uploadRequests = new UploadRequests(db);
@@ -480,6 +490,10 @@ export class AgentService {
     if (!runs && !scope.allows(id)) throw new AppError("Channel not found", 404);
     const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", id);
     if (!channel) throw new AppError("Channel not found", 404);
+    if (isDm(channel))
+      throw scope.allows(id)
+        ? new AppError("A direct message can't be archived", 409)
+        : new AppError("Channel not found", 404);
     if (
       person &&
       !runs &&

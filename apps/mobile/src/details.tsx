@@ -41,6 +41,7 @@ import { ChannelMembersSheet } from "./channel-members";
 import { ComputerSheet } from "./computer";
 import DateTimeEditor from "./DateTimeEditor";
 import { localDateTime, zonedInstant } from "./date-time";
+import { NewMessageSheet } from "./direct-message-new";
 import { PeopleSheet } from "./hosted/people-sheet";
 import { WorkspaceAccountSheet } from "./hosted/workspace-account";
 import PdfReader from "./PdfReader";
@@ -76,6 +77,7 @@ export function Details({ detail }: { detail: Detail }) {
   if (detail.type === "channelMembers")
     return <ChannelMembersSheet channelId={detail.channelId} name={detail.name} />;
   if (detail.type === "newChannel") return <NewChannelSheet />;
+  if (detail.type === "newMessage") return <NewMessageSheet />;
   if (detail.type === "task") return <TaskDetail taskId={detail.taskId} />;
   if (detail.type === "delegate") return <DelegateSheet threadId={detail.threadId} />;
   if (detail.type === "notifications") return <NotificationsSheet />;

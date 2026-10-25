@@ -8,6 +8,7 @@ import type {
   AgentMemory,
   AgentNotification,
 } from "../../../../packages/domain/src/agent.ts";
+import { isDm } from "../access.ts";
 import { AppError } from "../errors.ts";
 import { byteRange } from "./channel-files.ts";
 import type { AgentService } from "./service.ts";
@@ -129,7 +130,23 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
       service.notificationPrefs(owner),
     ]);
     const muted = new Set(prefs.muted);
-    return c.json(channels.map((channel) => service.access.view(person, channel, read, muted)));
+    const known = channels.some(isDm) ? await service.access.known() : undefined;
+    return c.json(
+      channels.map((channel) => service.access.view(person, channel, read, muted, known)),
+    );
+  });
+  /** Who this person can send a direct message to. */
+  app.get("/dms/people", async (c) => c.json(await service.dms.people(c.get("owner"))));
+  /** The direct message with someone, made the first time: the channel as this person is shown it. */
+  app.post("/dms", async (c) => {
+    const owner = c.get("owner");
+    const body = (await c.req.json().catch(() => ({}))) as { email?: unknown };
+    const channel = await service.dms.open(owner, body.email);
+    const [person, known] = await Promise.all([
+      service.access.person(owner),
+      service.access.known(),
+    ]);
+    return c.json(service.access.view(person, channel, undefined, undefined, known), 201);
   });
   /** What this person wants to be told about, and the channels they have muted. */
   app.get("/notification-prefs", async (c) =>

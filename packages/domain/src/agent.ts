@@ -400,6 +400,11 @@ export interface Channel {
    * Owners and admins manage every channel they can open.
    */
   managers?: string[];
+  /**
+   * A direct message: a private channel of two people (one, with themself), found by their names.
+   * It cannot gain people, be left, made public or archived.
+   */
+  kind?: "dm";
 }
 export type ChannelVisibility = "public" | "private";
 /** A channel as one person is shown it: what the list says of them and the channel. */
@@ -414,6 +419,15 @@ export interface ChannelView extends Channel {
   unread?: boolean;
   /** Whether this person has muted it: no unread mark, and no notice from it. */
   muted?: boolean;
+  /** For a direct message: the other person, whose name the channel goes by (`name` is it, as this person sees it). */
+  dm?: { email: string; name: string };
+}
+/** Someone a direct message can be sent to. */
+export interface DirectMessagePerson {
+  email: string;
+  name: string;
+  /** Whether it is this person themself. */
+  you: boolean;
 }
 /**
  * A channel as an owner or admin sees it in the list of every channel, private ones too: what it is

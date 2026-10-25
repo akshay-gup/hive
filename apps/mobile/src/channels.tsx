@@ -49,7 +49,10 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
   const needle = find.trim().toLowerCase();
   const named = (channel: ChannelView) => !needle || channel.name.toLowerCase().includes(needle);
   const listed = (channels ?? []).filter(
-    (channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && channel.status !== "archived",
+    (channel) =>
+      channel.id !== ORCHESTRATOR_CHANNEL_ID &&
+      channel.status !== "archived" &&
+      channel.kind !== "dm",
   );
   const userChannels = listed
     .filter((channel) => channel.joined !== false && named(channel))
