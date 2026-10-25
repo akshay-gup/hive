@@ -1,5 +1,5 @@
 import { BellOff, Check, Settings, X } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import type { AgentNotification } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
@@ -25,6 +25,7 @@ import {
   radius,
   relativeDate,
   s,
+  useOver,
 } from "./ui";
 import { useWorkspace } from "./workspace";
 
@@ -50,31 +51,6 @@ function From({ note, size = 36 }: { note: AgentNotification; size?: number }) {
       <Text style={[s.text, { fontWeight: "700" }]}>{from.slice(0, 1).toUpperCase()}</Text>
     </View>
   );
-}
-
-/**
- * Whether a pointer is over an element, as the browser says it: `mouseenter` and `mouseleave` do not
- * fire when the pointer moves onto something inside, which a pressable's own hover state does.
- */
-function useOver() {
-  const ref = useRef<View>(null);
-  const [over, setOver] = useState(false);
-  useEffect(() => {
-    const el = ref.current as unknown as {
-      addEventListener?: (name: string, run: () => void) => void;
-      removeEventListener?: (name: string, run: () => void) => void;
-    } | null;
-    if (Platform.OS !== "web" || !el?.addEventListener) return;
-    const enter = () => setOver(true);
-    const leave = () => setOver(false);
-    el.addEventListener("mouseenter", enter);
-    el.addEventListener("mouseleave", leave);
-    return () => {
-      el.removeEventListener?.("mouseenter", enter);
-      el.removeEventListener?.("mouseleave", leave);
-    };
-  }, []);
-  return { ref, over };
 }
 
 /**

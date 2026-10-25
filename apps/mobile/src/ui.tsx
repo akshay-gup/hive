@@ -111,6 +111,33 @@ export function Backdrop() {
   );
 }
 
+/**
+ * Whether a pointer is over an element, as the browser says it: `mouseenter` and `mouseleave` do not
+ * fire when the pointer moves onto something inside. A pressable's own hover state does end then (React
+ * Native for the web takes it away while the pointer is on a pressable inside it), so anything that
+ * shows buttons on hover must use this on the thing that holds the buttons, not `onHoverIn`/`hovered`.
+ */
+export function useOver<T = View>() {
+  const ref = useRef<T>(null);
+  const [over, setOver] = useState(false);
+  useEffect(() => {
+    const el = ref.current as unknown as {
+      addEventListener?: (name: string, run: () => void) => void;
+      removeEventListener?: (name: string, run: () => void) => void;
+    } | null;
+    if (Platform.OS !== "web" || !el?.addEventListener) return;
+    const enter = () => setOver(true);
+    const leave = () => setOver(false);
+    el.addEventListener("mouseenter", enter);
+    el.addEventListener("mouseleave", leave);
+    return () => {
+      el.removeEventListener?.("mouseenter", enter);
+      el.removeEventListener?.("mouseleave", leave);
+    };
+  }, []);
+  return { ref, over };
+}
+
 /** The code font for this platform. Courier, the default on web, is thin and hard to read. */
 export const monoFont = Platform.select({
   ios: fontFamily.monoIos,

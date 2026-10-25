@@ -1,9 +1,10 @@
-import { X } from "lucide-react-native";
+import { Maximize2, Minimize2, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -22,6 +23,17 @@ import { continues, type FeedMessage } from "./chat-feed";
 import { ChatMessageRow } from "./chat-message-row";
 import { useHosted } from "./hosted/context";
 import { MentionNamesProvider, useMentionable } from "./mention-ui";
+import PanelResizer from "./PanelResizer";
+import {
+  clampPanelWidth,
+  expandedPanelWidth,
+  isExpandedPanel,
+  largestPanelWidth,
+  PANEL_DEFAULT,
+  PANEL_MIN,
+  readPanelWidth,
+  writePanelWidth,
+} from "./panel-width";
 import { Backdrop, Button, colors, ErrorNotice, fontSize, haze, panelStyle, s } from "./ui";
 import { useChannelFeed } from "./use-channel-feed";
 import { useWorkspace } from "./workspace";
@@ -161,6 +173,7 @@ function ThreadView({
   me,
   mentions,
   onClose,
+  wider,
 }: {
   channelId: string;
   root: FeedMessage;
@@ -168,6 +181,8 @@ function ThreadView({
   me: string;
   mentions: string[];
   onClose: () => void;
+  /** On a wide window: whether the panel is at its wide setting, and the button that toggles it. */
+  wider?: { on: boolean; toggle: () => void };
 }) {
   const feeder = useChannelFeed(channelId, { root: root.id });
   const { api, notify } = useWorkspace();
@@ -189,14 +204,30 @@ function ThreadView({
     <View style={{ flex: 1, minHeight: 0 }}>
       <View style={[s.between, { paddingBottom: 8 }]}>
         <Text style={s.heading}>Thread</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close thread"
-          onPress={onClose}
-          style={{ padding: 8 }}
-        >
-          <X size={18} color={colors.muted} />
-        </Pressable>
+        <View style={[s.row, { gap: 2 }]}>
+          {wider && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={wider.on ? "Make thread narrower" : "Make thread wider"}
+              onPress={wider.toggle}
+              style={{ padding: 8 }}
+            >
+              {wider.on ? (
+                <Minimize2 size={18} color={colors.muted} />
+              ) : (
+                <Maximize2 size={18} color={colors.muted} />
+              )}
+            </Pressable>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close thread"
+            onPress={onClose}
+            style={{ padding: 8 }}
+          >
+            <X size={18} color={colors.muted} />
+          </Pressable>
+        </View>
       </View>
       <ErrorNotice error={feeder.error} />
       <MessageList
@@ -251,6 +282,27 @@ export function ChannelChat({
   const [joining, setJoining] = useState(false);
   const wide = width >= 900;
   const panels = wide;
+  // How wide the thread panel is on a wide window; the width is kept on this device.
+  const [rowWidth, setRowWidth] = useState(0);
+  const [panelPref, setPanelPref] = useState(PANEL_DEFAULT);
+  const widthBeforeExpanding = useRef(PANEL_DEFAULT);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const kept = readPanelWidth();
+    if (kept) setPanelPref(kept);
+  }, []);
+  const room = rowWidth || width;
+  const panelWidth = clampPanelWidth(panelPref, room);
+  const panelExpanded = isExpandedPanel(panelWidth, room);
+  function keepPanelWidth(next: number) {
+    const kept = clampPanelWidth(next, room);
+    setPanelPref(kept);
+    writePanelWidth(kept);
+  }
+  function togglePanelExpanded() {
+    if (!panelExpanded) widthBeforeExpanding.current = panelWidth;
+    keepPanelWidth(panelExpanded ? widthBeforeExpanding.current : expandedPanelWidth(room));
+  }
   const thread = threadId ? feeder.feed.messages.find((m) => m.id === threadId) : undefined;
   const takePart = !!channel && channel.joined !== false && channel.status !== "archived";
   const typing = chat.typingIn(channelId);
@@ -371,19 +423,31 @@ export function ChannelChat({
       me={me}
       mentions={mentions}
       onClose={() => setThreadId(null)}
+      wider={width >= 1100 ? { on: panelExpanded, toggle: togglePanelExpanded } : undefined}
     />
   ) : null;
 
   return (
     <MentionNamesProvider people={people}>
-      <View style={{ flex: 1, flexDirection: "row", minHeight: 0 }}>
+      <View
+        style={{ flex: 1, flexDirection: "row", minHeight: 0 }}
+        onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+      >
         <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
           {panels && header}
           {body}
         </View>
         {threadView &&
           (width >= 1100 ? (
-            <View style={{ width: 420 }}>
+            <View style={{ width: panelWidth }}>
+              <PanelResizer
+                width={panelWidth}
+                min={PANEL_MIN}
+                max={largestPanelWidth(room)}
+                onChange={(next) => setPanelPref(clampPanelWidth(next, room))}
+                onCommit={keepPanelWidth}
+                onReset={() => keepPanelWidth(PANEL_DEFAULT)}
+              />
               <View
                 style={[
                   { flex: 1, paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12 },

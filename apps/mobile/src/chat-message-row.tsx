@@ -20,6 +20,7 @@ import {
   shadow,
   useDense,
   useHoverTip,
+  useOver,
   type WebPressState,
 } from "./ui";
 
@@ -185,7 +186,7 @@ export function ChatMessageRow({
     answer: (runId: string, promptId: string, choice: PromptChoice) => Promise<void>;
   };
 }) {
-  const [hovered, setHovered] = useState(false);
+  const { ref: rowRef, over: hovered } = useOver();
   const [focused, setFocused] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -256,8 +257,7 @@ export function ChatMessageRow({
 
   return (
     <Pressable
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
+      ref={rowRef}
       onPress={hoverUi ? undefined : () => setExpanded((open) => !open)}
       onLongPress={onReply && canTakePart ? onReply : undefined}
       delayLongPress={350}
