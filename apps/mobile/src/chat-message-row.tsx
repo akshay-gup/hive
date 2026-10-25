@@ -2,7 +2,10 @@ import { Copy, MessageSquare, Pencil, RotateCcw, Smile, Trash2, X } from "lucide
 import { useState } from "react";
 import { Platform, Pressable, Share, Text, TextInput, View } from "react-native";
 import type { ChatReaction } from "../../../packages/domain/src/chat";
+import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
 import { authorTint } from "./channel-message";
+import { agentView } from "./chat-agent-extra";
+import { ChatAgentBody } from "./chat-agent-message";
 import type { FeedMessage } from "./chat-feed";
 import { ChatFiles } from "./chat-files";
 import { MentionText } from "./mention-ui";
@@ -11,6 +14,7 @@ import {
   colors,
   composingText,
   fontSize,
+  Mascot,
   radius,
   s,
   shadow,
@@ -153,6 +157,7 @@ export function ChatMessageRow({
   onResend,
   onDiscard,
   onNotify,
+  agent,
 }: {
   message: FeedMessage;
   /** This person's id. */
@@ -173,6 +178,15 @@ export function ChatMessageRow({
   onResend: () => void;
   onDiscard: () => void;
   onNotify: (text: string) => void;
+  /** What can be done about the agent's replies: decide what it asks, and stop it. */
+  agent?: {
+    /** A teammate in the channel (not a guest) may decide what it asks. */
+    canAnswer: boolean;
+    /** A manager of the channel, an admin or the owner may stop any run. */
+    manager: boolean;
+    answer: (runId: string, promptId: string, choice: PromptChoice) => Promise<void>;
+    stop: (runId: string) => Promise<void>;
+  };
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -183,6 +197,8 @@ export function ChatMessageRow({
   const [saving, setSaving] = useState(false);
   const hoverUi = useDense();
   const mine = message.author.id === me;
+  // The agent's reply to a mention, when this app can read how its run is going.
+  const run = message.author.kind === "agent" ? agentView(message.extra) : null;
   const toolbar = (hovered || focused || picking) && !editing && !message.pending;
   const lastReply = message.lastReplyAt ? clock(message.lastReplyAt) : "";
 
@@ -268,6 +284,8 @@ export function ChatMessageRow({
                 {clock(message.createdAt).replace(/\s?[AP]M$/i, "")}
               </Text>
             ) : null
+          ) : message.author.kind === "agent" ? (
+            <Mascot size={32} />
           ) : (
             <View
               style={{
@@ -336,6 +354,21 @@ export function ChatMessageRow({
                 </Button>
               </View>
             </View>
+          ) : run ? (
+            <ChatAgentBody
+              view={run}
+              body={message.body}
+              canAnswer={!!agent?.canAnswer}
+              canStop={!!agent && (run.askedBy === me || agent.manager)}
+              onAnswer={async (promptId, choice) => {
+                await agent?.answer(run.runId, promptId, choice);
+              }}
+              onStop={() =>
+                void agent
+                  ?.stop(run.runId)
+                  .catch((e) => onNotify(e instanceof Error ? e.message : String(e)))
+              }
+            />
           ) : (
             !!message.body && (
               <View>

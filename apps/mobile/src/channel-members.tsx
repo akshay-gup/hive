@@ -122,7 +122,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
     act(what, `${base}/managers`, body);
   const settings = (
     what: string,
-    body: { visibility?: string; everyone?: boolean; topic?: string },
+    body: { visibility?: string; everyone?: boolean; topic?: string; agent?: boolean },
   ) => act(what, base, body, "PATCH");
 
   const you = view?.you;
@@ -341,7 +341,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
             </View>
           )}
 
-          {(you?.makePrivate || you?.makePublic || you?.setEveryone) && (
+          {(you?.makePrivate || you?.makePublic || you?.setEveryone || you?.agent) && (
             <View style={{ gap: 12 }}>
               <SectionHeading title="Settings" />
               {you.makePrivate && (
@@ -370,6 +370,28 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
                       busy={busy === "public"}
                       onConfirm={() => void settings("public", { visibility: "public" })}
                     />
+                  </View>
+                </View>
+              )}
+              {you.agent && (
+                <View style={{ gap: 6 }}>
+                  <Text style={s.small}>
+                    {view.visibility === "private"
+                      ? view.agent
+                        ? "Hive can be mentioned here with @hive. What it is shown in this channel is kept on the machine it runs on, which is the workspace's."
+                        : "Hive is off in this channel. Switch it on to be able to mention @hive here. What it is shown is kept on the machine it runs on, which is the workspace's."
+                      : view.agent
+                        ? "Hive answers when someone mentions @hive here."
+                        : "Hive is off in this channel, so @hive does nothing."}
+                  </Text>
+                  <View style={s.row}>
+                    <Button
+                      small
+                      busy={busy === "agent"}
+                      onPress={() => void settings("agent", { agent: !view.agent })}
+                    >
+                      {view.agent ? "Switch Hive off" : "Switch Hive on"}
+                    </Button>
                   </View>
                 </View>
               )}

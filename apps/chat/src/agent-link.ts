@@ -18,6 +18,7 @@ import {
   type ContextMessage,
   MAX_EXTRA_BYTES,
   type PromptChoice,
+  REASON_TEXT,
   type RoomFrame,
   type RunnerFrame,
   type RunReason,
@@ -33,22 +34,6 @@ export interface RunnerLink {
   send(text: string): void;
   close(code: number, reason: string): void;
 }
-
-/** What the agent's reply says when a run ended without anything to show, in words people read. */
-export const REASON_TEXT: Record<RunReason, string> = {
-  ok: "",
-  user: "Stopped.",
-  access: "Stopped, because the person who asked can no longer open this channel.",
-  timeout: "This took too long, so it was stopped.",
-  "no-runner": "The agent could not be reached. Try again in a minute.",
-  lost: "The agent stopped unexpectedly. Mention it again to retry.",
-  busy: "The agent is busy with other requests. Try again in a moment.",
-  limit: "That is a lot of requests for the agent. Try again in a few minutes.",
-  dm: "The agent does not work in direct messages.",
-  disabled: "The agent is not switched on in this channel. A channel manager can switch it on.",
-  archived: "This channel is archived.",
-  error: "Something went wrong, so the agent stopped.",
-};
 
 const statusOf = (run: Run): RunStatus =>
   run.state === "queued" || run.state === "sent"
@@ -199,6 +184,7 @@ export class AgentLink {
     return {
       v: 1,
       runId: run.id,
+      askedBy: run.askedBy,
       status: statusOf(run),
       ...(run.reason && run.reason !== "ok" ? { reason: run.reason } : {}),
       steps,
@@ -288,6 +274,7 @@ export class AgentLink {
     const extra: AgentExtra = {
       v: 1,
       runId: id,
+      askedBy: asker.id,
       status: refusal ? "failed" : "queued",
       ...(refusal ? { reason: refusal } : {}),
       steps: [],

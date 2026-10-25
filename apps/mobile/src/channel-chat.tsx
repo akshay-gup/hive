@@ -12,7 +12,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ChannelView } from "../../../packages/domain/src/agent";
+import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
+import { useGuest } from "./access";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
+import { agentOnIn, asksAgent } from "./chat-agent-extra";
 import { ChatComposer } from "./chat-composer";
 import { useChat } from "./chat-context";
 import { continues, type FeedMessage } from "./chat-feed";
@@ -77,9 +80,24 @@ function MessageList({
   header?: React.ReactNode;
   empty?: React.ReactNode;
 }) {
-  const { notify } = useWorkspace();
+  const { api, notify } = useWorkspace();
+  const guest = useGuest();
   const scroller = useRef<ScrollView>(null);
   const stuck = useRef(true);
+  // What can be done about the agent's replies. The service decides who may; this offers what the person can.
+  const agent = useMemo(
+    () => ({
+      canAnswer: !guest,
+      manager: channel?.manager === true,
+      answer: async (runId: string, promptId: string, choice: PromptChoice) => {
+        await api.request(`/chat/v1/runs/${enc(runId)}/answer`, { promptId, choice });
+      },
+      stop: async (runId: string) => {
+        await api.request(`/chat/v1/runs/${enc(runId)}/stop`, {});
+      },
+    }),
+    [api, guest, channel?.manager],
+  );
   const takePart = !!channel && channel.joined !== false && channel.status !== "archived";
   const manager = channel?.manager === true;
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -130,6 +148,7 @@ function MessageList({
                   onResend={() => message.clientId && void feeder.resend(message.clientId)}
                   onDiscard={() => message.clientId && feeder.discard(message.clientId)}
                   onNotify={notify}
+                  agent={agent}
                 />
               </View>
             );
@@ -183,7 +202,10 @@ function ThreadView({
           channelId={channelId}
           draftKey={`thread:${root.id}`}
           placeholder="Reply…"
-          onSend={(body, fileIds) => feeder.send(body, { fileIds })}
+          agent={!!channel && agentOnIn(channel)}
+          onSend={async (body, fileIds) => {
+            await feeder.send(body, { fileIds });
+          }}
         />
       )}
     </View>
@@ -192,7 +214,7 @@ function ThreadView({
 
 /**
  * A channel's conversation, in the chat service: the messages, who is typing, a box to write in, and
- * the threads under them. It is what a channel is for people; the agent is not in it yet.
+ * the threads under them. The agent answers a mention in a thread under the message that asked.
  */
 export function ChannelChat({
   channelId,
@@ -212,7 +234,7 @@ export function ChannelChat({
   const channel = useChannelInfo(channelId);
   const feeder = useChannelFeed(channelId, { active });
   const people = useMentionable(channelId);
-  const mentions = useMemo(() => people.flatMap((p) => [p.handle, p.email]), [people]);
+  const mentions = useMemo(() => ["hive", ...people.flatMap((p) => [p.handle, p.email])], [people]);
   const me = hosted?.user.id ?? "";
   const [threadId, setThreadId] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
@@ -319,7 +341,12 @@ export function ChannelChat({
             direct ? `Message ${direct}…` : channel ? `Message #${channel.name}…` : "Message…"
           }
           disabled={!takePart}
-          onSend={(text, fileIds) => feeder.send(text, { fileIds })}
+          agent={!!channel && agentOnIn(channel)}
+          onSend={async (text, fileIds) => {
+            const made = await feeder.send(text, { fileIds });
+            // The agent answers in a thread under the message that asked: that thread is opened.
+            if (made && asksAgent(text)) setThreadId(made.id);
+          }}
         />
       )}
     </View>

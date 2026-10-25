@@ -1,3 +1,4 @@
+import type { RunnerLink } from "../../apps/chat/src/agent-link.ts";
 import app, { type Bucket, type Env } from "../../apps/chat/src/app.ts";
 import type { Peer } from "../../apps/chat/src/realtime.ts";
 import { RoomLogic } from "../../apps/chat/src/room-logic.ts";
@@ -69,7 +70,15 @@ export interface Identity {
  * requests as the app would make them.
  */
 export function chatStack(
-  options: { limits?: ChatLimits; linkKey?: string; peers?: () => Peer[] } = {},
+  options: {
+    limits?: ChatLimits;
+    linkKey?: string;
+    peers?: () => Peer[];
+    /** The agent's machine, if one is connected. */
+    runner?: () => RunnerLink | null;
+    /** Asked to start the agent's machine. */
+    wake?: () => void;
+  } = {},
 ) {
   const keys = generateWorkspaceKeys();
   const bucket = new FakeBucket();
@@ -93,6 +102,8 @@ export function chatStack(
               deleteObjects: (objects) => bucket.delete(objects),
               wakeIn: (ms) => woke.push(ms),
               peers: options.peers,
+              runner: options.runner,
+              wake: options.wake,
             });
             rooms.set(name, room);
           }

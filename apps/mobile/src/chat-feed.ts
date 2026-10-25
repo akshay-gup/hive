@@ -85,6 +85,23 @@ export function applyEvent(feed: Feed, scope: Scope, type: string, data: unknown
   }
 }
 
+/** Whether an agent's message says its run is over. */
+const finished = (message: ChatMessage) => {
+  const status = (message.extra as { status?: unknown } | undefined)?.status;
+  return status === "done" || status === "failed" || status === "stopped";
+};
+
+/**
+ * An agent's message as it is being written: shown in its place, and not once it has been finished (a
+ * stale picture of it must never undo the end). It carries no place of its own to read up to.
+ */
+export function applyStream(feed: Feed, scope: Scope, message: ChatMessage): Feed {
+  if (!inScope(scope, message)) return feed;
+  const held = feed.messages.find((m) => m.id === message.id);
+  if (held && finished(held)) return feed;
+  return put(feed, message);
+}
+
 /** A message the person has just sent, shown at once. */
 export function sending(feed: Feed, message: FeedMessage): Feed {
   return { ...feed, messages: ordered([...feed.messages, { ...message, pending: true }]) };

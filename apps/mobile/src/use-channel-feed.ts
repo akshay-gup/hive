@@ -3,6 +3,7 @@ import type { ChatMessage, ChatMessagePage, ChatPerson } from "../../../packages
 import { useChat } from "./chat-context";
 import {
   applyEvent,
+  applyStream,
   dropped,
   emptyFeed,
   type Feed,
@@ -29,7 +30,7 @@ export interface Feeder {
   /** Ask for older messages. */
   loadOlder: () => Promise<void>;
   /** Send something; it shows at once and settles when the service answers. */
-  send: (body: string, options?: { fileIds?: string[] }) => Promise<void>;
+  send: (body: string, options?: { fileIds?: string[] }) => Promise<ChatMessage | null>;
   /** Send again what did not go. */
   resend: (clientId: string) => Promise<void>;
   /** Give up on what did not go. */
@@ -105,6 +106,8 @@ export function useChannelFeed(
         if (frame.t === "resync") void load();
         else if (frame.t === "event")
           setFeed((f) => applyEvent(f, scopeRef.current, frame.type, frame.data));
+        else if (frame.t === "stream")
+          setFeed((f) => applyStream(f, scopeRef.current, frame.message));
       }),
     [chat.subscribe, load],
   );
@@ -136,9 +139,9 @@ export function useChannelFeed(
   }, [api, channelId, options.root, feed.messages]);
 
   const post = useCallback(
-    async (clientId: string) => {
+    async (clientId: string): Promise<ChatMessage | null> => {
       const what = sent.current.get(clientId);
-      if (!what) return;
+      if (!what) return null;
       try {
         const made = await api.request<ChatMessage>(
           `/chat/v1/channels/${enc(channelId)}/messages`,
@@ -151,9 +154,11 @@ export function useChannelFeed(
         );
         sent.current.delete(clientId);
         setFeed((f) => put(f, made));
+        return made;
       } catch (e) {
         setFeed((f) => failed(f, clientId));
         setError(e instanceof Error ? e.message : String(e));
+        return null;
       }
     },
     [api, channelId, options.root],
@@ -162,7 +167,7 @@ export function useChannelFeed(
   const send = useCallback(
     async (body: string, extra: { fileIds?: string[] } = {}) => {
       const text = body.trim();
-      if (!text && !extra.fileIds?.length) return;
+      if (!text && !extra.fileIds?.length) return null;
       const clientId = newClientId();
       sent.current.set(clientId, { body: text, fileIds: extra.fileIds });
       const local: FeedMessage = {
@@ -184,7 +189,7 @@ export function useChannelFeed(
       };
       setError("");
       setFeed((f) => sending(f, local));
-      await post(clientId);
+      return post(clientId);
     },
     // `me` is the same person for as long as this is open.
     // biome-ignore lint/correctness/useExhaustiveDependencies: see above

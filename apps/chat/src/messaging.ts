@@ -280,7 +280,9 @@ export class Messaging {
         { channelId, seq: message.seq },
         { userId: owner, channelId },
       );
-      return made;
+      // What the sender is answered with has the agent's reply counted, or it would undo the count the others were told.
+      const now = asked ? this.deps.messages.get(message.id) : null;
+      return now ? (this.views([now], known)[0] as ChatMessage) : made;
     });
     this.send(sent);
     // The run goes to the agent's machine, or the machine is woken.

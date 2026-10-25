@@ -34,6 +34,7 @@ export function ChatComposer({
   onSend,
   autoFocus,
   disabled,
+  agent,
 }: {
   channelId: string;
   /** What this box's unsent words are kept under. */
@@ -42,6 +43,8 @@ export function ChatComposer({
   onSend: (body: string, fileIds: string[]) => Promise<void> | void;
   autoFocus?: boolean;
   disabled?: boolean;
+  /** The agent is on in this channel, so `@hive` is offered. */
+  agent?: boolean;
 }) {
   const { api, notify } = useWorkspace();
   const chat = useChat();
@@ -88,11 +91,14 @@ export function ChatComposer({
   const options: MentionOption[] =
     mention && !mentionOff
       ? matchPeople(
-          people.map((person) => ({
-            handle: person.handle,
-            name: person.name || person.email,
-            note: person.role === "guest" ? "Guest" : undefined,
-          })),
+          [
+            ...(agent ? [{ handle: "hive", name: "Hive", note: "Agent" }] : []),
+            ...people.map((person) => ({
+              handle: person.handle,
+              name: person.name || person.email,
+              note: person.role === "guest" ? "Guest" : undefined,
+            })),
+          ],
           mention.query,
         )
       : [];

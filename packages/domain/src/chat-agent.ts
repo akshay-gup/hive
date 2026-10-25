@@ -27,6 +27,22 @@ export const RUN_REASONS = [
 ] as const;
 export type RunReason = (typeof RUN_REASONS)[number];
 
+/** What an agent's reply says when a run ended without anything to show, in words people read. */
+export const REASON_TEXT: Record<RunReason, string> = {
+  ok: "",
+  user: "Stopped.",
+  access: "Stopped, because the person who asked can no longer open this channel.",
+  timeout: "This took too long, so it was stopped.",
+  "no-runner": "The agent could not be reached. Try again in a minute.",
+  lost: "The agent stopped unexpectedly. Mention it again to retry.",
+  busy: "The agent is busy with other requests. Try again in a moment.",
+  limit: "That is a lot of requests for the agent. Try again in a few minutes.",
+  dm: "The agent does not work in direct messages.",
+  disabled: "The agent is not switched on in this channel. A channel manager can switch it on.",
+  archived: "This channel is archived.",
+  error: "Something went wrong, so the agent stopped.",
+};
+
 const text = (max: number) => z.string().max(max);
 
 /** One question the agent asks, as the app shows it (the same shape the old question card took). */
@@ -85,6 +101,8 @@ export const MAX_EXTRA_BYTES = 256 * 1024;
 export interface AgentExtra {
   v: 1;
   runId: string;
+  /** Who asked (their id), for who may stop it. */
+  askedBy: string;
   status: RunStatus;
   reason?: RunReason;
   steps: unknown[];

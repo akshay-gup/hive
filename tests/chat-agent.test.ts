@@ -171,6 +171,8 @@ test("a mention in a public channel makes a run and a reply in the thread, and s
     [["Mia", "earlier talk"]],
   );
   const reply = await replyTo(asked.id);
+  // The sender is answered with the message as it is once the agent's reply is under it.
+  assert.equal(asked.replyCount, 1);
   assert.equal(reply.threadRoot, asked.id);
   assert.equal(reply.author.name, "Hive");
   assert.equal(extraOf(reply).status, "queued");

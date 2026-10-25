@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
 import {
   applyEvent,
+  applyStream,
   continues,
   dropped,
   emptyFeed,
@@ -171,4 +172,48 @@ test("messages by one person close together are shown as one run", () => {
   assert.equal(continues(a, late), false);
   assert.equal(continues(a, mia), false);
   assert.equal(continues({ ...a, deleted: true }, b), false);
+});
+
+const agentReply = (id: string, status: string, body: string, root = "root"): ChatMessage =>
+  message({
+    id,
+    threadRoot: root,
+    author: { id: "agent", name: "Hive", email: "", kind: "agent" },
+    body,
+    extra: { v: 1, runId: "r1", askedBy: "max", status, steps: [] },
+  });
+
+test("an agent's reply as it is being written shows in its thread, and is replaced as it grows", () => {
+  const thread: Scope = { kind: "thread", root: "root" };
+  let feed = applyStream(emptyFeed, thread, agentReply("a1", "working", "One"));
+  assert.deepEqual(
+    feed.messages.map((m) => m.body),
+    ["One"],
+  );
+  feed = applyStream(feed, thread, agentReply("a1", "working", "One two"));
+  assert.deepEqual(
+    feed.messages.map((m) => m.body),
+    ["One two"],
+  );
+  // It is not the channel's own message, so the channel does not show it.
+  assert.equal(
+    applyStream(emptyFeed, { kind: "channel", channelId: "c1" }, agentReply("a1", "working", "x"))
+      .messages.length,
+    0,
+  );
+});
+
+test("a picture of an agent's reply from before it ended never undoes the end", () => {
+  const thread: Scope = { kind: "thread", root: "root" };
+  let feed = applyEvent(emptyFeed, thread, "message.new", agentReply("a1", "working", "Start"));
+  feed = applyEvent(feed, thread, "message.edited", agentReply("a1", "done", "All done"));
+  feed = applyStream(feed, thread, agentReply("a1", "working", "Half"));
+  assert.equal(feed.messages[0]?.body, "All done");
+  for (const status of ["failed", "stopped"]) {
+    const ended = applyEvent(emptyFeed, thread, "message.new", agentReply("a2", status, "End"));
+    assert.equal(
+      applyStream(ended, thread, agentReply("a2", "working", "Half")).messages[0]?.body,
+      "End",
+    );
+  }
 });
