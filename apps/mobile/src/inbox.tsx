@@ -209,11 +209,12 @@ export function InboxScreen() {
   const { width } = useWindowDimensions();
   const wide = width >= 700;
   const [tab, setTab] = useState<NoticeTab>("all");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [settings, setSettings] = useState(false);
   const all = data?.notifications ?? [];
-  const shown = useMemo(() => noticesFor(all, tab, false), [all, tab]);
+  const shown = useMemo(() => noticesFor(all, tab, unreadOnly), [all, tab, unreadOnly]);
   const groups = useMemo(() => groupByDay(shown), [shown]);
   const counts = useMemo(() => unreadCounts(all), [all]);
 
@@ -246,7 +247,10 @@ export function InboxScreen() {
           counts={counts}
           agentName={data?.identity.name || "Hive"}
         />
-        <View style={[s.row, { gap: 4 }]}>
+        <View style={[s.row, { gap: wide ? 8 : 4 }]}>
+          <Button small primary={unreadOnly} onPress={() => setUnreadOnly((on) => !on)}>
+            Unread only
+          </Button>
           {wide ? (
             <Button
               small
@@ -278,7 +282,9 @@ export function InboxScreen() {
           title={all.length ? "You're all caught up" : "Nothing here yet"}
           detail={
             all.length
-              ? "Nothing of this kind yet."
+              ? unreadOnly
+                ? "Nothing is waiting for you in this tab."
+                : "Nothing of this kind yet."
               : "What the agent answers or finishes for you, and where people mention you, will show up here."
           }
         />
