@@ -17,6 +17,7 @@ import {
   named,
   type Person,
 } from "./access.ts";
+import { agentOn } from "./agent-trigger.ts";
 import { AppError } from "./errors.ts";
 import { SHARED_OWNER } from "./shared.ts";
 import type { RecordStore } from "./store.ts";
@@ -140,6 +141,7 @@ export class ChannelPeople {
         archived: false,
         everyone: false,
         topic: "",
+        agent: false,
         people,
         candidates: [],
         you: {
@@ -154,6 +156,7 @@ export class ChannelPeople {
           makePublic: false,
           setEveryone: false,
           topic: false,
+          agent: false,
         },
       };
     return {
@@ -163,6 +166,7 @@ export class ChannelPeople {
       archived: channel.status === "archived",
       everyone,
       topic: channel.topic ?? "",
+      agent: agentOn(channel),
       people,
       candidates,
       you: {
@@ -181,6 +185,7 @@ export class ChannelPeople {
         makePublic: runs(person) && !isPublic(channel),
         setEveryone: runs(person) && isPublic(channel),
         topic: channel.status !== "archived" && person.role !== "guest" && (runs(person) || inIt),
+        agent: channel.status !== "archived" && manager,
       },
     };
   }
@@ -389,6 +394,17 @@ export class ChannelPeople {
       if (input.everyone && visibility === "private")
         throw new AppError("A private channel can't have everyone in it", 409);
       const everyone = wants;
+      // Whether the agent may be mentioned: a manager says. What was said of a channel when it was open is
+      // not carried into a closed one; a manager has to say it of that.
+      let agent = channel.agent;
+      if (input.agent !== undefined) {
+        if (!managesChannel(person, channel))
+          throw new AppError(
+            "Only a channel manager, an admin or the owner can switch the agent on or off",
+            403,
+          );
+        agent = input.agent;
+      } else if (visibility === "private" && isPublic(channel)) agent = false;
       const members = new Set(channel.members ?? []);
       if (was && !everyone)
         for (const [email, who] of known) if (who.role !== "guest") members.add(email);
@@ -397,6 +413,7 @@ export class ChannelPeople {
         everyone,
         members: [...members].sort(),
         ...(input.topic !== undefined ? { topic: input.topic } : {}),
+        ...(agent !== undefined ? { agent } : {}),
       };
     });
     return this.describe(person, saved);

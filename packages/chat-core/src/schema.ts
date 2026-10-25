@@ -97,6 +97,24 @@ const STEPS: string[][] = [
     // R2 objects to delete, which the Worker or an alarm does, since R2 is not touched inside a transaction.
     `CREATE TABLE gc (r2_key TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   ],
+  [
+    // The agent's runs. A mention of the agent in a channel makes one; it is in the room's hands until it ends
+    // (queued, sent to the machine the agent runs on, running, then done, failed or stopped). The agent's
+    // reply is a message (`reply_id`) the run writes into.
+    `CREATE TABLE runs (
+       id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, root_id TEXT NOT NULL,
+       trigger_id TEXT NOT NULL, reply_id TEXT NOT NULL,
+       asked_by TEXT NOT NULL, asker_role TEXT NOT NULL,
+       state TEXT NOT NULL, reason TEXT,
+       prompts TEXT NOT NULL DEFAULT '[]',
+       last_n INTEGER NOT NULL DEFAULT 0, attempt INTEGER NOT NULL DEFAULT 0,
+       created_ms INTEGER NOT NULL, sent_ms INTEGER, beat_ms INTEGER, ended_ms INTEGER,
+       updates INTEGER NOT NULL DEFAULT 0, saved_ms INTEGER NOT NULL DEFAULT 0
+     )`,
+    `CREATE INDEX runs_active ON runs (state) WHERE state IN ('queued', 'sent', 'running')`,
+    `CREATE INDEX runs_thread ON runs (channel_id, root_id, created_ms)`,
+    `CREATE INDEX runs_asker ON runs (asked_by, created_ms)`,
+  ],
 ];
 
 /** The newest version of the tables. */

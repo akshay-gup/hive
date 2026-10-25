@@ -1,0 +1,175 @@
+import { z } from "zod";
+
+/**
+ * How the agent and the chat service talk. The agent's reply to a mention is one message (`author_kind`
+ * agent) whose `extra` says how the run is going and what it did; the machine the agent runs on holds a
+ * connection to the chat service and trades the frames below over it. The service checks every frame
+ * against the run it belongs to, so a frame can only ever change that run's own reply.
+ */
+
+export const RUN_STATUS = ["queued", "working", "done", "failed", "stopped"] as const;
+export type RunStatus = (typeof RUN_STATUS)[number];
+
+/** Why a run ended as it did, in a word the reply can say in full. */
+export const RUN_REASONS = [
+  "ok",
+  "user",
+  "access",
+  "timeout",
+  "no-runner",
+  "lost",
+  "busy",
+  "limit",
+  "dm",
+  "disabled",
+  "archived",
+  "error",
+] as const;
+export type RunReason = (typeof RUN_REASONS)[number];
+
+const text = (max: number) => z.string().max(max);
+
+/** One question the agent asks, as the app shows it (the same shape the old question card took). */
+export const askedQuestionSchema = z.object({
+  header: text(200),
+  question: text(2000),
+  options: z.array(z.object({ label: text(200), description: text(500) })).max(12),
+  multiple: z.boolean().optional(),
+  custom: z.boolean().optional(),
+});
+
+/** What the agent is waiting for people to decide: to be allowed to do something, or an answer. */
+export const promptSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("approval"),
+    id: text(100),
+    /** What it wants to do, in a line (a command, a file). */
+    title: text(300),
+    detail: text(4000).optional(),
+    tool: text(100).optional(),
+  }),
+  z.object({
+    kind: z.literal("question"),
+    id: text(100),
+    questions: z.array(askedQuestionSchema).min(1).max(8),
+  }),
+]);
+export type RunPrompt = z.infer<typeof promptSchema>;
+
+/** What a person chose for a prompt. */
+export const choiceSchema = z.union([
+  z.object({ reply: z.enum(["once", "reject"]) }),
+  z.object({ answers: z.array(z.array(text(2000)).max(20)).max(8) }),
+  z.object({ dismiss: z.literal(true) }),
+]);
+export type PromptChoice = z.infer<typeof choiceSchema>;
+
+export interface PromptState {
+  prompt: RunPrompt;
+  /** What the machine will answer with. Kept by the room; never sent to the app. */
+  requestId?: string;
+  /** When it was asked, which is when the wait for an answer starts. */
+  askedAt?: string;
+  /** Filled in by the room when someone answers. */
+  answered?: { by: string; byName: string; at: string; choice: PromptChoice };
+}
+
+/** The most `extra` of an agent's reply may weigh once written down. */
+export const MAX_EXTRA_BYTES = 256 * 1024;
+
+/**
+ * `extra` of an agent's message. `steps` are the run's messages as the old chat kept them (assistant text,
+ * tool calls and what came back), which the app already knows how to show. The room writes `status`,
+ * `reason` and `prompts` itself; whatever the machine says of those is not taken.
+ */
+export interface AgentExtra {
+  v: 1;
+  runId: string;
+  status: RunStatus;
+  reason?: RunReason;
+  steps: unknown[];
+  prompts?: PromptState[];
+}
+
+export const stepsSchema = z.array(z.unknown()).max(600);
+
+/** What the machine says to the room (untrusted: every field is checked). */
+export const runnerFrameSchema = z.discriminatedUnion("t", [
+  z.object({
+    t: z.literal("hello"),
+    v: z.number().int(),
+    identity: z
+      .object({
+        name: text(80),
+        avatar: z.enum(["sky", "sand", "lilac"]).optional(),
+      })
+      .optional(),
+    capacity: z.object({ maxRuns: z.number().int().min(1).max(8) }).optional(),
+    /** The runs it is working on, so the room knows which survived a restart of the room or the machine. */
+    active: z.array(z.object({ runId: text(100), n: z.number().int().min(0) })).max(16),
+  }),
+  z.object({ t: z.literal("renew"), token: text(4000) }),
+  z.object({ t: z.literal("run.ack"), runId: text(100) }),
+  z.object({
+    t: z.literal("run.say"),
+    runId: text(100),
+    n: z.number().int().min(1),
+    body: text(40_000),
+    steps: stepsSchema,
+  }),
+  z.object({
+    t: z.literal("run.ask"),
+    runId: text(100),
+    prompt: promptSchema,
+    /** What the machine will answer with, so an answer can be told what it answers. */
+    requestId: text(200),
+  }),
+  z.object({ t: z.literal("run.asked.done"), runId: text(100), promptId: text(100) }),
+  z.object({
+    t: z.literal("run.end"),
+    runId: text(100),
+    n: z.number().int().min(1),
+    status: z.enum(["done", "failed", "stopped"]),
+    body: text(40_000),
+    steps: stepsSchema,
+    error: text(500).optional(),
+  }),
+  z.object({ t: z.literal("beat"), runIds: z.array(text(100)).max(16) }),
+]);
+export type RunnerFrame = z.infer<typeof runnerFrameSchema>;
+
+/** What the room says to the machine. */
+export interface RunStart {
+  id: string;
+  attempt: number;
+  channel: { id: string; name: string; topic: string; visibility: "public" | "private" };
+  /** The message that started it, and the thread it is in (the first message is the thread's root). */
+  thread: { rootId: string; messages: ContextMessage[] };
+  text: string;
+  asker: { id: string; email: string; name: string; role: "owner" | "admin" | "member" | "guest" };
+  people: { name: string; handle: string }[];
+  files: { id: string; name: string; mime: string; bytes: number; url: string }[];
+  mode: "ask";
+}
+export interface ContextMessage {
+  id: string;
+  author: string;
+  kind: "person" | "agent" | "system";
+  body: string;
+  at: string;
+}
+
+export type RoomFrame =
+  | { t: "welcome"; limits: { maxRunMs: number }; resume: string[] }
+  | { t: "run.start"; run: RunStart }
+  | {
+      t: "run.answer";
+      runId: string;
+      promptId: string;
+      requestId: string;
+      by: string;
+      choice: PromptChoice;
+    }
+  | { t: "run.stop"; runId: string; by: string; reason: "user" | "access" | "timeout" }
+  | { t: "ack"; runId: string }
+  | { t: "closing"; reason: string };

@@ -41,8 +41,11 @@ export function withHandles(
   return people.map((person) => ({
     ...person,
     email: person.email.toLowerCase(),
+    // `hive` is the agent's: no one is named by it, so a person whose address starts so is named by all of it.
     handle:
-      (count.get(local(person.email)) ?? 0) > 1 ? person.email.toLowerCase() : local(person.email),
+      (count.get(local(person.email)) ?? 0) > 1 || local(person.email) === "hive"
+        ? person.email.toLowerCase()
+        : local(person.email),
   }));
 }
 

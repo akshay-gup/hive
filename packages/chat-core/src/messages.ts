@@ -272,6 +272,20 @@ export class Messages {
     });
   }
 
+  /**
+   * Change what an agent's reply says. Only an agent's message is changed this way (a person's goes through
+   * `edit`, by its author), and a deleted one is left deleted.
+   */
+  patchAgent(id: string, change: { body: string; extra: unknown }): Message | null {
+    const changed = this.sql.run(
+      "UPDATE messages SET body = ?, extra = ?, edited_at = NULL WHERE id = ? AND author_kind = 'agent' AND deleted_at IS NULL",
+      change.body,
+      JSON.stringify(change.extra),
+      id,
+    );
+    return changed > 0 ? this.get(id) : null;
+  }
+
   /** Where the channel's numbering has got to (0 before the first message). */
   lastSeq(channelId: string): number {
     return (

@@ -396,6 +396,12 @@ export interface Channel {
    */
   members?: string[];
   /**
+   * Whether the agent may be brought into the channel with a mention. A public channel has it unless this
+   * says no; a private channel only where a manager has said yes (what the agent is shown stays on the
+   * machine it runs on). Never in a direct message.
+   */
+  agent?: boolean;
+  /**
    * The people who manage the channel, by email address (lowercase), a subset of its members.
    * Owners and admins manage every channel they can open.
    */
@@ -457,6 +463,8 @@ export interface ChannelPeopleView {
   everyone: boolean;
   /** A line on what the channel is for; empty when it has none. */
   topic: string;
+  /** Whether the agent may be brought in with a mention. */
+  agent: boolean;
   /** The people named in it: its managers first. `role` is null for an address that has not signed in here yet. */
   people: {
     email: string;
@@ -480,6 +488,8 @@ export interface ChannelPeopleView {
     setEveryone: boolean;
     /** Change the channel's topic. */
     topic: boolean;
+    /** Switch the agent on or off in the channel. */
+    agent: boolean;
   };
 }
 const emailAddress = z
@@ -498,6 +508,7 @@ export const channelSettingsSchema = z.object({
   visibility: z.enum(["public", "private"]).optional(),
   everyone: z.boolean().optional(),
   topic: z.string().trim().max(250).optional(),
+  agent: z.boolean().optional(),
 });
 export type ChannelSettingsInput = z.infer<typeof channelSettingsSchema>;
 /** What a person wants to be told about: their own, and kept by the workspace. Everything is on until they turn it off. */
