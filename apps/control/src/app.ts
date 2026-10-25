@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -181,6 +181,36 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     if (!gateway || gateway.workspaceOf(given) !== id)
       return c.json({ error: "Unauthorized" }, 401);
     return c.json(await machineConfigs.documentFor(id));
+  });
+
+  // The agent's machine asks for the token it connects to the chat service with. Like its settings, it is
+  // for the workspace alone, which proves it with its key; the token names no person.
+  app.post("/v1/release/:id/runner-token", async (c) => {
+    if (!(await askers.allow(visitorOf(c)))) return c.json({ error: "Too many requests" }, 429);
+    const id = idParam.parse(c.req.param("id"));
+    const header = c.req.header("authorization");
+    const given = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+    if (!gateway || gateway.workspaceOf(given) !== id)
+      return c.json({ error: "Unauthorized" }, 401);
+    return c.json(await workspaces.runnerToken(id));
+  });
+
+  // The chat service asks for a workspace's machine to be started, because the agent was mentioned while
+  // it was stopped. It proves it is the chat service with a key only the two of them hold, over a time and
+  // the workspace's id, so one request cannot be played again later or for another workspace.
+  const wakers = new RateLimiter(6);
+  app.post("/internal/chat/wake/:id", async (c) => {
+    if (!config.chatWakeKey) return c.json({ error: "Not found" }, 404);
+    const id = idParam.parse(c.req.param("id"));
+    const at = Number(c.req.header("x-hive-at"));
+    const mac = c.req.header("x-hive-mac") ?? "";
+    const expected = createHmac("sha256", config.chatWakeKey)
+      .update(`wake\n${id}\n${c.req.header("x-hive-at") ?? ""}`)
+      .digest("hex");
+    if (!Number.isFinite(at) || Math.abs(Date.now() - at) > 60_000 || !sameSecret(mac, expected))
+      return c.json({ error: "Unauthorized" }, 401);
+    if (!(await wakers.allow(id))) return c.json({ error: "Too many requests" }, 429);
+    return c.json(await workspaces.wakeForChat(id));
   });
 
   // Publishing a build, for CI and an operator. They show the release token; without one there is no

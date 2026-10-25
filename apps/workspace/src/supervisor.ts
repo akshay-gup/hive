@@ -203,8 +203,13 @@ export function serverEnv(
   secrets: WorkspaceSecrets,
   home?: string,
   browserToken?: string,
+  /** Where the server gets the token it connects to the chat service with, and the key that asks for it. */
+  chatRunner?: { tokenUrl: string; key: string },
 ): Record<string, string> {
   return {
+    ...(chatRunner
+      ? { CHAT_RUNNER_TOKEN_URL: chatRunner.tokenUrl, CHAT_RUNNER_KEY: chatRunner.key }
+      : {}),
     // The workspace's own browser, unless the machine was pointed at another.
     ...(browserToken ? { BROWSER_WORKER_URL: BROWSER_URL, WORKER_TOKEN: browserToken } : {}),
     ...defined(env),

@@ -1,10 +1,12 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
+  CHAT_RUNNER_SECONDS,
   CHAT_TOKEN_SECONDS,
   DEFAULT_TOKEN_SECONDS,
   signChatPeople,
   signChatPurge,
   signChatRevocation,
+  signChatRunner,
   signChatToken,
   signRevocation,
   signWorkspaceToken,
@@ -265,6 +267,33 @@ export class WorkspaceService {
       wsUrl: `${url.replace(/^http/, "ws")}/v1/ws`,
       expiresAt: Date.now() + CHAT_TOKEN_SECONDS * 1000,
     };
+  }
+
+  /**
+   * What the agent's machine connects to the chat service with. The machine asks with its own key, which
+   * the caller has checked; the token names no person and only lets it receive the runs the chat service
+   * gives it. It lasts minutes and is asked for again.
+   */
+  async runnerToken(id: string): Promise<{ token: string; url: string; expiresAt: number }> {
+    const chat = this.options.chat;
+    if (!chat) throw new HttpError("Chat is not set up", 404);
+    const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
+    if (!record || record.status !== "ready")
+      throw new HttpError("This workspace is not ready", 409);
+    const token = signChatRunner(this.options.keys.privateKey, { workspaceId: id });
+    return {
+      token,
+      url: `${chat.url.replace(/^http/, "ws")}/w/${id}/agent/v1/connect`,
+      expiresAt: Date.now() + CHAT_RUNNER_SECONDS * 1000,
+    };
+  }
+
+  /** The chat service asks for the workspace's machine to be started, because the agent was mentioned. */
+  async wakeForChat(id: string): Promise<{ state: MachineState }> {
+    const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
+    if (record?.status !== "ready") throw new HttpError("This workspace is not ready", 409);
+    await this.options.provisioner.wake(id);
+    return { state: await this.options.provisioner.state(id) };
   }
 
   /** Ask the chat service for something only the control plane may: best effort, since a person's token runs out soon anyway. */

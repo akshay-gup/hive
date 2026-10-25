@@ -252,6 +252,21 @@ test("the server gets its secrets and the way to the agent, over whatever the ma
   assert.equal(env.OPENCODE_SERVER_PASSWORD, secrets.opencodePassword);
 });
 
+test("the server alone is told where to get its chat token, and the agent and the browser are not", () => {
+  const chatRunner = {
+    tokenUrl: "https://api.example/v1/release/w1/runner-token",
+    key: "hwk_w1.mac",
+  };
+  const server = serverEnv({ WORKSPACE_ID: "w1" }, secrets, undefined, undefined, chatRunner);
+  assert.equal(server.CHAT_RUNNER_TOKEN_URL, chatRunner.tokenUrl);
+  assert.equal(server.CHAT_RUNNER_KEY, chatRunner.key);
+  assert.equal("CHAT_RUNNER_KEY" in serverEnv({ WORKSPACE_ID: "w1" }, secrets), false);
+  const agent = agentEnv({ PATH: "/usr/bin", CHAT_RUNNER_KEY: "leak" }, secrets, "/data");
+  assert.equal(JSON.stringify(agent).includes(chatRunner.key), false);
+  const browser = browserEnv({ PATH: "/bin" }, "t".repeat(64), "/data");
+  assert.equal(JSON.stringify(browser).includes(chatRunner.key), false);
+});
+
 test("the server starts only once the agent answers, and both stop when asked, server first", async () => {
   const { supervisor, lines } = await setup({ agent: { STUB_DELAY_MS: "400" } });
   const done = supervisor.run();

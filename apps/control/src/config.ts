@@ -24,6 +24,8 @@ export interface ControlConfig {
    */
   chatUrl?: string;
   chatInternalUrl?: string;
+  /** What the chat service proves it is with when it asks for a workspace's machine to be started (a mention of the agent). */
+  chatWakeKey?: string;
   /** Web origins besides `publicUrl` that may call the API. */
   allowedOrigins: string[];
   /** How many workspaces one person can have made. */
@@ -86,6 +88,7 @@ export function readControlConfig(env: Env = process.env): ControlConfig {
     maxWorkspacesPerAccount: maxWorkspaces,
     chatUrl: env.CHAT_PUBLIC_URL?.trim().replace(/\/+$/, "") || undefined,
     chatInternalUrl: env.CHAT_INTERNAL_URL?.trim().replace(/\/+$/, "") || undefined,
+    chatWakeKey: env.CHAT_WAKE_KEY?.trim() || undefined,
     clientIpHeader: env.CONTROL_CLIENT_IP_HEADER?.trim() || undefined,
     edgeToken: env.CONTROL_EDGE_TOKEN?.trim() || undefined,
     releaseToken: env.CONTROL_RELEASE_TOKEN?.trim() || undefined,

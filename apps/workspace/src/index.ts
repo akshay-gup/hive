@@ -65,7 +65,19 @@ const supervisor = new Supervisor({
       process.execPath,
       fileURLToPath(new URL("../../server/src/index.js", import.meta.url)),
     ],
-    env: serverEnv(env, secrets, home, browserToken),
+    env: serverEnv(
+      env,
+      secrets,
+      home,
+      browserToken,
+      // The agent's machine connects to the chat service with a token the control plane gives it for this workspace's key.
+      started.where
+        ? {
+            tokenUrl: started.where.url.replace(/\/config$/, "/runner-token"),
+            key: started.where.key,
+          }
+        : undefined,
+    ),
   },
   browser: browserToken
     ? {
