@@ -63,7 +63,13 @@ import { useHosted } from "./hosted/context";
 import { confirmedJevSelection, displayJevUserMessage, latestJevPanelId } from "./jev-actions";
 import { JevInteractionContext, JevToolCard } from "./jev-tool-card";
 import { MailToolCard } from "./mail-tool-card";
-import { type MentionOption, MentionPicker, MentionText, useMentionable } from "./mention-ui";
+import {
+  MentionNamesProvider,
+  type MentionOption,
+  MentionPicker,
+  MentionText,
+  useMentionable,
+} from "./mention-ui";
 import { PendingApprovals } from "./opencode-permissions";
 import { PendingQuestions } from "./opencode-questions";
 import PanelResizer from "./PanelResizer";
@@ -1061,638 +1067,663 @@ export function ChatScreen({
   // On a wide window a channel is a panel of its own, with its header inside, beside the thread's.
   const panels = !!channelId && !threadParent && width >= 900;
   return (
-    <View
-      style={{ flex: 1, flexDirection: "row", minHeight: 0 }}
-      onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
-    >
-      <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
-        {panels && header}
-        <View
-          style={{
-            flex: 1,
-            minHeight: 0,
-            paddingHorizontal: channelId ? (width >= 900 ? 20 : 16) : 0,
-            paddingBottom: channelId ? 16 : 0,
-          }}
-        >
-          <ScrollView
-            ref={list}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{
-              gap: channelId || threadParent ? 2 : 8,
-              paddingTop: 8,
-              paddingBottom: 12,
-              flexGrow: 1,
+    <MentionNamesProvider people={mentionPeople}>
+      <View
+        style={{ flex: 1, flexDirection: "row", minHeight: 0 }}
+        onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+      >
+        <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
+          {panels && header}
+          <View
+            style={{
+              flex: 1,
+              minHeight: 0,
+              paddingHorizontal: channelId ? (width >= 900 ? 20 : 16) : 0,
+              paddingBottom: channelId ? 16 : 0,
             }}
-            onScroll={({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) => {
-              const nearEnd = contentSize.height - contentOffset.y - layoutMeasurement.height < 100;
-              followLatest.current = nearEnd;
-              setAwayFromLatest(visible.length > 0 && !nearEnd);
-            }}
-            scrollEventThrottle={100}
-            onContentSizeChange={() => {
-              if (active && visible.length > 0 && followLatest.current)
-                list.current?.scrollToEnd({ animated: false });
-            }}
-            keyboardShouldPersistTaps="handled"
           >
-            {!!historyError && (
-              <>
-                <ErrorNotice error={historyError} />
-                <Button onPress={() => setHistoryAttempt((attempt) => attempt + 1)}>
-                  Retry loading conversation
-                </Button>
-              </>
-            )}
-            {!channelId && !threadParent && (richThreads || selection.id !== "local") && (
-              <ChannelThreadBanner threadId={threadId} mainId={mainId} />
-            )}
-            {!visible.length && !threadParent ? (
-              <View
-                // It holds its place while the conversation loads, unseen, so that a conversation
-                // that has messages is not flashed an empty page first, and one that is empty
-                // does not move when it appears.
-                pointerEvents={loaded || historyError ? "auto" : "none"}
-                style={{
-                  flexGrow: 1,
-                  flexShrink: 0,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  paddingVertical: 34,
-                  gap: 15,
-                  opacity: loaded || historyError ? 1 : 0,
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: fontSize.display,
-                    letterSpacing: -1,
-                    color: colors.text,
-                    textAlign: "center",
-                    maxWidth: 350,
-                  }}
-                >
-                  {directName ? directName : channelId ? "Start the conversation" : "Message Hive"}
-                </Text>
-                <Text style={[s.muted, { maxWidth: 320, textAlign: "center", lineHeight: 23 }]}>
-                  {directName
-                    ? "Only the two of you can see this. Mention @hive to bring the agent in."
-                    : channelId
-                      ? "Post a message to the channel. Use Reply in thread to keep each discussion together."
-                      : "Ask a question, share a task, or work with your connected apps."}
-                </Text>
+            <ScrollView
+              ref={list}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{
+                gap: channelId || threadParent ? 2 : 8,
+                paddingTop: 8,
+                paddingBottom: 12,
+                flexGrow: 1,
+              }}
+              onScroll={({ nativeEvent: { contentOffset, contentSize, layoutMeasurement } }) => {
+                const nearEnd =
+                  contentSize.height - contentOffset.y - layoutMeasurement.height < 100;
+                followLatest.current = nearEnd;
+                setAwayFromLatest(visible.length > 0 && !nearEnd);
+              }}
+              scrollEventThrottle={100}
+              onContentSizeChange={() => {
+                if (active && visible.length > 0 && followLatest.current)
+                  list.current?.scrollToEnd({ animated: false });
+              }}
+              keyboardShouldPersistTaps="handled"
+            >
+              {!!historyError && (
+                <>
+                  <ErrorNotice error={historyError} />
+                  <Button onPress={() => setHistoryAttempt((attempt) => attempt + 1)}>
+                    Retry loading conversation
+                  </Button>
+                </>
+              )}
+              {!channelId && !threadParent && (richThreads || selection.id !== "local") && (
+                <ChannelThreadBanner threadId={threadId} mainId={mainId} />
+              )}
+              {!visible.length && !threadParent ? (
                 <View
+                  // It holds its place while the conversation loads, unseen, so that a conversation
+                  // that has messages is not flashed an empty page first, and one that is empty
+                  // does not move when it appears.
+                  pointerEvents={loaded || historyError ? "auto" : "none"}
                   style={{
-                    display: channelId ? "none" : "flex",
-                    width: "100%",
-                    maxWidth: 360,
-                    marginTop: 14,
-                    gap: 8,
+                    flexGrow: 1,
+                    flexShrink: 0,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    paddingVertical: 34,
+                    gap: 15,
+                    opacity: loaded || historyError ? 1 : 0,
                   }}
                 >
-                  {[
-                    {
-                      text: "Plan my day",
-                      action: () => enqueue("@hive Help me plan my day"),
-                    },
-                    {
-                      text: "Draft a message",
-                      action: () => enqueue("@hive Help me draft a message"),
-                    },
-                    { text: "Connect an app", action: () => navigate("apps") },
-                  ].map((item) => (
-                    <Button key={item.text} onPress={item.action}>
-                      {item.text}
-                    </Button>
-                  ))}
-                </View>
-              </View>
-            ) : (
-              visible.map((message, index) => {
-                const user = message.role === "user";
-                const text = textOf(message);
-                const toolCalls = "toolCalls" in message ? message.toolCalls || [] : [];
-                const working =
-                  (busy || agent.isRunning) && messages.indexOf(message) > latestUserIndex;
-                const replies = channelId
-                  ? (channelThreads ?? []).filter((t) => t.parentMessageId === message.id)
-                  : [];
-                const latestReply = replies[replies.length - 1];
-                const timestamp = messageTimestamp(message);
-                const previousTimestamp = visible
-                  .slice(0, index)
-                  .reverse()
-                  .map(messageTimestamp)
-                  .find((time) => time !== undefined);
-                const newDay =
-                  timestamp &&
-                  (!previousTimestamp ||
-                    new Date(timestamp).toDateString() !==
-                      new Date(previousTimestamp).toDateString());
-                const prev = visible[index - 1];
-                const grouped =
-                  !newDay &&
-                  index > 0 &&
-                  prev.role === message.role &&
-                  // User messages bunch only under the same author, not just the
-                  // same role — otherwise two people's texts read as one person's.
-                  (message.role !== "user" ||
-                    prev.role !== "user" ||
-                    (prev.name ?? "") === (message.name ?? "")) &&
-                  (!timestamp || !previousTimestamp || timestamp - previousTimestamp < 5 * 60000);
-                return (
-                  <View
-                    key={message.id}
+                  <Text
                     style={{
-                      alignSelf:
-                        channelId || threadParent ? "stretch" : user ? "flex-end" : "flex-start",
-                      maxWidth: channelId || threadParent ? "100%" : user ? "85%" : "95%",
-                      width:
-                        channelId || threadParent ? "100%" : toolCalls.length ? "95%" : undefined,
-                      gap: channelId || threadParent ? 2 : 6,
+                      fontSize: fontSize.display,
+                      letterSpacing: -1,
+                      color: colors.text,
+                      textAlign: "center",
+                      maxWidth: 350,
                     }}
                   >
-                    {channelId && newDay && (
-                      <View style={[s.row, { gap: 12, paddingVertical: 6 }]}>
-                        <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
-                        <Text style={[s.small, { fontWeight: "600" }]}>
-                          {new Date(timestamp).toLocaleDateString(undefined, {
-                            month: "long",
-                            day: "numeric",
-                          })}
-                        </Text>
-                        <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
-                      </View>
-                    )}
-                    {!!text &&
-                      (channelId || threadParent ? (
-                        <ChannelMessage
-                          text={text}
-                          author={user ? message.name || w.profile.name || "You" : agentName}
-                          mentions={mentionHandles}
-                          assistant={!user}
-                          grouped={grouped}
-                          timestamp={timestamp}
-                          selected={panelOpen && replyPanel?.parent.id === message.id}
-                          onReply={channelId ? () => void openReply(message) : undefined}
-                          replyDisabled={openingReply || !loaded || channelThreads === null}
-                          replyCount={replies.reduce(
-                            (sum, binding) => sum + (replyCounts[binding.threadId] ?? 0),
-                            0,
-                          )}
-                          hasThread={
-                            !!latestReply &&
-                            (mentionsAgent(text) ||
-                              replies.some((binding) => (replyCounts[binding.threadId] ?? 0) > 0))
-                          }
-                          onNotify={notify}
-                        />
-                      ) : user ? (
-                        <View
-                          style={{
-                            paddingHorizontal: 14,
-                            paddingVertical: 9,
-                            borderRadius: radius.xl,
-                            borderBottomRightRadius: 6,
-                            backgroundColor: colors.primarySoft,
-                          }}
-                        >
-                          <MentionText text={text} handles={mentionHandles} style={s.text} />
-                        </View>
-                      ) : (
-                        <View style={{ maxWidth: 720, paddingVertical: 2 }}>
-                          <AssistantResponse content={text} />
-                        </View>
-                      ))}
-                    <JevInteractionContext.Provider
-                      value={{
-                        threadId,
-                        busy:
-                          busy ||
-                          agent.isRunning ||
-                          !loaded ||
-                          !isReady ||
-                          !!outbox.pending.length ||
-                          outbox.paused ||
-                          !!saveError,
-                        latestPanelId,
-                        latestUserText,
-                        send: sendChoice,
-                        retry: (text) => sendChoice(text, true),
-                        canRetry:
-                          loaded &&
-                          isReady &&
-                          !busy &&
-                          !agent.isRunning &&
-                          !outbox.running &&
-                          !outbox.pending.length &&
-                          !saveError,
-                        confirmedSelection: (panelId) => confirmedJevSelection(messages, panelId),
+                    {directName
+                      ? directName
+                      : channelId
+                        ? "Start the conversation"
+                        : "Message Hive"}
+                  </Text>
+                  <Text style={[s.muted, { maxWidth: 320, textAlign: "center", lineHeight: 23 }]}>
+                    {directName
+                      ? "Only the two of you can see this. Mention @hive to bring the agent in."
+                      : channelId
+                        ? "Post a message to the channel. Use Reply in thread to keep each discussion together."
+                        : "Ask a question, share a task, or work with your connected apps."}
+                  </Text>
+                  <View
+                    style={{
+                      display: channelId ? "none" : "flex",
+                      width: "100%",
+                      maxWidth: 360,
+                      marginTop: 14,
+                      gap: 8,
+                    }}
+                  >
+                    {[
+                      {
+                        text: "Plan my day",
+                        action: () => enqueue("@hive Help me plan my day"),
+                      },
+                      {
+                        text: "Draft a message",
+                        action: () => enqueue("@hive Help me draft a message"),
+                      },
+                      { text: "Connect an app", action: () => navigate("apps") },
+                    ].map((item) => (
+                      <Button key={item.text} onPress={item.action}>
+                        {item.text}
+                      </Button>
+                    ))}
+                  </View>
+                </View>
+              ) : (
+                visible.map((message, index) => {
+                  const user = message.role === "user";
+                  const text = textOf(message);
+                  const toolCalls = "toolCalls" in message ? message.toolCalls || [] : [];
+                  const working =
+                    (busy || agent.isRunning) && messages.indexOf(message) > latestUserIndex;
+                  const replies = channelId
+                    ? (channelThreads ?? []).filter((t) => t.parentMessageId === message.id)
+                    : [];
+                  const latestReply = replies[replies.length - 1];
+                  const timestamp = messageTimestamp(message);
+                  const previousTimestamp = visible
+                    .slice(0, index)
+                    .reverse()
+                    .map(messageTimestamp)
+                    .find((time) => time !== undefined);
+                  const newDay =
+                    timestamp &&
+                    (!previousTimestamp ||
+                      new Date(timestamp).toDateString() !==
+                        new Date(previousTimestamp).toDateString());
+                  const prev = visible[index - 1];
+                  const grouped =
+                    !newDay &&
+                    index > 0 &&
+                    prev.role === message.role &&
+                    // User messages bunch only under the same author, not just the
+                    // same role — otherwise two people's texts read as one person's.
+                    (message.role !== "user" ||
+                      prev.role !== "user" ||
+                      (prev.name ?? "") === (message.name ?? "")) &&
+                    (!timestamp || !previousTimestamp || timestamp - previousTimestamp < 5 * 60000);
+                  return (
+                    <View
+                      key={message.id}
+                      style={{
+                        alignSelf:
+                          channelId || threadParent ? "stretch" : user ? "flex-end" : "flex-start",
+                        maxWidth: channelId || threadParent ? "100%" : user ? "85%" : "95%",
+                        width:
+                          channelId || threadParent ? "100%" : toolCalls.length ? "95%" : undefined,
+                        gap: channelId || threadParent ? 2 : 6,
                       }}
                     >
-                      <BrowserRunContext
+                      {channelId && newDay && (
+                        <View style={[s.row, { gap: 12, paddingVertical: 6 }]}>
+                          <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
+                          <Text style={[s.small, { fontWeight: "600" }]}>
+                            {new Date(timestamp).toLocaleDateString(undefined, {
+                              month: "long",
+                              day: "numeric",
+                            })}
+                          </Text>
+                          <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
+                        </View>
+                      )}
+                      {!!text &&
+                        (channelId || threadParent ? (
+                          <ChannelMessage
+                            text={text}
+                            author={user ? message.name || w.profile.name || "You" : agentName}
+                            mentions={mentionHandles}
+                            assistant={!user}
+                            grouped={grouped}
+                            timestamp={timestamp}
+                            selected={panelOpen && replyPanel?.parent.id === message.id}
+                            onReply={channelId ? () => void openReply(message) : undefined}
+                            replyDisabled={openingReply || !loaded || channelThreads === null}
+                            replyCount={replies.reduce(
+                              (sum, binding) => sum + (replyCounts[binding.threadId] ?? 0),
+                              0,
+                            )}
+                            hasThread={
+                              !!latestReply &&
+                              (mentionsAgent(text) ||
+                                replies.some((binding) => (replyCounts[binding.threadId] ?? 0) > 0))
+                            }
+                            onNotify={notify}
+                          />
+                        ) : user ? (
+                          <View
+                            style={{
+                              paddingHorizontal: 14,
+                              paddingVertical: 9,
+                              borderRadius: radius.xl,
+                              borderBottomRightRadius: 6,
+                              backgroundColor: colors.primarySoft,
+                            }}
+                          >
+                            <MentionText text={text} handles={mentionHandles} style={s.text} />
+                          </View>
+                        ) : (
+                          <View style={{ maxWidth: 720, paddingVertical: 2 }}>
+                            <AssistantResponse content={text} />
+                          </View>
+                        ))}
+                      <JevInteractionContext.Provider
                         value={{
-                          running: busy || agent.isRunning,
-                          active: working,
+                          threadId,
+                          busy:
+                            busy ||
+                            agent.isRunning ||
+                            !loaded ||
+                            !isReady ||
+                            !!outbox.pending.length ||
+                            outbox.paused ||
+                            !!saveError,
+                          latestPanelId,
+                          latestUserText,
+                          send: sendChoice,
+                          retry: (text) => sendChoice(text, true),
+                          canRetry:
+                            loaded &&
+                            isReady &&
+                            !busy &&
+                            !agent.isRunning &&
+                            !outbox.running &&
+                            !outbox.pending.length &&
+                            !saveError,
+                          confirmedSelection: (panelId) => confirmedJevSelection(messages, panelId),
                         }}
                       >
-                        {(stepItems.get(message.id) ?? []).map((item) =>
-                          item.kind === "card" ? (
-                            <View key={item.id}>
-                              {renderToolCall({
-                                toolCall: item.toolCall,
-                                toolMessage: item.toolMessage,
-                              })}
-                            </View>
-                          ) : (
-                            <RunProgress
-                              key={item.id}
-                              steps={item.steps}
-                              elapsedMs={durations[message.id]}
-                            />
-                          ),
-                        )}
-                      </BrowserRunContext>
-                    </JevInteractionContext.Provider>
-                  </View>
-                );
-              })
-            )}
-            {replying && agentAnswers && !stepShown && (
-              <View
-                accessibilityLabel="Agent is working"
-                style={[
-                  s.row,
-                  {
-                    alignSelf: "flex-start",
-                    gap: 6,
-                    paddingHorizontal: 4,
-                    paddingVertical: 10,
-                  },
-                ]}
-              >
-                <TypingDots />
-                <Text style={[s.small, { color: colors.muted }]}>Thinking</Text>
-              </View>
-            )}
-            <ErrorNotice error={error} />
-            {!!error && (
-              <Button
-                style={{ alignSelf: "flex-start" }}
-                icon={RotateCcw}
-                disabled={busy || agent.isRunning || !loaded || !isReady}
-                onPress={() => {
-                  void run()
-                    .then(() => {
-                      if (!queue.getSnapshot().paused) flush();
-                    })
-                    .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-                }}
-              >
-                Retry response
-              </Button>
-            )}
-          </ScrollView>
-          {awayFromLatest && (
-            <Button
-              small
-              icon={ArrowDown}
-              style={{ alignSelf: "center", marginBottom: 10 }}
-              onPress={() => {
-                followLatest.current = true;
-                setAwayFromLatest(false);
-                list.current?.scrollToEnd({ animated: true });
-              }}
-            >
-              Latest messages
-            </Button>
-          )}
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-            {(richThreads || selection.id !== "local") && <PendingApprovals threadId={threadId} />}
-            {(richThreads || selection.id !== "local") && <PendingQuestions threadId={threadId} />}
-            <ErrorNotice error={saveError} />
-            {!!saveError && (
-              <Button
-                small
-                disabled={busy}
-                onPress={() => {
-                  void saveHistory().catch((e) => setSaveError(String(e)));
-                }}
-              >
-                Retry saving conversation
-              </Button>
-            )}
-            {!!outbox.pending.length && (
-              <View style={{ padding: 12, gap: 6 }}>
-                <Text style={s.small}>
-                  {outbox.paused ? "Messages on hold" : "Up next"} · Keep the app open until sent
-                </Text>
-                {outbox.pending.map((message) => (
-                  <View key={message.id} style={[s.row, { gap: 8 }]}>
-                    <Text numberOfLines={2} style={[s.muted, { flex: 1 }]}>
-                      {displayJevUserMessage(message.text, messages)}
-                    </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove queued message: ${displayJevUserMessage(message.text, messages)}`}
-                      hitSlop={10}
-                      onPress={() => {
-                        queue.remove(message.id);
-                        choiceCompletions.current
-                          .get(message.id)
-                          ?.reject(new Error("Choice removed from queue."));
-                        choiceCompletions.current.delete(message.id);
-                      }}
-                      style={{ padding: 8 }}
-                    >
-                      <X size={16} color={colors.muted} />
-                    </Pressable>
-                  </View>
-                ))}
-                {outbox.paused && (
-                  <Button
-                    small
-                    disabled={busy || !!saveError}
-                    onPress={() => {
-                      queue.resume();
-                      flush();
-                    }}
-                  >
-                    Send queued messages
-                  </Button>
-                )}
-              </View>
-            )}
-            {picking && (
-              <Card style={{ marginBottom: 12, padding: 15 }}>
-                <Text style={s.heading}>Add a document</Text>
-                <ScrollView style={{ maxHeight: 230 }} keyboardShouldPersistTaps="handled">
-                  {w.files.length ? (
-                    w.files.map((f) => (
-                      <CheckRow
-                        key={f.id}
-                        checked={attachments.includes(f.id)}
-                        label={f.name}
-                        onPress={() =>
-                          setAttachments(
-                            attachments.includes(f.id)
-                              ? attachments.filter((id) => id !== f.id)
-                              : [...attachments, f.id],
-                          )
-                        }
-                      />
-                    ))
-                  ) : (
-                    <Text style={s.muted}>Import a PDF in Files to use it in a conversation.</Text>
-                  )}
-                </ScrollView>
-                <Button
-                  small
-                  onPress={() => setPicking(false)}
-                  style={{ alignSelf: "flex-end", marginTop: 8 }}
-                >
-                  Done
-                </Button>
-              </Card>
-            )}
-            <MentionPicker
-              options={mentionOptions}
-              selected={Math.min(mentionPick, Math.max(0, mentionOptions.length - 1))}
-              onPick={chooseMention}
-            />
-            <GlassBar
-              kind="raised"
-              style={{
-                borderRadius: denseUi ? 22 : radius.xxl,
-                borderWidth: 1,
-                borderColor: focused ? colors.primary : colors.lineStrong,
-                backgroundColor: colors.paper,
-                padding: 4,
-                ...(focused ? { boxShadow: shadow.focus } : null),
-              }}
-            >
-              {attachments.length > 0 && (
-                <View style={[s.row, { gap: 6, flexWrap: "wrap", padding: 9 }]}>
-                  {w.files
-                    .filter((f) => attachments.includes(f.id))
-                    .map((f) => (
-                      <Pressable
-                        key={f.id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove attachment: ${f.name}`}
-                        onPress={() => setAttachments((ids) => ids.filter((id) => id !== f.id))}
-                        style={[
-                          s.row,
-                          {
-                            gap: 7,
-                            maxWidth: "100%",
-                            backgroundColor: colors.primarySoft,
-                            borderRadius: radius.xl,
-                            paddingHorizontal: 11,
-                            paddingVertical: 8,
-                          },
-                        ]}
-                      >
-                        <FileText size={14} color={colors.primary} />
-                        <Text
-                          numberOfLines={1}
-                          style={{ flexShrink: 1, fontSize: fontSize.caption, color: colors.text }}
+                        <BrowserRunContext
+                          value={{
+                            running: busy || agent.isRunning,
+                            active: working,
+                          }}
                         >
-                          {f.name}
-                        </Text>
-                        <X size={13} color={colors.muted} />
-                      </Pressable>
-                    ))}
+                          {(stepItems.get(message.id) ?? []).map((item) =>
+                            item.kind === "card" ? (
+                              <View key={item.id}>
+                                {renderToolCall({
+                                  toolCall: item.toolCall,
+                                  toolMessage: item.toolMessage,
+                                })}
+                              </View>
+                            ) : (
+                              <RunProgress
+                                key={item.id}
+                                steps={item.steps}
+                                elapsedMs={durations[message.id]}
+                              />
+                            ),
+                          )}
+                        </BrowserRunContext>
+                      </JevInteractionContext.Provider>
+                    </View>
+                  );
+                })
+              )}
+              {replying && agentAnswers && !stepShown && (
+                <View
+                  accessibilityLabel="Agent is working"
+                  style={[
+                    s.row,
+                    {
+                      alignSelf: "flex-start",
+                      gap: 6,
+                      paddingHorizontal: 4,
+                      paddingVertical: 10,
+                    },
+                  ]}
+                >
+                  <TypingDots />
+                  <Text style={[s.small, { color: colors.muted }]}>Thinking</Text>
                 </View>
               )}
-              <View style={[s.row, { gap: 7, alignItems: "flex-end" }]}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Attach a document"
-                  accessibilityState={{ expanded: picking }}
-                  onPress={() => setPicking(!picking)}
-                  style={({ pressed }) => ({
-                    width: denseUi ? 32 : 34,
-                    height: denseUi ? 32 : 34,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: denseUi ? 16 : 17,
-                    backgroundColor: picking || pressed ? colors.primarySoft : "transparent",
-                  })}
+              <ErrorNotice error={error} />
+              {!!error && (
+                <Button
+                  style={{ alignSelf: "flex-start" }}
+                  icon={RotateCcw}
+                  disabled={busy || agent.isRunning || !loaded || !isReady}
+                  onPress={() => {
+                    void run()
+                      .then(() => {
+                        if (!queue.getSnapshot().paused) flush();
+                      })
+                      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+                  }}
                 >
-                  <Plus size={denseUi ? 20 : 24} strokeWidth={1.6} color={colors.text} />
-                </Pressable>
-                <TextInput
-                  accessibilityLabel={
-                    threadParent
-                      ? "Reply in thread"
-                      : channelId
-                        ? directName
-                          ? `Message ${directName}`
-                          : "Message channel"
-                        : "Message Hive"
-                  }
-                  value={draft}
-                  onChangeText={(text) => {
-                    setDraft(text);
-                    setMentionOff(false);
-                    setMentionPick(0);
-                    onDraftChange?.(text);
-                    // Where the cursor is after typing, on the web, where it is the box's own.
-                    setTimeout(() => {
-                      const box = composerRef.current as unknown as {
-                        selectionStart?: number;
-                      } | null;
-                      if (typeof box?.selectionStart === "number") setCursor(box.selectionStart);
-                    }, 0);
-                  }}
-                  ref={composerRef}
-                  selection={placeCursor}
-                  onSelectionChange={(event) => {
-                    setCursor(event.nativeEvent.selection.end);
-                    setPlaceCursor(undefined);
-                  }}
-                  onContentSizeChange={(event) =>
-                    setInputHeight(
-                      Math.max(inputMin, Math.min(140, event.nativeEvent.contentSize.height)),
-                    )
-                  }
-                  placeholder={
-                    !isReady
-                      ? "Connecting…"
-                      : !loaded
-                        ? historyError
-                          ? "Conversation unavailable"
-                          : "Loading conversation…"
-                        : threadParent
-                          ? "Reply in thread…"
-                          : channelId
-                            ? directName
-                              ? `Message ${directName}…`
-                              : "Message channel…"
-                            : "Message…"
-                  }
-                  placeholderTextColor={colors.muted}
-                  selectionColor={colors.primary}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
-                  style={{
-                    flex: 1,
-                    color: colors.text,
-                    height: inputHeight,
-                    minHeight: inputMin,
-                    maxHeight: 140,
-                    fontSize: fineInput ? fontSize.body : fontSize.input,
-                    lineHeight: fineInput ? 20 : 22,
-                    paddingHorizontal: 2,
-                    paddingTop: denseUi ? 6 : 8,
-                    paddingBottom: denseUi ? 6 : 8,
-                    ...noFocusRing,
-                  }}
-                  multiline
-                  editable
-                  onKeyPress={
-                    Platform.OS === "web"
-                      ? (event) => {
-                          // While someone is being chosen, the arrows and Enter are for the choice.
-                          if (mentionOptions.length) {
-                            const key = event.nativeEvent.key;
-                            const last = mentionOptions.length - 1;
-                            if (key === "ArrowDown" || key === "ArrowUp") {
-                              event.preventDefault();
-                              setMentionPick((n) =>
-                                key === "ArrowDown"
-                                  ? n >= last
-                                    ? 0
-                                    : n + 1
-                                  : n <= 0
-                                    ? last
-                                    : n - 1,
-                              );
-                              return;
-                            }
-                            if (key === "Enter" || key === "Tab") {
-                              event.preventDefault();
-                              chooseMention(
-                                mentionOptions[Math.min(mentionPick, last)] ?? mentionOptions[0],
-                              );
-                              return;
-                            }
-                            if (key === "Escape") {
-                              event.preventDefault();
-                              setMentionOff(true);
-                              return;
-                            }
-                          }
-                          if (
-                            event.nativeEvent.key === "Enter" &&
-                            !("shiftKey" in event.nativeEvent && event.nativeEvent.shiftKey) &&
-                            !composingText(event.nativeEvent)
-                          ) {
-                            event.preventDefault();
-                            send();
-                          }
-                        }
-                      : undefined
-                  }
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={replying ? "Stop reply" : "Send message"}
-                  disabled={!replying && (!draft.trim() || !loaded || !isReady)}
-                  onPress={replying ? () => void stop() : send}
-                  style={({ pressed }) => ({
-                    width: denseUi ? 32 : 34,
-                    height: denseUi ? 32 : 34,
-                    borderRadius: denseUi ? 16 : 17,
-                    backgroundColor: colors.action,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transform: [{ scale: pressed ? 0.94 : 1 }],
-                  })}
-                >
-                  {replying ? (
-                    <Square size={18} fill={colors.onPrimary} strokeWidth={0} />
-                  ) : (
-                    <ArrowUp size={denseUi ? 18 : 22} strokeWidth={2.4} color={colors.onPrimary} />
-                  )}
-                </Pressable>
-              </View>
-            </GlassBar>
-            {(channelId || threadParent) && (focused || !!draft) && (
-              <Text style={[s.small, { paddingTop: 6, paddingHorizontal: 8 }]}>
-                Mention @hive for an agent reply
-                {Platform.OS === "web" ? " · Shift+Enter for a new line" : ""}
-              </Text>
+                  Retry response
+                </Button>
+              )}
+            </ScrollView>
+            {awayFromLatest && (
+              <Button
+                small
+                icon={ArrowDown}
+                style={{ alignSelf: "center", marginBottom: 10 }}
+                onPress={() => {
+                  followLatest.current = true;
+                  setAwayFromLatest(false);
+                  list.current?.scrollToEnd({ animated: true });
+                }}
+              >
+                Latest messages
+              </Button>
             )}
-          </KeyboardAvoidingView>
-        </View>
-      </View>
-      {channelId &&
-        replyPanel &&
-        (width >= 1100 ? (
-          <View style={{ display: panelOpen ? "flex" : "none", width: panelWidth }}>
-            <PanelResizer
-              width={panelWidth}
-              min={PANEL_MIN}
-              max={largestPanelWidth(room)}
-              onChange={(next) => setPanelPref(clampPanelWidth(next, room))}
-              onCommit={keepPanelWidth}
-              onReset={() => keepPanelWidth(PANEL_DEFAULT)}
-            />
-            <View style={[{ flex: 1, paddingHorizontal: 20, paddingBottom: 16 }, panelStyle]}>
-              {renderReplyPanel(true)}
-            </View>
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+              {(richThreads || selection.id !== "local") && (
+                <PendingApprovals threadId={threadId} />
+              )}
+              {(richThreads || selection.id !== "local") && (
+                <PendingQuestions threadId={threadId} />
+              )}
+              <ErrorNotice error={saveError} />
+              {!!saveError && (
+                <Button
+                  small
+                  disabled={busy}
+                  onPress={() => {
+                    void saveHistory().catch((e) => setSaveError(String(e)));
+                  }}
+                >
+                  Retry saving conversation
+                </Button>
+              )}
+              {!!outbox.pending.length && (
+                <View style={{ padding: 12, gap: 6 }}>
+                  <Text style={s.small}>
+                    {outbox.paused ? "Messages on hold" : "Up next"} · Keep the app open until sent
+                  </Text>
+                  {outbox.pending.map((message) => (
+                    <View key={message.id} style={[s.row, { gap: 8 }]}>
+                      <Text numberOfLines={2} style={[s.muted, { flex: 1 }]}>
+                        {displayJevUserMessage(message.text, messages)}
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove queued message: ${displayJevUserMessage(message.text, messages)}`}
+                        hitSlop={10}
+                        onPress={() => {
+                          queue.remove(message.id);
+                          choiceCompletions.current
+                            .get(message.id)
+                            ?.reject(new Error("Choice removed from queue."));
+                          choiceCompletions.current.delete(message.id);
+                        }}
+                        style={{ padding: 8 }}
+                      >
+                        <X size={16} color={colors.muted} />
+                      </Pressable>
+                    </View>
+                  ))}
+                  {outbox.paused && (
+                    <Button
+                      small
+                      disabled={busy || !!saveError}
+                      onPress={() => {
+                        queue.resume();
+                        flush();
+                      }}
+                    >
+                      Send queued messages
+                    </Button>
+                  )}
+                </View>
+              )}
+              {picking && (
+                <Card style={{ marginBottom: 12, padding: 15 }}>
+                  <Text style={s.heading}>Add a document</Text>
+                  <ScrollView style={{ maxHeight: 230 }} keyboardShouldPersistTaps="handled">
+                    {w.files.length ? (
+                      w.files.map((f) => (
+                        <CheckRow
+                          key={f.id}
+                          checked={attachments.includes(f.id)}
+                          label={f.name}
+                          onPress={() =>
+                            setAttachments(
+                              attachments.includes(f.id)
+                                ? attachments.filter((id) => id !== f.id)
+                                : [...attachments, f.id],
+                            )
+                          }
+                        />
+                      ))
+                    ) : (
+                      <Text style={s.muted}>
+                        Import a PDF in Files to use it in a conversation.
+                      </Text>
+                    )}
+                  </ScrollView>
+                  <Button
+                    small
+                    onPress={() => setPicking(false)}
+                    style={{ alignSelf: "flex-end", marginTop: 8 }}
+                  >
+                    Done
+                  </Button>
+                </Card>
+              )}
+              <MentionPicker
+                options={mentionOptions}
+                selected={Math.min(mentionPick, Math.max(0, mentionOptions.length - 1))}
+                onPick={chooseMention}
+              />
+              <GlassBar
+                kind="raised"
+                style={{
+                  borderRadius: denseUi ? 22 : radius.xxl,
+                  borderWidth: 1,
+                  borderColor: focused ? colors.primary : colors.lineStrong,
+                  backgroundColor: colors.paper,
+                  padding: 4,
+                  ...(focused ? { boxShadow: shadow.focus } : null),
+                }}
+              >
+                {attachments.length > 0 && (
+                  <View style={[s.row, { gap: 6, flexWrap: "wrap", padding: 9 }]}>
+                    {w.files
+                      .filter((f) => attachments.includes(f.id))
+                      .map((f) => (
+                        <Pressable
+                          key={f.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove attachment: ${f.name}`}
+                          onPress={() => setAttachments((ids) => ids.filter((id) => id !== f.id))}
+                          style={[
+                            s.row,
+                            {
+                              gap: 7,
+                              maxWidth: "100%",
+                              backgroundColor: colors.primarySoft,
+                              borderRadius: radius.xl,
+                              paddingHorizontal: 11,
+                              paddingVertical: 8,
+                            },
+                          ]}
+                        >
+                          <FileText size={14} color={colors.primary} />
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              flexShrink: 1,
+                              fontSize: fontSize.caption,
+                              color: colors.text,
+                            }}
+                          >
+                            {f.name}
+                          </Text>
+                          <X size={13} color={colors.muted} />
+                        </Pressable>
+                      ))}
+                  </View>
+                )}
+                <View style={[s.row, { gap: 7, alignItems: "flex-end" }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Attach a document"
+                    accessibilityState={{ expanded: picking }}
+                    onPress={() => setPicking(!picking)}
+                    style={({ pressed }) => ({
+                      width: denseUi ? 32 : 34,
+                      height: denseUi ? 32 : 34,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: denseUi ? 16 : 17,
+                      backgroundColor: picking || pressed ? colors.primarySoft : "transparent",
+                    })}
+                  >
+                    <Plus size={denseUi ? 20 : 24} strokeWidth={1.6} color={colors.text} />
+                  </Pressable>
+                  <TextInput
+                    accessibilityLabel={
+                      threadParent
+                        ? "Reply in thread"
+                        : channelId
+                          ? directName
+                            ? `Message ${directName}`
+                            : "Message channel"
+                          : "Message Hive"
+                    }
+                    value={draft}
+                    onChangeText={(text) => {
+                      setDraft(text);
+                      setMentionOff(false);
+                      setMentionPick(0);
+                      onDraftChange?.(text);
+                      // Where the cursor is after typing, on the web, where it is the box's own.
+                      setTimeout(() => {
+                        const box = composerRef.current as unknown as {
+                          selectionStart?: number;
+                        } | null;
+                        if (typeof box?.selectionStart === "number") setCursor(box.selectionStart);
+                      }, 0);
+                    }}
+                    ref={composerRef}
+                    selection={placeCursor}
+                    onSelectionChange={(event) => {
+                      setCursor(event.nativeEvent.selection.end);
+                      setPlaceCursor(undefined);
+                    }}
+                    onContentSizeChange={(event) =>
+                      setInputHeight(
+                        Math.max(inputMin, Math.min(140, event.nativeEvent.contentSize.height)),
+                      )
+                    }
+                    placeholder={
+                      !isReady
+                        ? "Connecting…"
+                        : !loaded
+                          ? historyError
+                            ? "Conversation unavailable"
+                            : "Loading conversation…"
+                          : threadParent
+                            ? "Reply in thread…"
+                            : channelId
+                              ? directName
+                                ? `Message ${directName}…`
+                                : "Message channel…"
+                              : "Message…"
+                    }
+                    placeholderTextColor={colors.muted}
+                    selectionColor={colors.primary}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                    style={{
+                      flex: 1,
+                      color: colors.text,
+                      height: inputHeight,
+                      minHeight: inputMin,
+                      maxHeight: 140,
+                      fontSize: fineInput ? fontSize.body : fontSize.input,
+                      lineHeight: fineInput ? 20 : 22,
+                      paddingHorizontal: 2,
+                      paddingTop: denseUi ? 6 : 8,
+                      paddingBottom: denseUi ? 6 : 8,
+                      ...noFocusRing,
+                    }}
+                    multiline
+                    editable
+                    onKeyPress={
+                      Platform.OS === "web"
+                        ? (event) => {
+                            // While someone is being chosen, the arrows and Enter are for the choice.
+                            if (mentionOptions.length) {
+                              const key = event.nativeEvent.key;
+                              const last = mentionOptions.length - 1;
+                              if (key === "ArrowDown" || key === "ArrowUp") {
+                                event.preventDefault();
+                                setMentionPick((n) =>
+                                  key === "ArrowDown"
+                                    ? n >= last
+                                      ? 0
+                                      : n + 1
+                                    : n <= 0
+                                      ? last
+                                      : n - 1,
+                                );
+                                return;
+                              }
+                              if (key === "Enter" || key === "Tab") {
+                                event.preventDefault();
+                                chooseMention(
+                                  mentionOptions[Math.min(mentionPick, last)] ?? mentionOptions[0],
+                                );
+                                return;
+                              }
+                              if (key === "Escape") {
+                                event.preventDefault();
+                                setMentionOff(true);
+                                return;
+                              }
+                            }
+                            if (
+                              event.nativeEvent.key === "Enter" &&
+                              !("shiftKey" in event.nativeEvent && event.nativeEvent.shiftKey) &&
+                              !composingText(event.nativeEvent)
+                            ) {
+                              event.preventDefault();
+                              send();
+                            }
+                          }
+                        : undefined
+                    }
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={replying ? "Stop reply" : "Send message"}
+                    disabled={!replying && (!draft.trim() || !loaded || !isReady)}
+                    onPress={replying ? () => void stop() : send}
+                    style={({ pressed }) => ({
+                      width: denseUi ? 32 : 34,
+                      height: denseUi ? 32 : 34,
+                      borderRadius: denseUi ? 16 : 17,
+                      backgroundColor: colors.action,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transform: [{ scale: pressed ? 0.94 : 1 }],
+                    })}
+                  >
+                    {replying ? (
+                      <Square size={18} fill={colors.onPrimary} strokeWidth={0} />
+                    ) : (
+                      <ArrowUp
+                        size={denseUi ? 18 : 22}
+                        strokeWidth={2.4}
+                        color={colors.onPrimary}
+                      />
+                    )}
+                  </Pressable>
+                </View>
+              </GlassBar>
+              {(channelId || threadParent) && (focused || !!draft) && (
+                <Text style={[s.small, { paddingTop: 6, paddingHorizontal: 8 }]}>
+                  Mention @hive for an agent reply
+                  {Platform.OS === "web" ? " · Shift+Enter for a new line" : ""}
+                </Text>
+              )}
+            </KeyboardAvoidingView>
           </View>
-        ) : (
-          <Modal visible={panelOpen && active} animationType="slide" onRequestClose={closeReplies}>
-            <SafeAreaView style={{ flex: 1, padding: 18, backgroundColor: haze.base }}>
-              <Backdrop />
-              {renderReplyPanel(false)}
-            </SafeAreaView>
-          </Modal>
-        ))}
-    </View>
+        </View>
+        {channelId &&
+          replyPanel &&
+          (width >= 1100 ? (
+            <View style={{ display: panelOpen ? "flex" : "none", width: panelWidth }}>
+              <PanelResizer
+                width={panelWidth}
+                min={PANEL_MIN}
+                max={largestPanelWidth(room)}
+                onChange={(next) => setPanelPref(clampPanelWidth(next, room))}
+                onCommit={keepPanelWidth}
+                onReset={() => keepPanelWidth(PANEL_DEFAULT)}
+              />
+              <View style={[{ flex: 1, paddingHorizontal: 20, paddingBottom: 16 }, panelStyle]}>
+                {renderReplyPanel(true)}
+              </View>
+            </View>
+          ) : (
+            <Modal
+              visible={panelOpen && active}
+              animationType="slide"
+              onRequestClose={closeReplies}
+            >
+              <SafeAreaView style={{ flex: 1, padding: 18, backgroundColor: haze.base }}>
+                <Backdrop />
+                {renderReplyPanel(false)}
+              </SafeAreaView>
+            </Modal>
+          ))}
+      </View>
+    </MentionNamesProvider>
   );
   function renderReplyPanel(wide: boolean) {
     if (!replyPanel) return null;

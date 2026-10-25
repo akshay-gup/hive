@@ -318,10 +318,15 @@ test("the person who asked is told when the run is over, unless they stopped it"
   const notices = (await (await call("max", "GET", "/v1/notifications")).json()) as {
     title: string;
     body: string;
+    by: string;
+    byName: string;
   }[];
   assert.equal(notices.length, 1);
-  assert.match(notices[0]?.title ?? "", /Hive replied in #Design/);
+  assert.match(notices[0]?.title ?? "", /Hive answered you in #Design/);
   assert.equal(notices[0]?.body, "Done one");
+  // Shown with the agent's own picture, not a person's initial.
+  assert.equal(notices[0]?.by, "");
+  assert.equal(notices[0]?.byName, "");
   const second = await post("max", room.id, "@hive two");
   await call("max", "POST", `/v1/runs/${runOf(second.id).id}/stop`);
   const after = (await (await call("max", "GET", "/v1/notifications")).json()) as unknown[];

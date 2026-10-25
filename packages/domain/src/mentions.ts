@@ -108,10 +108,14 @@ export function insertMention(
   };
 }
 
-/** A text cut into plain pieces and the mentions in it that name someone, for drawing them apart. */
+/**
+ * A text cut into plain pieces and the mentions in it that name someone, for drawing them apart. A mention
+ * is drawn with the person's name where `names` has it: a handle is how someone is typed, not what they are called.
+ */
 export function splitMentions(
   text: string,
   handles: Iterable<string>,
+  names?: ReadonlyMap<string, string>,
 ): { text: string; mention: boolean }[] {
   const known = new Set([...handles].map((handle) => handle.toLowerCase()));
   const pieces: { text: string; mention: boolean }[] = [];
@@ -120,9 +124,27 @@ export function splitMentions(
     if (!known.has(match[2].toLowerCase())) continue;
     const start = (match.index ?? 0) + match[1].length;
     if (start > at) pieces.push({ text: text.slice(at, start), mention: false });
-    pieces.push({ text: `@${match[2]}`, mention: true });
+    pieces.push({ text: `@${names?.get(match[2].toLowerCase()) ?? match[2]}`, mention: true });
     at = start + 1 + match[2].length;
   }
   if (at < text.length) pieces.push({ text: text.slice(at), mention: false });
   return pieces;
+}
+
+/**
+ * The text with each mention that names someone written as `@Name`: for a line shown away from the people it is
+ * about (a notice, a preview), where a handle would only look like a code.
+ */
+export function namedMentions(text: string, people: Mentionable[]): string {
+  const names = new Map<string, string>();
+  for (const person of people) {
+    const name = person.name.trim();
+    if (!name) continue;
+    names.set(person.handle.toLowerCase(), name);
+    names.set(person.email.toLowerCase(), name);
+  }
+  return text.replace(MENTION, (whole, before: string, handle: string) => {
+    const name = names.get(handle.toLowerCase());
+    return name ? `${before}@${name}` : whole;
+  });
 }

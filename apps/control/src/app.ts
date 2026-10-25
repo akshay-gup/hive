@@ -85,6 +85,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     maxWorkspacesPerAccount: config.maxWorkspacesPerAccount,
     modelEnvironment: gateway ? (id) => gateway.environmentFor(id) : undefined,
     startProvisioning: deps.startProvisioning,
+    wantedBuild: async (id) => ((await releases.wantedFor(id)) as { tag?: string }).tag,
     chat: config.chatUrl
       ? { url: config.chatUrl, internalUrl: config.chatInternalUrl ?? config.chatUrl }
       : undefined,

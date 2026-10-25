@@ -345,7 +345,7 @@ export class DigitalOceanProvisioner implements Provisioner {
       await this.waitActive(droplet.id);
       await this.settleBackups(droplet.id);
       progress("checking");
-      await this.untilAnswering(spec.workspaceId, url);
+      await this.untilAnswering(spec.workspaceId, url, spec.build);
     } catch (error) {
       if (error instanceof ProvisionError) throw error;
       throw new ProvisionError(`DigitalOcean: ${error instanceof Error ? error.message : error}`);
@@ -806,7 +806,7 @@ export class DigitalOceanProvisioner implements Provisioner {
   }
 
   /** Waits for the workspace to answer, at its public address or at its Droplet's, as `readyCheck` says. */
-  private async untilAnswering(workspaceId: string, publicUrl: string) {
+  private async untilAnswering(workspaceId: string, publicUrl: string, build?: string) {
     let where = publicUrl;
     if (this.config.readyCheck === "droplet") {
       let origin: string | null = null;
@@ -820,7 +820,7 @@ export class DigitalOceanProvisioner implements Provisioner {
         );
       where = origin;
     }
-    await waitUntilAnswering(where, workspaceId, this.config);
+    await waitUntilAnswering(where, workspaceId, { ...this.config, build });
   }
 
   private publicUrl(workspaceId: string) {

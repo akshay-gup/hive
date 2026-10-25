@@ -12,7 +12,7 @@ export function buildRunContext(start: RunStart, toolNotes: string, saved: strin
   ];
   if (start.people.length)
     lines.push(
-      `People in this channel (mention one with @handle): ${start.people.map((p) => `${p.name} (@${p.handle})`).join(", ")}.`,
+      `People in this channel: ${start.people.map((p) => `${p.name} (@${p.handle})`).join(", ")}. Call people by their name, as in a conversation, and never by their handle. Write @handle only to bring a teammate other than ${start.asker.name || "the person who asked"} into the conversation.`,
     );
   if (saved.length)
     lines.push(

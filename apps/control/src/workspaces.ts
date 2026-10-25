@@ -149,6 +149,8 @@ export interface WorkspaceServiceOptions {
    * is reached some other way from here). Without one, there is no chat service.
    */
   chat?: { url: string; internalUrl: string };
+  /** The build a new workspace's machine is to be running (an image tag), so it is not called ready before it is. */
+  wantedBuild?: (workspaceId: string) => Promise<string | undefined>;
   /** For tests: the `fetch` that reaches a workspace. */
   fetch?: typeof fetch;
 }
@@ -516,6 +518,7 @@ export class WorkspaceService {
               ...this.options.allowedOrigins,
             ],
             updateUrl: `${this.options.publicUrl}/v1/release/${id}`,
+            ...(this.options.wantedBuild ? { build: await this.options.wantedBuild(id) } : {}),
             ...(this.options.modelEnvironment
               ? { modelEnv: this.options.modelEnvironment(id) }
               : {}),

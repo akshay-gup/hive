@@ -23,7 +23,11 @@ import type {
 } from "../../../packages/domain/src/chat.ts";
 import { editMessageSchema, postMessageSchema } from "../../../packages/domain/src/chat.ts";
 import type { AgentExtra } from "../../../packages/domain/src/chat-agent.ts";
-import { mentionedPeople, withHandles } from "../../../packages/domain/src/mentions.ts";
+import {
+  mentionedPeople,
+  namedMentions,
+  withHandles,
+} from "../../../packages/domain/src/mentions.ts";
 import type { AgentLink } from "./agent-link.ts";
 
 const fileView = (file: FileRow) => ({
@@ -439,16 +443,26 @@ export class Messaging {
     const by = known.get(message.authorId);
     const name = by?.name || by?.email || "Someone";
     const where = channel.kind === "dm" ? "a direct message" : `#${channel.name}`;
+    // The agent's answer to someone is told as that, and shown with the agent's picture (no address).
+    const agent = message.authorKind === "agent";
+    const people = withHandles(
+      [...known.values()]
+        .filter((p) => p.email)
+        .map((p) => ({ email: p.email, name: p.name, role: "member" as const })),
+    );
     return {
       id: message.id,
       kind,
       channelId: channel.id,
       channelName: channel.name,
-      by: by?.email ?? "",
-      byName: name,
-      title:
-        kind === "mention" ? `${name} mentioned you in ${where}` : `${name} replied in ${where}`,
-      body: snippet(message.body),
+      by: agent ? "" : (by?.email ?? ""),
+      byName: agent ? "" : name,
+      title: agent
+        ? `${name} answered you in ${where}`
+        : kind === "mention"
+          ? `${name} mentioned you in ${where}`
+          : `${name} replied in ${where}`,
+      body: snippet(namedMentions(message.body, people)),
       createdAt: message.createdAt,
       read,
     };

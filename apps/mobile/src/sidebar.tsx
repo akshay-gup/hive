@@ -272,6 +272,8 @@ export function Sidebar({
   const [loading, setLoading] = useState(true);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [find, setFind] = useState("");
+  // Whether there is anyone but the person in the workspace to send a message to.
+  const [hasOthers, setHasOthers] = useState(false);
 
   const load = useCallback(
     async (quiet = false) => {
@@ -283,6 +285,11 @@ export function Sidebar({
         const loaded = await api.request<ChannelView[]>("/api/agent/channels");
         setChannels(loaded);
         writeLastCount(channelsKey, loaded.filter(isListed).length);
+        if (hosted && !guest)
+          void api
+            .request<{ you?: boolean }[]>("/api/agent/dms/people")
+            .then((people) => setHasOthers(people.some((person) => !person.you)))
+            .catch(() => undefined);
       } catch (e) {
         // Coming back to the app and finding no network is not worth a message here.
         if (!quiet) setError(e instanceof Error ? e.message : String(e));
@@ -290,7 +297,7 @@ export function Sidebar({
         if (!quiet) setLoading(false);
       }
     },
-    [api, channelsKey],
+    [api, channelsKey, hosted, guest],
   );
   useEffect(() => {
     void load();
@@ -370,7 +377,10 @@ export function Sidebar({
     .filter((channel) => !needle || channel.name.toLowerCase().includes(needle))
     .sort((a, b) => a.name.localeCompare(b.name));
   const userChannels = listedMatching.filter((channel) => channel.kind !== "dm");
-  const directMessages = listedMatching.filter((channel) => channel.kind === "dm");
+  // A note to oneself is only offered where there is someone else to message too.
+  const directMessages = listedMatching.filter(
+    (channel) => channel.kind === "dm" && (hasOthers || (channel.members ?? []).length > 1),
+  );
   // Searching finds the public channels the person is not in as well: opening one
   // shows it with a Join button.
   const unjoined = needle
@@ -554,53 +564,56 @@ export function Sidebar({
         </>
       )}
       {/* Direct messages are the team's, so they are where people are known, and not a guest's. */}
-      {hosted && !guest && (!needle || directMessages.length > 0) && (
-        <>
-          <View style={[s.row, { marginTop: 16, marginBottom: 2, paddingLeft: 8 }]}>
-            <Text
-              style={[
-                s.text,
-                { flex: 1, fontSize: fontSize.ui, fontWeight: "500", color: colors.muted },
-              ]}
-            >
-              Direct messages
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="New message"
-              hitSlop={6}
-              onPress={() => {
-                onNavigate?.();
-                open({ type: "newMessage" });
-              }}
-              {...newMessageTip.props}
-              style={({ pressed, hovered }: WebPressState) => ({
-                width: 28,
-                height: 28,
-                borderRadius: radius.sm,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
-              })}
-            >
-              <Plus size={16} strokeWidth={1.75} color={colors.muted} />
-              {newMessageTip.tip}
-            </Pressable>
-          </View>
-          {directMessages.map((channel) => (
-            <SidebarRow
-              dense={dense}
-              key={channel.id}
-              icon={User}
-              label={channel.name}
-              accessibilityLabel={`Open direct message: ${channel.name}`}
-              unread={channel.unread && activeChannelId !== channel.id}
-              active={section === "chat" && !isMainActive && activeChannelId === channel.id}
-              onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
-            />
-          ))}
-        </>
-      )}
+      {hosted &&
+        !guest &&
+        (hasOthers || directMessages.length > 0) &&
+        (!needle || directMessages.length > 0) && (
+          <>
+            <View style={[s.row, { marginTop: 16, marginBottom: 2, paddingLeft: 8 }]}>
+              <Text
+                style={[
+                  s.text,
+                  { flex: 1, fontSize: fontSize.ui, fontWeight: "500", color: colors.muted },
+                ]}
+              >
+                Direct messages
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="New message"
+                hitSlop={6}
+                onPress={() => {
+                  onNavigate?.();
+                  open({ type: "newMessage" });
+                }}
+                {...newMessageTip.props}
+                style={({ pressed, hovered }: WebPressState) => ({
+                  width: 28,
+                  height: 28,
+                  borderRadius: radius.sm,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
+                })}
+              >
+                <Plus size={16} strokeWidth={1.75} color={colors.muted} />
+                {newMessageTip.tip}
+              </Pressable>
+            </View>
+            {directMessages.map((channel) => (
+              <SidebarRow
+                dense={dense}
+                key={channel.id}
+                icon={User}
+                label={channel.name}
+                accessibilityLabel={`Open direct message: ${channel.name}`}
+                unread={channel.unread && activeChannelId !== channel.id}
+                active={section === "chat" && !isMainActive && activeChannelId === channel.id}
+                onPress={() => conversation({ id: `channel:${channel.id}`, existing: true })}
+              />
+            ))}
+          </>
+        )}
       {!!needle &&
         !loading &&
         userChannels.length === 0 &&

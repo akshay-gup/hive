@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Pressable, Text, type TextStyle, View } from "react-native";
 import { type Mentionable, splitMentions } from "../../../packages/domain/src/mentions";
 import { useOnChannelsChanged } from "./channel-events";
@@ -51,6 +51,30 @@ export function useMentionable(channelId: string | null, threadId?: string): Men
   return people;
 }
 
+/** What each handle is called (lowercase handle or address to name), so a mention reads as the person's name. */
+const MentionNames = createContext<ReadonlyMap<string, string>>(new Map());
+
+/** Draws the mentions in what is inside by the names of the people they name. */
+export function MentionNamesProvider({
+  people,
+  children,
+}: {
+  people: Mentionable[];
+  children: React.ReactNode;
+}) {
+  const names = useMemo(() => {
+    const map = new Map<string, string>([["hive", "Hive"]]);
+    for (const person of people) {
+      const name = person.name.trim();
+      if (!name) continue;
+      map.set(person.handle.toLowerCase(), name);
+      map.set(person.email.toLowerCase(), name);
+    }
+    return map;
+  }, [people]);
+  return <MentionNames.Provider value={names}>{children}</MentionNames.Provider>;
+}
+
 /** Some text, with the mentions in it that name someone set apart. */
 export function MentionText({
   text,
@@ -62,7 +86,7 @@ export function MentionText({
   handles: string[];
   style?: TextStyle | TextStyle[];
 }) {
-  const pieces = splitMentions(text, handles);
+  const pieces = splitMentions(text, handles, useContext(MentionNames));
   return (
     <Text selectable style={style}>
       {pieces.map((piece, index) =>

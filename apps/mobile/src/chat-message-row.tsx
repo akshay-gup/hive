@@ -178,14 +178,11 @@ export function ChatMessageRow({
   onResend: () => void;
   onDiscard: () => void;
   onNotify: (text: string) => void;
-  /** What can be done about the agent's replies: decide what it asks, and stop it. */
+  /** What can be done about the agent's replies: decide what it asks. */
   agent?: {
     /** A teammate in the channel (not a guest) may decide what it asks. */
     canAnswer: boolean;
-    /** A manager of the channel, an admin or the owner may stop any run. */
-    manager: boolean;
     answer: (runId: string, promptId: string, choice: PromptChoice) => Promise<void>;
-    stop: (runId: string) => Promise<void>;
   };
 }) {
   const [hovered, setHovered] = useState(false);
@@ -359,15 +356,9 @@ export function ChatMessageRow({
               view={run}
               body={message.body}
               canAnswer={!!agent?.canAnswer}
-              canStop={!!agent && (run.askedBy === me || agent.manager)}
               onAnswer={async (promptId, choice) => {
                 await agent?.answer(run.runId, promptId, choice);
               }}
-              onStop={() =>
-                void agent
-                  ?.stop(run.runId)
-                  .catch((e) => onNotify(e instanceof Error ? e.message : String(e)))
-              }
             />
           ) : (
             !!message.body && (

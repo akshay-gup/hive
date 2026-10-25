@@ -128,7 +128,7 @@ export class FlyProvisioner implements Provisioner {
       const volume = await this.ensureVolume(app, spec);
       const machine = await this.ensureMachine(app, volume, spec, url);
       await this.waitStarted(app, machine.id);
-      await this.waitAnswering(url, spec.workspaceId);
+      await this.waitAnswering(url, spec.workspaceId, spec.build);
     } catch (error) {
       if (error instanceof ProvisionError) throw error;
       throw new ProvisionError(`Fly: ${error instanceof Error ? error.message : error}`);
@@ -322,8 +322,8 @@ export class FlyProvisioner implements Provisioner {
   }
 
   /** The workspace's own health check, through the public address: the machine is up and it is the right workspace. */
-  private waitAnswering(url: string, workspaceId: string) {
-    return waitUntilAnswering(url, workspaceId, this.config);
+  private waitAnswering(url: string, workspaceId: string, build?: string) {
+    return waitUntilAnswering(url, workspaceId, { ...this.config, build });
   }
 
   private publicUrl(app: string) {

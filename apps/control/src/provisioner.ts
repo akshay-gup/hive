@@ -15,6 +15,8 @@ export interface WorkspaceSpec {
   modelEnv?: Record<string, string>;
   /** Where the machine asks which build it should run (`/v1/release/<id>` on the control plane), for a provider whose machines update themselves. */
   updateUrl?: string;
+  /** The build the machine is to be running (an image tag): it is not ready until it is on it. */
+  build?: string;
 }
 
 export interface ProvisionedWorkspace {

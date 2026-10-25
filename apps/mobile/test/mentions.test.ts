@@ -6,6 +6,7 @@ import {
   matchPeople,
   mentionedPeople,
   mentionsIn,
+  namedMentions,
   splitMentions,
   withHandles,
 } from "../../../packages/domain/src/mentions.ts";
@@ -90,4 +91,36 @@ test("only the mentions that name someone are set apart", () => {
     { text: "@hive", mention: true },
   ]);
   assert.deepEqual(splitMentions("plain", ["max"]), [{ text: "plain", mention: false }]);
+});
+
+test("a mention is drawn with the person's name, never their handle", () => {
+  const names = new Map([
+    ["akshay180294", "Akshay Gupta"],
+    ["hive", "Hive"],
+  ]);
+  assert.deepEqual(
+    splitMentions("Hey @akshay180294! ask @hive, not @ghost", ["akshay180294", "hive"], names),
+    [
+      { text: "Hey ", mention: false },
+      { text: "@Akshay Gupta", mention: true },
+      { text: "! ask ", mention: false },
+      { text: "@Hive", mention: true },
+      { text: ", not @ghost", mention: false },
+    ],
+  );
+});
+
+test("a line shown away from its people names them by name", () => {
+  const people = [
+    {
+      email: "akshay180294@example.com",
+      name: "Akshay Gupta",
+      handle: "akshay180294",
+      role: "member" as const,
+    },
+  ];
+  assert.equal(
+    namedMentions("Hey @akshay180294! Not @ghost or mail@akshay180294.com", people),
+    "Hey @Akshay Gupta! Not @ghost or mail@akshay180294.com",
+  );
 });

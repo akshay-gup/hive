@@ -15,13 +15,13 @@ import type { ChannelView } from "../../../packages/domain/src/agent";
 import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
 import { useGuest } from "./access";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
-import { agentOnIn, asksAgent } from "./chat-agent-extra";
+import { agentOnIn, agentView, asksAgent } from "./chat-agent-extra";
 import { ChatComposer } from "./chat-composer";
 import { useChat } from "./chat-context";
 import { continues, type FeedMessage } from "./chat-feed";
 import { ChatMessageRow } from "./chat-message-row";
 import { useHosted } from "./hosted/context";
-import { useMentionable } from "./mention-ui";
+import { MentionNamesProvider, useMentionable } from "./mention-ui";
 import { Backdrop, Button, colors, ErrorNotice, fontSize, haze, panelStyle, s } from "./ui";
 import { useChannelFeed } from "./use-channel-feed";
 import { useWorkspace } from "./workspace";
@@ -88,15 +88,11 @@ function MessageList({
   const agent = useMemo(
     () => ({
       canAnswer: !guest,
-      manager: channel?.manager === true,
       answer: async (runId: string, promptId: string, choice: PromptChoice) => {
         await api.request(`/chat/v1/runs/${enc(runId)}/answer`, { promptId, choice });
       },
-      stop: async (runId: string) => {
-        await api.request(`/chat/v1/runs/${enc(runId)}/stop`, {});
-      },
     }),
-    [api, guest, channel?.manager],
+    [api, guest],
   );
   const takePart = !!channel && channel.joined !== false && channel.status !== "archived";
   const manager = channel?.manager === true;
@@ -174,7 +170,21 @@ function ThreadView({
   onClose: () => void;
 }) {
   const feeder = useChannelFeed(channelId, { root: root.id });
+  const { api, notify } = useWorkspace();
   const takePart = !!channel && channel.joined !== false && channel.status !== "archived";
+  // A run going in this thread that this person may stop (they asked it, or they manage the channel):
+  // the box a reply is written in then offers to stop it while nothing is typed.
+  const going = feeder.feed.messages
+    .map((m) => (m.author.kind === "agent" ? agentView(m.extra) : null))
+    .find(
+      (view) => view && (view.queued || view.working) && (view.askedBy === me || channel?.manager),
+    );
+  const stop = going
+    ? () =>
+        void api
+          .request(`/chat/v1/runs/${enc(going.runId)}/stop`, {})
+          .catch((e) => notify(e instanceof Error ? e.message : String(e), { error: true }))
+    : undefined;
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
       <View style={[s.between, { paddingBottom: 8 }]}>
@@ -203,6 +213,7 @@ function ThreadView({
           draftKey={`thread:${root.id}`}
           placeholder="Reply…"
           agent={!!channel && agentOnIn(channel)}
+          onStop={stop}
           onSend={async (body, fileIds) => {
             await feeder.send(body, { fileIds });
           }}
@@ -364,31 +375,33 @@ export function ChannelChat({
   ) : null;
 
   return (
-    <View style={{ flex: 1, flexDirection: "row", minHeight: 0 }}>
-      <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
-        {panels && header}
-        {body}
-      </View>
-      {threadView &&
-        (width >= 1100 ? (
-          <View style={{ width: 420 }}>
-            <View
-              style={[
-                { flex: 1, paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12 },
-                panelStyle,
-              ]}
-            >
-              {threadView}
+    <MentionNamesProvider people={people}>
+      <View style={{ flex: 1, flexDirection: "row", minHeight: 0 }}>
+        <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
+          {panels && header}
+          {body}
+        </View>
+        {threadView &&
+          (width >= 1100 ? (
+            <View style={{ width: 420 }}>
+              <View
+                style={[
+                  { flex: 1, paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12 },
+                  panelStyle,
+                ]}
+              >
+                {threadView}
+              </View>
             </View>
-          </View>
-        ) : (
-          <Modal visible={active} animationType="slide" onRequestClose={() => setThreadId(null)}>
-            <SafeAreaView style={{ flex: 1, padding: 18, backgroundColor: haze.base }}>
-              <Backdrop />
-              {threadView}
-            </SafeAreaView>
-          </Modal>
-        ))}
-    </View>
+          ) : (
+            <Modal visible={active} animationType="slide" onRequestClose={() => setThreadId(null)}>
+              <SafeAreaView style={{ flex: 1, padding: 18, backgroundColor: haze.base }}>
+                <Backdrop />
+                {threadView}
+              </SafeAreaView>
+            </Modal>
+          ))}
+      </View>
+    </MentionNamesProvider>
   );
 }

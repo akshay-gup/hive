@@ -120,3 +120,56 @@ test("one that never answers fails with what it last said", async () => {
     /did not answer in 1s \(status 503\)/,
   );
 });
+
+const answer = (res: ServerResponse, body: object) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ ok: true, workspace: "w1", ...body }));
+};
+
+test("a machine that has not taken up its build is waited for, and then let in once it has", async () => {
+  const api = await serve((_req, res, call) =>
+    answer(res, { version: call < 3 ? "sha-old" : "sha-new" }),
+  );
+  await waitUntilAnswering(api.url, "w1", { waitSeconds: 5, pollMs: 10, build: "sha-new" });
+  assert.equal(api.calls(), 3);
+});
+
+test("a machine whose update failed is let in on the build it has", async () => {
+  const api = await serve((_req, res) =>
+    answer(res, { version: "sha-old", update: { state: "failed" } }),
+  );
+  await waitUntilAnswering(api.url, "w1", { waitSeconds: 5, pollMs: 10, build: "sha-new" });
+  assert.equal(api.calls(), 1);
+});
+
+test("one that stays on another build fails with which", async () => {
+  const api = await serve((_req, res) => answer(res, { version: "sha-old" }));
+  await assert.rejects(
+    waitUntilAnswering(api.url, "w1", { waitSeconds: 1, pollMs: 10, build: "sha-new" }),
+    /still on sha-old, updating to sha-new/,
+  );
+});
+
+test("its agent is waited for a short while and then let go, so a chat service that is down keeps no one out", async () => {
+  const connecting = await serve((_req, res, call) =>
+    answer(res, { version: "sha-new", chatRunner: { connected: call >= 3 } }),
+  );
+  await waitUntilAnswering(connecting.url, "w1", {
+    waitSeconds: 5,
+    pollMs: 10,
+    build: "sha-new",
+    agentSeconds: 2,
+  });
+  assert.equal(connecting.calls(), 3);
+  const down = await serve((_req, res) =>
+    answer(res, { version: "sha-new", chatRunner: { connected: false } }),
+  );
+  const started = Date.now();
+  await waitUntilAnswering(down.url, "w1", {
+    waitSeconds: 5,
+    pollMs: 10,
+    build: "sha-new",
+    agentSeconds: 0.2,
+  });
+  assert.ok(Date.now() - started < 2000);
+});

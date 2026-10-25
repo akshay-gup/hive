@@ -204,6 +204,11 @@ async function wired(t: TestContext, behave: (turn: FakeTurn) => void | Promise<
 test("a mention in a channel is answered in its thread, from the folder of that channel", async (t) => {
   const f = await wired(t, ({ say }) => say("The plan is to ship on Friday."));
   assert.deepEqual(f.asked, ["https://control.test/v1/release/w1/runner-token"]);
+  // The machine says it is connected, which is what the control plane waits for before it calls a workspace ready.
+  const health = (await (await f.server.app.request("/api/health")).json()) as {
+    chatRunner?: { connected: boolean };
+  };
+  assert.deepEqual(health.chatRunner, { connected: true });
   const room = await f.channel("max", "Design");
   await f.post("mia", room.id, "we should talk about the launch");
   const asked = await f.post("max", room.id, "@hive what is the plan?");

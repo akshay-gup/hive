@@ -1,4 +1,4 @@
-import { ArrowUp, Paperclip, X } from "lucide-react-native";
+import { ArrowUp, Paperclip, Square, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { activeMention, insertMention, matchPeople } from "../../../packages/domain/src/mentions";
@@ -35,6 +35,7 @@ export function ChatComposer({
   autoFocus,
   disabled,
   agent,
+  onStop,
 }: {
   channelId: string;
   /** What this box's unsent words are kept under. */
@@ -45,6 +46,8 @@ export function ChatComposer({
   disabled?: boolean;
   /** The agent is on in this channel, so `@hive` is offered. */
   agent?: boolean;
+  /** Something is going that this person may stop: the send button is a stop button while nothing is written. */
+  onStop?: () => void;
 }) {
   const { api, notify } = useWorkspace();
   const chat = useChat();
@@ -145,6 +148,7 @@ export function ChatComposer({
   const ready = attachments.filter((a) => a.state === "ready" && a.fileId);
   const sending = attachments.some((a) => a.state === "sending");
   const canSend = !disabled && !sending && (!!draft.trim() || ready.length > 0);
+  const stopping = !!onStop && !draft.trim() && ready.length === 0 && !sending;
   function send() {
     if (!canSend) return;
     const body = draft;
@@ -298,21 +302,25 @@ export function ChatComposer({
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Send message"
-            disabled={!canSend}
-            onPress={send}
+            accessibilityLabel={stopping ? "Stop the agent" : "Send message"}
+            disabled={!canSend && !stopping}
+            onPress={stopping ? onStop : send}
             style={({ pressed }) => ({
               width: denseUi ? 32 : 34,
               height: denseUi ? 32 : 34,
               borderRadius: denseUi ? 16 : 17,
               backgroundColor: colors.action,
-              opacity: canSend ? 1 : 0.4,
+              opacity: canSend || stopping ? 1 : 0.4,
               alignItems: "center",
               justifyContent: "center",
               transform: [{ scale: pressed ? 0.94 : 1 }],
             })}
           >
-            <ArrowUp size={denseUi ? 18 : 22} strokeWidth={2.4} color={colors.onPrimary} />
+            {stopping ? (
+              <Square size={denseUi ? 12 : 14} fill={colors.onPrimary} color={colors.onPrimary} />
+            ) : (
+              <ArrowUp size={denseUi ? 18 : 22} strokeWidth={2.4} color={colors.onPrimary} />
+            )}
           </Pressable>
         </View>
       </View>

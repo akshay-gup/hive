@@ -161,6 +161,8 @@ export async function createApp(
       502,
     );
   });
+  // Whether the connection to the chat service is up, for the health answer (set where it is made).
+  let agentConnected: (() => boolean) | undefined;
   app.get("/api/health", async (c) =>
     c.json({
       ok: true,
@@ -172,6 +174,8 @@ export async function createApp(
       // reached the right one.
       ...(config.managed ? { managed: true, workspace: config.managed.workspaceId } : {}),
       ...(config.managed ? { update: await readUpdateStatus() } : {}),
+      // Whether the agent can be reached from chat: the control plane waits for it before it calls a new workspace ready.
+      ...(agentConnected ? { chatRunner: { connected: agentConnected() } } : {}),
     }),
   );
   let loginWindow = 0,
@@ -433,6 +437,7 @@ export async function createApp(
           fetcher: options.chatRunner?.fetcher,
           log: (line) => console.log(line),
         });
+        agentConnected = () => link.open;
         return { link, host };
       })()
     : undefined;
