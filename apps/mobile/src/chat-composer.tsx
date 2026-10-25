@@ -236,7 +236,9 @@ export function ChatComposer({
             value={draft}
             onChangeText={change}
             autoFocus={autoFocus}
-            placeholder={placeholder}
+            placeholder={
+              agent && focused ? "Write a message, or @hive to ask the agent" : placeholder
+            }
             placeholderTextColor={colors.muted}
             selectionColor={colors.primary}
             selection={placeCursor}
@@ -324,17 +326,6 @@ export function ChatComposer({
           </Pressable>
         </View>
       </View>
-      {/* The line is always there, so the box does not move when the hint shows. */}
-      {Platform.OS === "web" && (
-        <Text
-          style={[
-            s.small,
-            { paddingTop: 6, paddingHorizontal: 8, opacity: focused || draft ? 1 : 0 },
-          ]}
-        >
-          {agent ? "Type @hive to ask the agent" : "Shift+Enter for a new line"}
-        </Text>
-      )}
     </View>
   );
 }
