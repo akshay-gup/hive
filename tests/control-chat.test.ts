@@ -52,7 +52,7 @@ before(async () => {
     toChat.push({
       workspace: match[1] ?? "",
       action: match[2] ?? "",
-      token: String((init?.headers as Record<string, string>).authorization).slice(7),
+      token: String((init?.headers as Record<string, string> | undefined)?.authorization).slice(7),
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     });
     return new Response("{}");
@@ -99,6 +99,9 @@ async function workspace(owner: Person) {
   await control.workspaces.settled(id);
   return id as string;
 }
+/** The people the control plane said were in a workspace. */
+const rosterOf = (call: { body: unknown } | undefined) =>
+  ((call?.body ?? { people: [] }) as { people: { email: string; role: string }[] }).people;
 const chatTo = (workspace: string, action: string) =>
   toChat.filter((c) => c.workspace === workspace && c.action === action);
 
@@ -148,10 +151,7 @@ test("the chat service is told who is in the workspace the first time, and again
     verifyChatPeople(keys.publicKey, first?.token ?? "", { workspaceId: id }),
   );
   assert.deepEqual(
-    (first?.body as { people: { email: string; role: string }[] }).people.map((p) => [
-      p.email,
-      p.role,
-    ]),
+    rosterOf(first).map((p) => [p.email, p.role]),
     [["chat-owner3@example.com", "owner"]],
   );
   // Someone who joins is added to what it knows.
@@ -159,7 +159,9 @@ test("the chat service is told who is in the workspace the first time, and again
   await guest.post(`/v1/invites/${String(made.link).split("/").pop()}/accept`);
   const latest = chatTo(id, "people").at(-1);
   assert.deepEqual(
-    (latest?.body as { people: { email: string }[] }).people.map((p) => p.email).sort(),
+    rosterOf(latest)
+      .map((p) => p.email)
+      .sort(),
     ["chat-guest3@example.com", "chat-owner3@example.com"],
   );
 });
@@ -179,9 +181,7 @@ test("removing someone ends their chat access and updates who is known", async (
     member.account.id,
   );
   assert.deepEqual(
-    (chatTo(id, "people").at(-1)?.body as { people: { email: string }[] }).people.map(
-      (p) => p.email,
-    ),
+    rosterOf(chatTo(id, "people").at(-1)).map((p) => p.email),
     ["chat-owner4@example.com"],
   );
   // And they cannot get another token.
