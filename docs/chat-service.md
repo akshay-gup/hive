@@ -42,7 +42,8 @@ never finished. Free plan: 25 MB a file, 5 GB in all (`apps/control/src/plans.ts
 ## Deploying
 
 1. `wrangler r2 bucket create hive-chat-files`; uncomment `r2_buckets` in `apps/chat/wrangler.jsonc`.
-2. `wrangler secret put FILE_LINK_KEY` (set already for production).
+2. `wrangler secret put FILE_LINK_KEY` (set already for production), and `CHAT_WAKE_KEY` (the same value on the
+   control plane's Worker; `CONTROL_URL` is a var).
 3. `CONTROL_PUBLIC_KEY` in `apps/chat/wrangler.jsonc` is the control plane's, from `GET /v1/public-key`.
 4. Deploy order: chat Worker, then the control plane (it has `services` -> `hive-chat` and `CHAT_PUBLIC_URL`,
    `CHAT_INTERNAL_URL`), then the web app.
@@ -53,10 +54,54 @@ Tests run without Cloudflare: the room's logic takes a small SQL interface (`pac
 which Node's SQLite stands in for (`tests/helpers/do-shim.ts`); `tests/helpers/chat-stack.ts` is the Worker with
 real rooms and a bucket in memory.
 
+## The agent in channels
+
+`@hive` in a message starts a **run**. The room makes the run and the agent's reply (a message whose author is
+the agent, in the thread under the message that asked) in the same transaction as the mention, so there is
+never one without the other. The agent works in public channels at once and in a private channel only after a
+channel manager switches it on (the `agent` setting); never in a direct message. `@hive` is needed on every
+message, and `hive` is reserved so no person has it as a handle.
+
+The workspace's machine holds no key to read chat. It opens **one outbound WebSocket** to the room
+(`/w/<workspace>/agent/v1/connect`, subprotocols `hive.runner.v1, <token>`). The token is a `chat-runner` token
+(audience `chat:<workspace>:runner`, ten minutes, renewed over the same connection) that the control plane gives the
+machine for its own gateway key (`POST /v1/release/:id/runner-token`). It names no person. A newer connection
+replaces the old (close code 4409). The machine's frames are checked by the room against a run that is still
+going (`apps/chat/src/agent-link.ts`), so all it can do is write that run's own reply, ask people questions, and send
+files for the asker; it cannot read a channel, answer for a person or touch another message. The runner's socket is
+tagged apart from people's, so it never receives their events.
+
+A run is `queued`, `sent`, `running`, then `done`, `failed` or `stopped`, all in SQLite (`runs`). The room sends a run to
+the machine with the thread so far (or the 15 messages before a top-level mention), the channel's name and topic,
+who asked, the names in the channel and five-minute links to the files on the message. With no machine connected
+the room asks the control plane to start it (`POST /internal/chat/wake/:id`, signed with `CHAT_WAKE_KEY`, at most
+once in 30 seconds). The reply is saved at most once a second and shown in between by a `stream` frame that does
+not move anyone's place; its `extra` is `{v:1, runId, askedBy, status, reason?, steps, prompts?}`, which the app
+reads (`apps/mobile/src/chat-agent-extra.ts`). A person can **stop** a run (who asked, a channel manager, an admin,
+the owner) and anyone in the channel but a guest can **answer** what the agent asks (approvals and questions;
+the first answer is taken). Runs are re-checked when people, privacy, archive, delete or a sign-in change, and by
+the alarm: one nobody takes in two minutes, or that is quiet for ninety seconds without a connection, fails.
+Limits (`RUN_LIMITS`): 8 runs per person per ten minutes, 60 per workspace per hour, two at once per channel, eight
+waiting, 45 minutes a run, five files a reply.
+
+On the machine (`apps/server/src/chat-runner`): `link.ts` keeps the connection (token, renewal, backoff, a
+ping the room answers without waking), `host.ts` runs what it is given as an OpenCode session for the thread in a
+stand-in folder for the channel (`stubs.ts`) and reports it, `context.ts` makes what the agent is shown and fetches
+the message's files. A chat run always asks first, whatever a channel's folder says, and has only `browse_web`,
+`create_issue` and `send_file` (`send_file` puts the file in the reply through the room's own upload path, as the
+asker). In a **private channel** it has no board tool: what it makes there would be kept on a machine the channel's
+members do not control. A restart of the machine loses its runs; the room fails them (`lost`) and the person
+mentions again.
+
+What a run is shown stays on the machine's disk (the OpenCode session and the channel's folder) and is readable by
+any later run there. That is why a private channel has to be switched on, and why the machine is the workspace's.
+
 ## Not built
 
-The agent in channels (only the route and token shape are reserved: `/agent/v1/*` answers 501, token audience
-`chat-run:<workspace>`), presence, search, pins, edit history, multipart uploads over 100 MB, push and email
-notifications, retention. A workspace server still has its own channel records, members and privacy rules; they
-serve the agent's side (tasks, folders, threads with the agent) and a workspace run without the chat service,
-and go when the agent is brought across. Pictures are made smaller on the web only.
+Presence, search, pins, edit history, multipart uploads over 100 MB, push and email notifications, retention;
+for the agent: direct messages, an auto-approve mode and "always allow" rules, choices cards, requests for
+uploads, mail, goals and memory in channels, resuming a run after a restart, tidying the machine's stand-in folders,
+and keeping the machine awake while it works (a free plan on a host that stops idle machines can stop mid-run; on
+DigitalOcean nothing stops). A workspace server still has its own channel records, members and privacy rules for
+the orchestrator chat and a workspace run without the chat service. Pictures are made smaller on the web and the
+phone.

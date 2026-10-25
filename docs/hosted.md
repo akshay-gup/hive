@@ -394,7 +394,7 @@ The agent only knows a model it has an entry for, and it has none for `hive-defa
 
 ### What the control plane gives each workspace
 
-`WORKSPACE_MODE=live`, `WORKSPACE_ID`, `CONTROL_PLANE_PUBLIC_KEY`, `PUBLIC_API_URL` (its address), `ALLOWED_ORIGINS` (the control plane's, so the web app can call it), `HOST=0.0.0.0`, `PORT=8787`, `DATA_DIR=/data/hive`, and `HIVE_WORKSPACE_ENV`. The image's supervisor adds `TOKEN_ENCRYPTION_KEY` and the OpenCode password from the workspace's own secrets.
+`WORKSPACE_MODE=live`, `WORKSPACE_ID`, `CONTROL_PLANE_PUBLIC_KEY`, `PUBLIC_API_URL` (its address), `ALLOWED_ORIGINS` (the control plane's, so the web app can call it), `HOST=0.0.0.0`, `PORT=8787`, `DATA_DIR=/data/hive`, and `HIVE_WORKSPACE_ENV`. The image's supervisor adds `TOKEN_ENCRYPTION_KEY` and the OpenCode password from the workspace's own secrets, and, to the server alone, `CHAT_RUNNER_TOKEN_URL` and `CHAT_RUNNER_KEY` (the workspace's gateway key): the server uses them to get the token it connects to the [chat service](chat-service.md#the-agent-in-channels) with, where it answers mentions of `@hive`. Setting `CHAT_WAKE_KEY` on the control plane (the same value as on the chat service) lets the chat service ask for a stopped workspace's machine to be started.
 
 ## Plans
 
