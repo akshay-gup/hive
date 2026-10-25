@@ -5,11 +5,12 @@ import {
   verifyChatPeople,
   verifyChatPurge,
   verifyChatRevocation,
+  verifyChatRunner,
   verifyChatToken,
   WorkspaceTokenError,
 } from "../../../packages/integrations/src/workspace-token.ts";
 import type { ChatIdentity } from "./core.ts";
-import { IDENTITY_HEADER, INTERNAL_HEADER } from "./headers.ts";
+import { IDENTITY_HEADER, INTERNAL_HEADER, RUNNER_HEADER } from "./headers.ts";
 import { readSignedLink, serveHeaders, type Variant } from "./uploads.ts";
 
 /** The part of a Durable Object namespace this uses. */
@@ -185,6 +186,36 @@ app.get("/w/:ws/v1/ws", async (c) => {
   headers.set(IDENTITY_HEADER, JSON.stringify(identity));
   const stub = c.env.ROOMS.get(c.env.ROOMS.idFromName(workspaceId));
   return stub.fetch(new Request("https://room/v1/ws", { method: "GET", headers }));
+});
+
+/**
+ * The agent's machine connects here with the control plane's runner token (`hive.runner.v1, <token>`). It is
+ * the only way in for it, and the room hands it nothing but the runs it was given.
+ */
+app.get("/w/:ws/agent/v1/connect", async (c) => {
+  if (c.req.header("upgrade")?.toLowerCase() !== "websocket")
+    return c.json({ error: "Connect with a WebSocket" }, 426);
+  const workspaceId = c.req.param("ws");
+  const [version, token] = (c.req.header("sec-websocket-protocol") ?? "")
+    .split(",")
+    .map((part) => part.trim());
+  if (version !== "hive.runner.v1" || !token) return c.json({ error: "Not allowed" }, 401);
+  let expiresAt: number;
+  try {
+    expiresAt = verifyChatRunner(c.env.CONTROL_PUBLIC_KEY, token, { workspaceId }).expiresAt;
+  } catch (error) {
+    if (error instanceof WorkspaceTokenError) return c.json({ error: "Not allowed" }, 401);
+    throw error;
+  }
+  const headers = new Headers();
+  for (const name of ["upgrade", "connection", "sec-websocket-key", "sec-websocket-version"]) {
+    const value = c.req.header(name);
+    if (value) headers.set(name, value);
+  }
+  headers.set("sec-websocket-protocol", "hive.runner.v1");
+  headers.set(RUNNER_HEADER, String(expiresAt));
+  const stub = c.env.ROOMS.get(c.env.ROOMS.idFromName(workspaceId));
+  return stub.fetch(new Request("https://room/agent/v1/connect", { method: "GET", headers }));
 });
 
 /** What the Worker asks of a workspace's room once it has checked an address: the room says whether it still stands. */

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Sql } from "../../../packages/chat-core/src/sql.ts";
+import type { RunnerLink } from "./agent-link.ts";
 import { ChatCore, type ChatIdentity } from "./core.ts";
 import { IDENTITY_HEADER, INTERNAL_HEADER } from "./headers.ts";
 import { type Peer, Realtime } from "./realtime.ts";
@@ -39,8 +40,12 @@ export class RoomLogic {
     private readonly hooks: {
       purge(): Promise<void>;
       clock?: () => number;
-      /** Who is connected right now. */
+      /** The people connected right now (not the agent's machine). */
       peers?: () => Peer[];
+      /** The agent's machine, if it is connected. */
+      runner?: () => RunnerLink | null;
+      /** Ask for the agent's machine to be started. */
+      wake?: () => void;
       /** Keep the room running until this is done, which a response ending would otherwise cut short. */
       keepAlive?: (work: Promise<unknown>) => void;
       /** The key files' addresses are signed with. */
@@ -55,6 +60,10 @@ export class RoomLogic {
       clock: hooks.clock,
       linkKey: hooks.linkKey,
       workQueued: () => hooks.wakeIn?.(5_000),
+      runner: () => hooks.runner?.() ?? null,
+      stream: (channelId, message) => hooks.keepAlive?.(this.realtime.stream(channelId, message)),
+      workspaceId: () => this.workspaceId(),
+      wake: hooks.wake,
       publish: (event) => {
         const sent = this.realtime.publish(event);
         hooks.keepAlive?.(sent);
@@ -111,7 +120,10 @@ export class RoomLogic {
     }
     this.core.events.prune();
     files.reconcile();
+    // Runs that waited, ran or asked too long are ended, and the room looks at them again soon while any are going.
+    const running = await this.core.agent.maintain();
     // Soon again while an upload is waiting out its time, otherwise once a day.
+    if (running) return { nextInMs: 30_000 };
     return { nextInMs: files.hasWork() ? 60_000 : 24 * 3600_000 };
   }
 
@@ -135,6 +147,7 @@ export class RoomLogic {
         sub,
         before,
       );
+      await this.core.agent.revoked(sub);
       return Response.json({ ok: true });
     }
     if (action === "file-state" || action === "file-done" || action === "file-download") {

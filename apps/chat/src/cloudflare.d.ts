@@ -28,6 +28,7 @@ declare module "cloudflare:workers" {
     blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T>;
     acceptWebSocket(ws: WebSocket, tags?: string[]): void;
     getWebSockets(tag?: string): WebSocket[];
+    getTags(ws: WebSocket): string[];
     setWebSocketAutoResponse(pair?: unknown): void;
     waitUntil(promise: Promise<unknown>): void;
   }

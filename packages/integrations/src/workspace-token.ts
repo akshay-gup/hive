@@ -64,7 +64,14 @@ const LEEWAY_SECONDS = 30;
  * two for the chat service, and one that clears a removed workspace out of it: each is good for one
  * thing only, and one of them is not good for another.
  */
-export type Purpose = "sign-in" | "revoke" | "chat" | "chat-revoke" | "chat-purge" | "chat-people";
+export type Purpose =
+  | "sign-in"
+  | "revoke"
+  | "chat"
+  | "chat-revoke"
+  | "chat-purge"
+  | "chat-people"
+  | "chat-runner";
 const audience = (workspaceId: string, purpose: Purpose = "sign-in") => {
   switch (purpose) {
     case "revoke":
@@ -77,6 +84,8 @@ const audience = (workspaceId: string, purpose: Purpose = "sign-in") => {
       return `chat:${workspaceId}:purge`;
     case "chat-people":
       return `chat:${workspaceId}:people`;
+    case "chat-runner":
+      return `chat:${workspaceId}:runner`;
     default:
       return `ws:${workspaceId}`;
   }
@@ -362,4 +371,37 @@ export function verifyChatPeople(
   expected: { workspaceId: string; now?: number },
 ): void {
   verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "chat-people" });
+}
+
+/** How long a runner token lasts: the agent's machine renews it by itself, so a taken one is worth little. */
+export const CHAT_RUNNER_SECONDS = 10 * 60;
+
+/**
+ * What the agent's machine connects to the chat service with. It names no person: it lets the machine receive
+ * the runs the chat service gives it and answer them, and nothing else.
+ */
+export function signChatRunner(
+  privateKey: string,
+  input: { workspaceId: string; ttlSeconds?: number; now?: number },
+): string {
+  return signWorkspaceToken(privateKey, {
+    workspaceId: input.workspaceId,
+    sub: "runner",
+    email: "runner",
+    name: "",
+    role: "guest",
+    ttlSeconds: input.ttlSeconds ?? CHAT_RUNNER_SECONDS,
+    now: input.now,
+    purpose: "chat-runner",
+  });
+}
+
+/** When the token runs out, in milliseconds, once it is known to be the control plane's runner token for this workspace. */
+export function verifyChatRunner(
+  publicKey: string,
+  token: string,
+  expected: { workspaceId: string; now?: number },
+): { expiresAt: number } {
+  const verified = verifyWorkspaceToken(publicKey, token, { ...expected, purpose: "chat-runner" });
+  return { expiresAt: verified.expiresAt };
 }

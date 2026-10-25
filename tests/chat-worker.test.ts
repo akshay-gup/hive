@@ -7,6 +7,7 @@ import {
   signChatPeople,
   signChatPurge,
   signChatRevocation,
+  signChatRunner,
   signChatToken,
   signWorkspaceToken,
   type WorkspaceRole,
@@ -268,4 +269,67 @@ test("the live connection takes its token from the subprotocol, and passes on on
     "hive.v1",
     "the token is not passed on",
   );
+});
+
+test("the agent's machine connects with the runner token, which is good for its workspace and for nothing else", async () => {
+  const seen: Request[] = [];
+  const spy: Env = {
+    ...env(),
+    ROOMS: {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: async (request: Request) => {
+          seen.push(request);
+          return new Response("up");
+        },
+      }),
+    },
+  };
+  const connect = (headers: Record<string, string>, workspace = "w1") =>
+    app.request(`https://chat.test/w/${workspace}/agent/v1/connect`, { headers }, spy);
+  const upgrade = { upgrade: "websocket", connection: "Upgrade", "sec-websocket-key": "abc" };
+  const runner = signChatRunner(keys.privateKey, { workspaceId: "w1" });
+  assert.equal((await connect({})).status, 426, "not a WebSocket");
+  assert.equal((await connect({ ...upgrade })).status, 401, "no token");
+  assert.equal(
+    (await connect({ ...upgrade, "sec-websocket-protocol": "hive.runner.v1" })).status,
+    401,
+  );
+  assert.equal(
+    (await connect({ ...upgrade, "sec-websocket-protocol": `hive.runner.v1, garbage` })).status,
+    401,
+  );
+  assert.equal(
+    (await connect({ ...upgrade, "sec-websocket-protocol": `hive.runner.v1, ${runner}` }, "w2"))
+      .status,
+    401,
+    "another workspace's",
+  );
+  // A person's chat token is not the runner's, and the runner's is not a person's.
+  const person = signChatToken(keys.privateKey, { ...max, workspaceId: "w1" });
+  assert.equal(
+    (await connect({ ...upgrade, "sec-websocket-protocol": `hive.runner.v1, ${person}` })).status,
+    401,
+  );
+  const asPerson = await app.request(
+    "https://chat.test/w/w1/v1/channels",
+    { headers: { authorization: `Bearer ${runner}` } },
+    spy,
+  );
+  assert.equal(asPerson.status, 401, "the runner token opens no channel");
+  assert.equal(seen.length, 0);
+  const good = await connect({
+    ...upgrade,
+    "sec-websocket-protocol": `hive.runner.v1, ${runner}`,
+    "x-hive-runner": "9999999999999",
+    "x-hive-identity": JSON.stringify({ ...ada, issuedAt: 0 }),
+    cookie: "session=secret",
+  });
+  assert.equal(good.status, 200);
+  const forwarded = seen[0];
+  assert.equal(forwarded?.headers.get("cookie"), null);
+  assert.equal(forwarded?.headers.get("x-hive-identity"), null, "nothing the caller claimed");
+  assert.ok(Number(forwarded?.headers.get("x-hive-runner")) < 9_000_000_000_000, "its own expiry");
+  assert.ok(Number(forwarded?.headers.get("x-hive-runner")) > Date.now());
+  assert.equal(forwarded?.headers.get("sec-websocket-protocol"), "hive.runner.v1");
 });

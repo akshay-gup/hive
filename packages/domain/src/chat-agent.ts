@@ -148,7 +148,8 @@ export interface RunStart {
   text: string;
   asker: { id: string; email: string; name: string; role: "owner" | "admin" | "member" | "guest" };
   people: { name: string; handle: string }[];
-  files: { id: string; name: string; mime: string; bytes: number; url: string }[];
+  /** The files on the message that asked, each to be fetched from the path (on the chat service) for a few minutes. */
+  files: { id: string; name: string; mime: string; bytes: number; path: string }[];
   mode: "ask";
 }
 export interface ContextMessage {

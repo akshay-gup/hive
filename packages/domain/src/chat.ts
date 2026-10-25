@@ -92,6 +92,11 @@ export type ChatFrame =
   | { t: "ready"; cursor: number }
   | { t: "event"; id: number; type: string; channelId: string | null; data: unknown }
   | { t: "typing"; channelId: string; userId: string; name: string }
+  /**
+   * A message as it is now while the agent writes it, to be shown and not kept: it does not move the number
+   * of what was last seen, and the message's own events come when it is finished.
+   */
+  | { t: "stream"; channelId: string; message: ChatMessage }
   /** What the app missed is too old to send: fetch the lists afresh. */
   | { t: "resync"; cursor: number };
 

@@ -1,5 +1,6 @@
 import type { Access, Person } from "../../../packages/chat-core/src/access.ts";
 import { isIn, managesChannel } from "../../../packages/chat-core/src/access.ts";
+import { wantsAgent } from "../../../packages/chat-core/src/agent-trigger.ts";
 import type { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
@@ -8,6 +9,7 @@ import { MAX_BODY, type Message, type Messages } from "../../../packages/chat-co
 import type { Notice, Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import type { Reactions } from "../../../packages/chat-core/src/reactions.ts";
 import type { Reads } from "../../../packages/chat-core/src/reads.ts";
+import type { Run } from "../../../packages/chat-core/src/runs.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { Sql } from "../../../packages/chat-core/src/sql.ts";
 import type { RecordStore } from "../../../packages/chat-core/src/store.ts";
@@ -20,7 +22,9 @@ import type {
   PostMessageInput,
 } from "../../../packages/domain/src/chat.ts";
 import { editMessageSchema, postMessageSchema } from "../../../packages/domain/src/chat.ts";
+import type { AgentExtra } from "../../../packages/domain/src/chat-agent.ts";
 import { mentionedPeople, withHandles } from "../../../packages/domain/src/mentions.ts";
+import type { AgentLink } from "./agent-link.ts";
 
 const fileView = (file: FileRow) => ({
   id: file.id,
@@ -65,8 +69,23 @@ export class Messaging {
     },
   ) {}
 
+  private agentLink: AgentLink | null = null;
+
+  /** The agent, once it is made (it needs this to show its messages, and this needs it to start its runs). */
+  useAgent(agent: AgentLink) {
+    this.agentLink = agent;
+  }
+
   private get db() {
     return this.deps.store;
+  }
+
+  /** Everyone messages are written by, as their names go: the people, and the agent under the name it gave. */
+  async directory(): Promise<Known> {
+    const known: Known = await this.deps.access.byId();
+    const identity = await this.db.get<{ name?: string }>("system", "agent", "identity");
+    known.set("agent", { email: "", name: identity?.name || "Hive" });
+    return known;
   }
 
   /** The channel, if this person may open it: to anyone else there is no such channel. */
@@ -94,6 +113,21 @@ export class Messaging {
     return { id, name: who?.name || who?.email || "Someone", email: who?.email ?? "", kind };
   }
 
+  /** An agent's `extra` as the app is shown it: what the machine will answer with stays in the room. */
+  private extraView(m: Message): unknown {
+    const extra = m.extra as AgentExtra | null;
+    if (m.authorKind !== "agent" || !extra?.prompts) return m.extra;
+    return {
+      ...extra,
+      prompts: extra.prompts.map(({ requestId: _requestId, ...rest }) => rest),
+    };
+  }
+
+  /** A message as the app is shown it. */
+  async show(message: Message): Promise<ChatMessage> {
+    return this.views([message], await this.directory())[0] as ChatMessage;
+  }
+
   /** Messages as the app is shown them, with their reactions. */
   private views(messages: Message[], known: Known): ChatMessage[] {
     const reactions = this.deps.reactions.summary(messages.map((m) => m.id));
@@ -114,7 +148,7 @@ export class Messaging {
       deleted: m.deletedAt !== null,
       reactions: reactions.get(m.id) ?? [],
       files: (files.get(m.id) ?? []).map(fileView),
-      ...(m.extra ? { extra: m.extra } : {}),
+      ...(m.extra ? { extra: this.extraView(m) } : {}),
     }));
   }
 
@@ -138,7 +172,7 @@ export class Messaging {
   ): Promise<ChatMessagePage> {
     await this.open(owner, channelId);
     const { messages, more } = this.deps.messages.page(channelId, options);
-    return { messages: this.views(messages, await this.deps.access.byId()), more };
+    return { messages: this.views(messages, await this.directory()), more };
   }
 
   async replies(
@@ -149,7 +183,7 @@ export class Messaging {
     const root = this.deps.messages.get(messageId);
     if (!root) throw new AppError("Message not found", 404);
     await this.open(owner, root.channelId);
-    const known = await this.deps.access.byId();
+    const known = await this.directory();
     return {
       root: this.views([root], known)[0] as ChatMessage,
       replies: this.views(this.deps.messages.replies(messageId, options), known),
@@ -158,13 +192,13 @@ export class Messaging {
 
   async threads(owner: string, channelId: string): Promise<ChatMessage[]> {
     await this.open(owner, channelId);
-    return this.views(this.deps.messages.threads(channelId), await this.deps.access.byId());
+    return this.views(this.deps.messages.threads(channelId), await this.directory());
   }
 
   /** What was written in the channel after a place, thread replies too, for a client that was away. */
   async since(owner: string, channelId: string, seq: number): Promise<ChatMessage[]> {
     await this.open(owner, channelId);
-    return this.views(this.deps.messages.since(channelId, seq), await this.deps.access.byId());
+    return this.views(this.deps.messages.since(channelId, seq), await this.directory());
   }
 
   async post(owner: string, channelId: string, raw: unknown): Promise<ChatMessage> {
@@ -177,7 +211,7 @@ export class Messaging {
     if (!text && fileIds.length === 0) throw new AppError("Write something to send", 422);
     if (text.length > MAX_BODY) throw new AppError("That message is too long", 422);
 
-    const known = await this.deps.access.byId();
+    const known = await this.directory();
     // Only people who may open the channel are told about it, so a mention cannot tell someone a private channel exists.
     const openers =
       text.includes("@") || input.threadRoot ? await this.deps.access.openers(channel) : [];
@@ -229,8 +263,15 @@ export class Messaging {
         }
       }
       this.emit(sent, "message.new", made, { channelId });
-      if (message.threadRoot) {
-        const root = this.deps.messages.get(message.threadRoot);
+      // A mention of the agent makes its reply, and the run that writes it, with the message that asked.
+      const asked =
+        this.agentLink && wantsAgent(text)
+          ? this.agentLink.trigger({ channel, trigger: message, asker: person })
+          : null;
+      if (asked) this.emit(sent, "message.new", this.views([asked.reply], known)[0], { channelId });
+      const rootId = message.threadRoot ?? (asked ? message.id : null);
+      if (rootId) {
+        const root = this.deps.messages.get(rootId);
         if (root) this.emit(sent, "thread.updated", this.views([root], known)[0], { channelId });
       }
       this.emit(
@@ -242,6 +283,12 @@ export class Messaging {
       return made;
     });
     this.send(sent);
+    // The run goes to the agent's machine, or the machine is woken.
+    if (this.agentLink && wantsAgent(text)) {
+      await this.agentLink.pump();
+      // The room looks at the run again soon, whatever the machine does.
+      this.deps.workQueued();
+    }
     return view;
   }
 
@@ -254,7 +301,7 @@ export class Messaging {
     this.takePart(person, channel);
     const text = body.trim();
     if (!text) throw new AppError("A message cannot be emptied; delete it instead", 422);
-    const known = await this.deps.access.byId();
+    const known = await this.directory();
     const sent: ChatEvent[] = [];
     const view = this.deps.sql.transaction(() => {
       const [edited] = this.views([this.deps.messages.edit(messageId, owner, text)], known) as [
@@ -279,7 +326,7 @@ export class Messaging {
         "Only its author, a channel manager, an admin or the owner can delete a message",
         403,
       );
-    const known = await this.deps.access.byId();
+    const known = await this.directory();
     const sent: ChatEvent[] = [];
     let queued = false;
     this.deps.sql.transaction(() => {
@@ -303,6 +350,7 @@ export class Messaging {
     });
     if (queued) this.deps.workQueued();
     this.send(sent);
+    await this.agentLink?.messageGone(messageId);
     return { ok: true };
   }
 
@@ -312,7 +360,7 @@ export class Messaging {
     const person = await this.person(owner);
     const channel = await this.open(owner, found.channelId);
     this.takePart(person, channel);
-    const known = await this.deps.access.byId();
+    const known = await this.directory();
     const sent: ChatEvent[] = [];
     const view = this.deps.sql.transaction(() => {
       const changed = on
@@ -337,9 +385,34 @@ export class Messaging {
     const message = this.deps.messages.get(messageId);
     if (!message || message.deletedAt) return;
     const sent: ChatEvent[] = [];
-    this.emit(sent, "message.edited", this.views([message], await this.deps.access.byId())[0], {
+    this.emit(sent, "message.edited", this.views([message], await this.directory())[0], {
       channelId: message.channelId,
     });
+    this.send(sent);
+  }
+
+  /** The person who asked the agent is told it has answered, unless they can no longer open the channel or have muted it. */
+  async runEnded(run: Run, reply: Message): Promise<void> {
+    const prefs = await this.deps.channels.notificationPrefs(run.askedBy);
+    const scope = await this.deps.access.scope(run.askedBy);
+    if (prefs.muted.includes(run.channelId) || !scope.allows(run.channelId)) return;
+    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", run.channelId);
+    if (!channel) return;
+    const sent: ChatEvent[] = [];
+    const added = this.deps.notices.add({
+      userId: run.askedBy,
+      kind: "reply",
+      messageId: reply.id,
+      channelId: run.channelId,
+      seq: reply.seq,
+    });
+    if (added)
+      this.emit(
+        sent,
+        "notification.new",
+        this.noticeView(channel, reply, "reply", await this.directory()),
+        { userId: run.askedBy, channelId: run.channelId },
+      );
     this.send(sent);
   }
 
@@ -383,7 +456,7 @@ export class Messaging {
   async notices(owner: string, options: { unreadOnly?: boolean } = {}): Promise<ChatNotice[]> {
     const prefs = await this.deps.channels.notificationPrefs(owner);
     const scope = await this.deps.access.scope(owner);
-    const known = await this.deps.access.byId();
+    const known = await this.directory();
     const out: ChatNotice[] = [];
     for (const notice of this.deps.notices.list(owner, { unreadOnly: options.unreadOnly })) {
       if (prefs.muted.includes(notice.channelId) || !scope.allows(notice.channelId)) continue;

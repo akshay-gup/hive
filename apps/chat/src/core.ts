@@ -16,12 +16,16 @@ import { Messages } from "../../../packages/chat-core/src/messages.ts";
 import { Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import { Reactions } from "../../../packages/chat-core/src/reactions.ts";
 import { Reads } from "../../../packages/chat-core/src/reads.ts";
+import { Runs } from "../../../packages/chat-core/src/runs.ts";
 import { migrate } from "../../../packages/chat-core/src/schema.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
 import type { Channel } from "../../../packages/domain/src/agent.ts";
+import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
+import { choiceSchema } from "../../../packages/domain/src/chat-agent.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
+import { AgentLink, type RunnerLink } from "./agent-link.ts";
 import { Filing } from "./filing.ts";
 import { Messaging } from "./messaging.ts";
 
@@ -66,6 +70,8 @@ export class ChatCore {
   readonly files: Files;
   readonly filing: Filing;
   readonly messaging: Messaging;
+  readonly runs: Runs;
+  readonly agent: AgentLink;
   private readonly publishEvent: (event: ChatEvent) => void;
   private readonly workQueued: () => void;
   readonly app: Hono<{ Bindings: Bindings; Variables: Variables }>;
@@ -81,6 +87,14 @@ export class ChatCore {
       linkKey?: () => string | undefined;
       /** There is something for the bucket to do soon (files to delete, uploads to expire). */
       workQueued?: () => void;
+      /** The agent's machine, if it is connected. */
+      runner?: () => RunnerLink | null;
+      /** A message as it is while the agent writes it, to be shown and not kept. */
+      stream?: (channelId: string, message: ChatMessage) => void;
+      /** This workspace's id, once the room knows it. */
+      workspaceId?: () => string | null;
+      /** Ask for the agent's machine to be started. */
+      wake?: () => void;
     } = {},
   ) {
     this.publishEvent = (event) => {
@@ -140,6 +154,30 @@ export class ChatCore {
       events: this.events,
       publish: this.publishEvent,
     });
+    this.runs = new Runs(sql, options.clock);
+    this.agent = new AgentLink({
+      store: this.store,
+      access: this.access,
+      messages: this.messages,
+      runs: this.runs,
+      files: this.files,
+      runner: () => options.runner?.() ?? null,
+      show: (message) => this.messaging.show(message),
+      stream: (channelId, message) => options.stream?.(channelId, message),
+      edited: (message) => this.emit("message.edited", message, { channelId: message.channelId }),
+      notifyEnd: (run, reply) => this.messaging.runEnded(run, reply),
+      workspaceId: () => options.workspaceId?.() ?? null,
+      linkKey: options.linkKey ?? (() => undefined),
+      wake: () => {
+        try {
+          options.wake?.();
+        } catch (error) {
+          console.error(`[Hive chat] could not wake the agent: ${String(error)}`);
+        }
+      },
+      clock: options.clock ?? Date.now,
+    });
+    this.messaging.useAgent(this.agent);
     this.app = this.routes();
   }
 
@@ -194,6 +232,7 @@ export class ChatCore {
     });
     // Whoever could open it is told it is gone (the channel itself no longer says who they were).
     for (const userId of audience) this.emit("channel.removed", { id: channelId }, { userId });
+    await this.agent.channelGone(channelId);
     this.workQueued();
     return { ok: true };
   }
@@ -215,6 +254,8 @@ export class ChatCore {
     this.emit("channel.updated", { id: channelId }, { channelId });
     for (const userId of before)
       if (!after.has(userId)) this.emit("channel.removed", { id: channelId }, { userId });
+    // A run whose asker can no longer ask (or whose channel no longer has the agent) stops.
+    await this.agent.recheck(channelId);
   }
 
   /**
@@ -461,6 +502,29 @@ export class ChatCore {
     app.post("/v1/notifications/:id/read", noticeAction("read"));
     app.post("/v1/notifications/:id/unread", noticeAction("unread"));
     app.post("/v1/notifications/:id/dismiss", noticeAction("dismiss"));
+
+    // The agent's runs
+    const asker = async (owner: string) => {
+      const person = await this.access.person(owner);
+      if (!person) throw new AppError("Run not found", 404);
+      return person;
+    };
+    app.post("/v1/runs/:id/stop", async (c) =>
+      c.json(await this.agent.stop(await asker(c.get("owner")), c.req.param("id"))),
+    );
+    app.post("/v1/runs/:id/answer", async (c) => {
+      const input = z
+        .object({ promptId: z.string().min(1).max(100), choice: choiceSchema })
+        .parse(await body(c));
+      return c.json(
+        await this.agent.answer(
+          await asker(c.get("owner")),
+          c.req.param("id"),
+          input.promptId,
+          input.choice,
+        ),
+      );
+    });
 
     // Owners and admins: what channels exist, private ones too, and not what is said in them.
     app.get("/v1/admin/channels", async (c) => c.json(await this.people.directory(c.get("owner"))));

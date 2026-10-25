@@ -2,7 +2,7 @@ import { canOpen, isIn } from "../../../packages/chat-core/src/access.ts";
 import type { ChatEvent } from "../../../packages/chat-core/src/events.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { Channel } from "../../../packages/domain/src/agent.ts";
-import type { ChatClientFrame, ChatFrame } from "../../../packages/domain/src/chat.ts";
+import type { ChatClientFrame, ChatFrame, ChatMessage } from "../../../packages/domain/src/chat.ts";
 import type { ChatCore } from "./core.ts";
 
 /** Someone connected: who, until when their token holds, and a way to talk to them. */
@@ -42,6 +42,30 @@ export class Realtime {
       .then(() => this.deliver(event))
       .catch((error) => {
         console.error(`[Hive chat] could not deliver an event: ${String(error)}`);
+      });
+    return this.chain;
+  }
+
+  /**
+   * Show a message as it is now to those who may see it, in its place among the events (so one shown later
+   * is never undone by one shown before). It is not written down and has no number: a person who connects
+   * afterwards is sent the message as it was last kept.
+   */
+  stream(channelId: string, message: ChatMessage): Promise<void> {
+    this.chain = this.chain
+      .then(async () => {
+        const peers = this.peers();
+        if (peers.length === 0) return;
+        const channel = await this.core.store.get<Channel>(SHARED_OWNER, "channels", channelId);
+        if (!channel) return;
+        const text = JSON.stringify({ t: "stream", channelId, message } satisfies ChatFrame);
+        for (const peer of peers) {
+          if (!this.live(peer)) continue;
+          if (canOpen(await this.core.access.person(peer.id), channel)) peer.send(text);
+        }
+      })
+      .catch((error) => {
+        console.error(`[Hive chat] could not show a message: ${String(error)}`);
       });
     return this.chain;
   }

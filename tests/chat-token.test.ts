@@ -4,11 +4,13 @@ import {
   generateWorkspaceKeys,
   signChatPurge,
   signChatRevocation,
+  signChatRunner,
   signChatToken,
   signRevocation,
   signWorkspaceToken,
   verifyChatPurge,
   verifyChatRevocation,
+  verifyChatRunner,
   verifyChatToken,
   verifyRevocation,
   verifyWorkspaceToken,
@@ -121,4 +123,31 @@ test("a revocation says whose access to end and when the token was made", () => 
   });
   const purge = signChatPurge(keys.privateKey, { workspaceId: "w1", now });
   assert.doesNotThrow(() => verifyChatPurge(keys.publicKey, purge, { workspaceId: "w1", now }));
+});
+
+test("a runner token is for the agent's machine to connect with, and nothing else", () => {
+  const now = Date.UTC(2026, 9, 25, 12);
+  const runner = signChatRunner(keys.privateKey, { workspaceId: "w1", now });
+  assert.deepEqual(verifyChatRunner(keys.publicKey, runner, { workspaceId: "w1", now }), {
+    expiresAt: Math.floor(now / 1000) * 1000 + 10 * 60_000,
+  });
+  assert.equal(
+    reason(() => verifyChatRunner(keys.publicKey, runner, { workspaceId: "w2", now })),
+    "audience",
+  );
+  assert.equal(
+    reason(() =>
+      verifyChatRunner(keys.publicKey, runner, { workspaceId: "w1", now: now + 11 * 60_000 }),
+    ),
+    "expired",
+  );
+  const person = signChatToken(keys.privateKey, { ...who, workspaceId: "w1", now });
+  assert.equal(
+    reason(() => verifyChatRunner(keys.publicKey, person, { workspaceId: "w1", now })),
+    "audience",
+  );
+  assert.equal(
+    reason(() => verifyChatToken(keys.publicKey, runner, { workspaceId: "w1", now })),
+    "audience",
+  );
 });
