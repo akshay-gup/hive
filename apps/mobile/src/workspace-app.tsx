@@ -17,7 +17,9 @@ import { ActivityProjectsProvider } from "./activity-projects";
 import { AgentActivityScreen, AgentStatus, AppsScreen, GoalsScreen, IdeasScreen } from "./agent-ui";
 import { AgentWorkspaceProvider } from "./agent-workspace";
 import type { MuseApi } from "./api";
+import { ChannelChat } from "./channel-chat";
 import { ChatScreen, WorkspaceTools } from "./chat";
+import { ChatProvider } from "./chat-context";
 import { ComputerDraftProvider } from "./computer-drafts";
 import { Details } from "./details";
 import { ProgressScreen } from "./hosted/progress";
@@ -130,21 +132,23 @@ export function WorkspaceApp({
         logout,
       }}
     >
-      <AgentWorkspaceProvider>
-        <ActivityProjectsProvider>
-          <ComputerDraftProvider key={identity}>
-            <ThreadsProvider>
-              <WorkspaceShell
-                detail={detail}
-                toast={toast}
-                clearToast={() => setToast(null)}
-                error={error}
-                prompt={prompt}
-              />
-            </ThreadsProvider>
-          </ComputerDraftProvider>
-        </ActivityProjectsProvider>
-      </AgentWorkspaceProvider>
+      <ChatProvider>
+        <AgentWorkspaceProvider>
+          <ActivityProjectsProvider>
+            <ComputerDraftProvider key={identity}>
+              <ThreadsProvider>
+                <WorkspaceShell
+                  detail={detail}
+                  toast={toast}
+                  clearToast={() => setToast(null)}
+                  error={error}
+                  prompt={prompt}
+                />
+              </ThreadsProvider>
+            </ComputerDraftProvider>
+          </ActivityProjectsProvider>
+        </AgentWorkspaceProvider>
+      </ChatProvider>
     </WorkspaceContext.Provider>
   );
 }
@@ -161,7 +165,7 @@ function WorkspaceShell({
   error: string;
   prompt?: { id: number; text: string };
 }) {
-  const { section, navigate } = useWorkspace();
+  const { api, section, navigate } = useWorkspace();
   const guest = useGuest();
   const {
     selection,
@@ -299,12 +303,20 @@ function WorkspaceShell({
                         key={thread.id}
                         style={{ display: selection.id === thread.id ? "flex" : "none", flex: 1 }}
                       >
-                        <ChatScreen
-                          thread={thread}
-                          active={section === "chat" && selection.id === thread.id}
-                          prompt={selection.id === thread.id ? prompt : undefined}
-                          header={thread.id.startsWith("channel:") ? channelHeader : undefined}
-                        />
+                        {api.chat && thread.id.startsWith("channel:") ? (
+                          <ChannelChat
+                            channelId={thread.id.slice("channel:".length)}
+                            active={section === "chat" && selection.id === thread.id}
+                            header={channelHeader}
+                          />
+                        ) : (
+                          <ChatScreen
+                            thread={thread}
+                            active={section === "chat" && selection.id === thread.id}
+                            prompt={selection.id === thread.id ? prompt : undefined}
+                            header={thread.id.startsWith("channel:") ? channelHeader : undefined}
+                          />
+                        )}
                       </View>
                     ))}
                   </>
@@ -320,12 +332,20 @@ function WorkspaceShell({
                             flex: 1,
                           }}
                         >
-                          <ChatScreen
-                            thread={thread}
-                            active={section === "chat" && selection.id === thread.id}
-                            prompt={selection.id === thread.id ? prompt : undefined}
-                            header={thread.id.startsWith("channel:") ? channelHeader : undefined}
-                          />
+                          {api.chat && thread.id.startsWith("channel:") ? (
+                            <ChannelChat
+                              channelId={thread.id.slice("channel:".length)}
+                              active={section === "chat" && selection.id === thread.id}
+                              header={channelHeader}
+                            />
+                          ) : (
+                            <ChatScreen
+                              thread={thread}
+                              active={section === "chat" && selection.id === thread.id}
+                              prompt={selection.id === thread.id ? prompt : undefined}
+                              header={thread.id.startsWith("channel:") ? channelHeader : undefined}
+                            />
+                          )}
                         </View>
                       ))}
                     {!guest && (

@@ -108,6 +108,7 @@ export class Messaging {
       replyCount: m.replyCount,
       lastReplyAt: m.lastReplyAt,
       replyPeople: m.replyUsers.map((id) => this.personView(id, known)),
+      ...(m.clientId ? { clientId: m.clientId } : {}),
       createdAt: m.createdAt,
       editedAt: m.editedAt,
       deleted: m.deletedAt !== null,

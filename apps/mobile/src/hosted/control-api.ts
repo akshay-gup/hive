@@ -50,6 +50,13 @@ export interface WorkspaceToken {
   url: string;
   expiresAt: number;
 }
+/** A token for the chat service, and where it is reached for this workspace. */
+export interface ChatToken {
+  token: string;
+  url: string;
+  wsUrl: string;
+  expiresAt: number;
+}
 
 /** A refusal from the control plane, with words that are fit to show; `status` 0 means it could not be reached. */
 export class ControlError extends Error {
@@ -189,6 +196,11 @@ export class ControlApi {
   /** A short-lived token to take to the workspace, which signs the person in with it. */
   workspaceToken(id: string) {
     return this.call<WorkspaceToken>("POST", `/v1/workspaces/${encodeURIComponent(id)}/token`, {});
+  }
+
+  /** A token for the workspace's chat, which does not need its machine to be running. */
+  chatToken(id: string) {
+    return this.call<ChatToken>("POST", `/v1/workspaces/${encodeURIComponent(id)}/chat-token`, {});
   }
 
   // People

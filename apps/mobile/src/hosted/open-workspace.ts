@@ -1,4 +1,5 @@
 import {
+  type ChatToken,
   type ControlApi,
   isControlError,
   type Role,
@@ -21,6 +22,8 @@ export interface OpenedWorkspace {
   /** When the session ends (milliseconds since 1970); sign in again before then. */
   expiresAt: number;
   user: WorkspaceUser;
+  /** The chat service, where there is one: what people say in channels goes through it. */
+  chat?: ChatToken;
 }
 
 /** Why a workspace could not be opened, in words fit for the person. */
@@ -69,6 +72,11 @@ export async function openWorkspace(
     await control.wake(id);
   }
   options.onStep?.("signing-in");
+  // Chat has its own token. A control plane with no chat service says so, and the workspace goes without.
+  const chat = await control.chatToken(id).catch((error) => {
+    if (isControlError(error) && error.status === 404) return undefined;
+    throw error;
+  });
   // A token opens one session, so an attempt that failed on the way is made again with a new one.
   for (let attempt = 0; ; attempt++) {
     const minted = await control.workspaceToken(id);
@@ -99,6 +107,7 @@ export async function openWorkspace(
         token: payload.token,
         expiresAt: payload.expiresAt ?? Date.now() + 50 * 60 * 1000,
         user: payload.user,
+        chat,
       };
     if (response.status === 401 && attempt === 0) continue;
     throw new WorkspaceUnavailable(

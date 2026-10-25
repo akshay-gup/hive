@@ -45,6 +45,8 @@ export interface ChatMessage {
   lastReplyAt: string | null;
   /** Who has replied in the thread, for showing them. */
   replyPeople: ChatPerson[];
+  /** What the sender called it, so the screen it was sent from knows which message has come back. */
+  clientId?: string;
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;

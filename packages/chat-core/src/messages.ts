@@ -24,6 +24,8 @@ export interface Message {
   replyCount: number;
   lastReplyAt: string | null;
   replyUsers: string[];
+  /** What the sender called it when they sent it, so their own screen can tell which message came back. */
+  clientId: string | null;
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
@@ -41,13 +43,14 @@ interface Row {
   reply_count: number;
   last_reply_at: string | null;
   reply_users: string | null;
+  client_id: string | null;
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
 }
 
 const COLUMNS =
-  "channel_id, seq, id, author_id, author_kind, body, extra, thread_root, reply_count, last_reply_at, reply_users, created_at, edited_at, deleted_at";
+  "channel_id, seq, id, author_id, author_kind, body, extra, thread_root, reply_count, last_reply_at, reply_users, client_id, created_at, edited_at, deleted_at";
 
 function toMessage(row: Row): Message {
   return {
@@ -62,6 +65,7 @@ function toMessage(row: Row): Message {
     replyCount: row.reply_count,
     lastReplyAt: row.last_reply_at,
     replyUsers: row.reply_users ? (JSON.parse(row.reply_users) as string[]) : [],
+    clientId: row.client_id,
     createdAt: row.created_at,
     editedAt: row.edited_at,
     deletedAt: row.deleted_at,

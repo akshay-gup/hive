@@ -32,12 +32,14 @@ import {
   type Mail,
   type ProposalInput,
 } from "../../../packages/domain/src";
+import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { DelegateSheet, NotificationsSheet, TaskDetail } from "./agent-ui";
 import BrowserConsole from "./BrowserConsole";
 import { browserAddress, browserSite } from "./browser-address";
 import { NewChannelSheet } from "./channel-create";
 import { ChannelFileSheet, ChannelFilesSheet } from "./channel-files";
 import { ChannelMembersSheet } from "./channel-members";
+import { ChatFilesSheet } from "./chat-files-sheet";
 import { ComputerSheet } from "./computer";
 import DateTimeEditor from "./DateTimeEditor";
 import { localDateTime, zonedInstant } from "./date-time";
@@ -66,10 +68,13 @@ import {
 } from "./ui";
 import { type Detail, useWorkspace } from "./workspace";
 export function Details({ detail }: { detail: Detail }) {
-  const { close, navigate } = useWorkspace();
+  const { api, close, navigate } = useWorkspace();
   if (detail.type === "computer") return <ComputerSheet />;
   if (detail.type === "people") return <PeopleSheet />;
   if (detail.type === "account") return <WorkspaceAccountSheet />;
+  // A channel's chat has its own files (what people sent); the orchestrator's folder is the agent's.
+  if (detail.type === "channelFiles" && api.chat && detail.channelId !== ORCHESTRATOR_CHANNEL_ID)
+    return <ChatFilesSheet channelId={detail.channelId} name={detail.name} />;
   if (detail.type === "channelFiles")
     return <ChannelFilesSheet channelId={detail.channelId} name={detail.name} path={detail.path} />;
   if (detail.type === "channelFile")

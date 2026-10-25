@@ -1,4 +1,5 @@
 import app, { type Bucket, type Env } from "../../apps/chat/src/app.ts";
+import type { Peer } from "../../apps/chat/src/realtime.ts";
 import { RoomLogic } from "../../apps/chat/src/room-logic.ts";
 import {
   type ChatLimits,
@@ -60,7 +61,9 @@ export interface Identity {
  * The chat Worker with real rooms (Node's SQLite for each workspace) and a bucket in memory, driven by
  * requests as the app would make them.
  */
-export function chatStack(options: { limits?: ChatLimits; linkKey?: string } = {}) {
+export function chatStack(
+  options: { limits?: ChatLimits; linkKey?: string; peers?: () => Peer[] } = {},
+) {
   const keys = generateWorkspaceKeys();
   const bucket = new FakeBucket();
   const rooms = new Map<string, RoomLogic>();
@@ -82,6 +85,7 @@ export function chatStack(options: { limits?: ChatLimits; linkKey?: string } = {
               linkKey: () => env.FILE_LINK_KEY,
               deleteObjects: (objects) => bucket.delete(objects),
               wakeIn: (ms) => woke.push(ms),
+              peers: options.peers,
             });
             rooms.set(name, room);
           }
