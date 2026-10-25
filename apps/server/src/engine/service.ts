@@ -11,7 +11,6 @@ import {
   type Scope,
 } from "../../../../packages/chat-core/src/access.ts";
 import { ChannelPeople } from "../../../../packages/chat-core/src/channel-people.ts";
-import { DirectMessages } from "../../../../packages/chat-core/src/direct-messages.ts";
 import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import {
   type AgentArtifact,
@@ -111,8 +110,6 @@ export class AgentService {
   readonly access: Access;
   /** Who is in each channel, who manages it, and who may change either. */
   readonly people: ChannelPeople;
-  /** Direct messages between two people: private channels found by the other's name. */
-  readonly dms: DirectMessages;
   constructor(
     readonly db: Store,
     readonly config: Config,
@@ -126,12 +123,6 @@ export class AgentService {
     this.jev = jev;
     this.access = new Access(db, Boolean(config.managed));
     this.people = new ChannelPeople(db, this.access);
-    this.dms = new DirectMessages(db, this.access, async (channel) => {
-      // Best-effort, as for any channel: it must not fail the message.
-      await mkdir(channelWorkspaceDir(config.dataDir, SHARED_OWNER, channel.id), {
-        recursive: true,
-      }).catch(() => undefined);
-    });
     this.taskFiles = new TaskFiles(config.dataDir);
     this.channelFiles = new ChannelFiles(config, files, (owner, id) => this.getChannel(owner, id));
     this.uploadRequests = new UploadRequests(db);
