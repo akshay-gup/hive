@@ -20,6 +20,8 @@
       "migrations_dir": "migrations"
     }
   ],
+  // The chat service (apps/chat), asked directly for what only the control plane may say to it.
+  "services": [{ "binding": "CHAT", "service": "hive-chat" }],
   "workflows": [
     { "name": "hive-provision", "binding": "PROVISION", "class_name": "ProvisionWorkspace" }
   ],
@@ -35,6 +37,8 @@
     // The web app is a site of its own: invite links open there.
     "CONTROL_APP_URL": "https://app.vi-ak.com",
     "CONTROL_ALLOWED_ORIGINS": "https://app.vi-ak.com",
+    "CHAT_PUBLIC_URL": "https://chat.vi-ak.com",
+    "CHAT_INTERNAL_URL": "https://chat.internal",
     // One workspace each, made or joined.
     "CONTROL_MAX_WORKSPACES": "1",
     "CONTROL_CLIENT_IP_HEADER": "CF-Connecting-IP",

@@ -25,6 +25,12 @@ export interface Env {
   };
   /** A Cloudflare rate limit binding, for the sign-in limit. Without it each copy counts alone. */
   SIGNIN_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  /**
+   * The chat service, reached directly rather than over the internet: what the control plane asks of it
+   * (who is in a workspace, whose access ended, a workspace removed) goes through this, to the address
+   * CHAT_INTERNAL_URL names, which only has to be a well-formed one.
+   */
+  CHAT?: { fetch(input: string, init?: RequestInit): Promise<Response> };
   /** The same kind of binding, for the model requests of each workspace. */
   GATEWAY_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }
@@ -53,7 +59,18 @@ function build(env: Env) {
     : new RateLimiter(20);
   const gateway = gatewayFromEnv(vars);
   const modelLimiter = env.GATEWAY_LIMITER;
+  const chat = env.CHAT;
+  const chatInternal = config.chatInternalUrl;
   return createControlApp(db, config, {
+    // What is for the chat service goes by the binding; anything else goes out as it always did.
+    ...(chat && chatInternal
+      ? {
+          fetch: ((input: string | URL | Request, init?: RequestInit) =>
+            String(input).startsWith(chatInternal)
+              ? chat.fetch(String(input), init)
+              : fetch(input, init)) as typeof fetch,
+        }
+      : {}),
     provisioner,
     keys: { privateKey, publicKey: workspacePublicKeyOf(privateKey) },
     google,
