@@ -782,7 +782,6 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
         config: deps.config,
         userRules: (binding) => deps.rules.effectiveRules(owner, binding),
         permissionMode: (binding) => deps.rules.effectiveMode(owner, binding),
-        confinement: () => deps.service.sandbox.rules(),
       },
       owner,
       input.threadId,

@@ -16,7 +16,6 @@ import {
   readEnvFile,
   Supervisor,
   type SupervisorSpec,
-  sandboxFor,
   serverEnv,
   withEnvFile,
 } from "../apps/workspace/src/supervisor.ts";
@@ -218,46 +217,24 @@ test("the agent runs on the volume, pinned and not sharing, without the server's
   assert.equal(JSON.stringify(env).includes(secrets.tokenEncryptionKey), false);
 });
 
-test("the agent's commands run through the sandbox, and the server is told where its policy goes", () => {
-  const sandbox = sandboxFor({ DATA_DIR: "/data/hive" }, "/data", "/app/machine/hive-sandbox");
-  assert.deepEqual(sandbox, {
-    shell: "/app/machine/hive-sandbox",
-    policy: "/data/hive/sandbox-policy.json",
-    volume: "/data",
-  });
-  // With no DATA_DIR in the machine's settings, the records are where the container image puts them.
-  assert.equal(sandboxFor({}, "/data", "x").policy, "/data/hive/sandbox-policy.json");
-
-  const agent = agentEnv({ PATH: "/usr/bin" }, secrets, "/data", "/home/hive", sandbox);
+test("the agent is set to carry on when a tool or question is turned down, and keeps the providers it was given", () => {
+  const agent = agentEnv({ PATH: "/usr/bin" }, secrets, "/data", "/home/hive");
   assert.deepEqual(JSON.parse(agent.OPENCODE_CONFIG_CONTENT), {
-    shell: "/app/machine/hive-sandbox",
     experimental: { continue_loop_on_deny: true },
   });
-  // The providers the machine was given (the model gateway's) stay beside the shell.
   const given = { provider: { "fireworks-ai": { options: { apiKey: "hwk_x" } } } };
   const gateway = agentEnv(
     { OPENCODE_CONFIG_CONTENT: JSON.stringify(given) },
     secrets,
     "/data",
     "/home/hive",
-    sandbox,
   );
   assert.deepEqual(JSON.parse(gateway.OPENCODE_CONFIG_CONTENT), {
     ...given,
-    shell: "/app/machine/hive-sandbox",
     experimental: { continue_loop_on_deny: true },
   });
-  assert.equal(agent.HIVE_SANDBOX_POLICY, "/data/hive/sandbox-policy.json");
-  assert.equal(agent.HIVE_SANDBOX_VOLUME, "/data");
-  const server = serverEnv({}, secrets, undefined, undefined, sandbox);
-  assert.equal(server.HIVE_SANDBOX_POLICY, agent.HIVE_SANDBOX_POLICY);
-  assert.equal(server.HIVE_SANDBOX_VOLUME, "/data");
-
-  // A build without the sandbox runs the agent as it did.
-  const plain = agentEnv({ PATH: "/usr/bin" }, secrets, "/data", "/home/hive");
-  for (const name of ["OPENCODE_CONFIG_CONTENT", "HIVE_SANDBOX_POLICY", "HIVE_SANDBOX_VOLUME"])
-    assert.equal(name in plain, false, name);
-  assert.equal("HIVE_SANDBOX_POLICY" in serverEnv({}, secrets), false);
+  // Nothing about a shell: the agent's commands run as they always did.
+  assert.equal("shell" in JSON.parse(gateway.OPENCODE_CONFIG_CONTENT), false);
 });
 
 test("the server gets its secrets and the way to the agent, over whatever the machine set", () => {

@@ -35,17 +35,4 @@ ensure_browser() {
   : >"$stamp"
 }
 
-# The copy of node the workspace's own programs run from: it can be run and not read, so what a command
-# the agent runs (the same user) cannot read their settings out of /proc. It follows the node the build
-# carries, and is only ever replaced by a newer one, so a build that is rolled back still finds it.
-ensure_node() {
-  local copy=${HIVE_NODE_COPY:-/usr/local/libexec/hive-node}
-  if [ -f "$copy" ] && cmp -s "$NODE" "$copy"; then return 0; fi
-  say "A copy of node that cannot be read, at $copy"
-  install -d -m 0755 "$(dirname "$copy")"
-  install -m 0711 "$NODE" "$copy.new"
-  mv -f "$copy.new" "$copy"
-}
-
 ensure_browser
-ensure_node

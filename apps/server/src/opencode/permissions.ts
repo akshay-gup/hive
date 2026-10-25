@@ -92,10 +92,8 @@ function nonInteractiveTools(
 export function buildSessionRuleset(
   userRules: PermissionRuleset,
   mode: PermissionMode = "ask",
-  /** What the workspace holds every session to, whatever its rules say (see sandbox.ts). */
-  confinement: PermissionRuleset = [],
 ): PermissionRuleset {
-  return [...defaultSessionRuleset(mode), ...userRules, ...confinement];
+  return [...defaultSessionRuleset(mode), ...userRules];
 }
 
 /**
@@ -119,10 +117,6 @@ export function invalidRuleLines(rules: string[]): string[] {
  * offered `question`, calls it, and waits for good (a task that needs an answer says so with
  * TASK_BLOCKED instead). A chat, which has a person to answer, keeps `question`.
  */
-export function taskSessionRuleset(confinement: PermissionRuleset = []): PermissionRuleset {
-  return [
-    { permission: "*", pattern: "*", action: "allow" },
-    ...nonInteractiveTools(),
-    ...confinement,
-  ];
+export function taskSessionRuleset(): PermissionRuleset {
+  return [{ permission: "*", pattern: "*", action: "allow" }, ...nonInteractiveTools()];
 }

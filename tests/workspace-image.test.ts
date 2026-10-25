@@ -24,8 +24,7 @@ test("the image runs the workspace supervisor, behind an init that reaps what th
 
 test("the image carries the browser worker and the scripts that keep a machine up to date", () => {
   assert.match(dockerfile, /^COPY --from=browser \/browser-worker \.\/browser-worker$/m);
-  assert.match(dockerfile, /hive-ensure \/src\/apps\/workspace\/vm\/hive-sandbox \.\/machine\/$/m);
-  assert.match(dockerfile, /^COPY --from=build \/src\/apps\/workspace\/vm\/hive-update /m);
+  assert.match(dockerfile, /hive-update \/src\/apps\/workspace\/vm\/hive-ensure \.\/machine\/$/m);
   const vm = (name: string) =>
     readFileSync(new URL(`../apps/workspace/vm/${name}`, import.meta.url), "utf8");
   // A new machine and an updated one get Chromium from the same script, so they cannot differ.
@@ -38,9 +37,6 @@ test("the image carries the browser worker and the scripts that keep a machine u
   // The updater has a fallback to go back to, and the bake puts both on the machine.
   assert.match(vm("hive-update.service"), /^OnFailure=hive-update-fallback\.service$/m);
   assert.match(vm("bake.sh"), /hive-update\.good/);
-  // The workspace's own programs run from a copy of node that cannot be read, on a new machine and an updated one.
-  assert.match(vm("bake.sh"), /install -m 0711 "\$PAYLOAD\/node" \/usr\/local\/libexec\/hive-node/);
-  assert.match(vm("hive-ensure"), /install -m 0711 "\$NODE"/);
   const worker = JSON.parse(
     readFileSync(new URL("../apps/worker/package.json", import.meta.url), "utf8"),
   );
