@@ -14,6 +14,7 @@ import {
   signChatPeople,
   signChatPurge,
   signChatRevocation,
+  signChatRunner,
   signChatToken,
   type WorkspaceRole,
 } from "../packages/integrations/src/workspace-token.ts";
@@ -160,6 +161,109 @@ try {
     "typing is shown to the others",
   );
 
+  // The agent: its machine connects out, takes a run, writes a reply, and the room sleeps in between
+  const runnerUrl = `${base.replace(/^http/, "ws")}/w/${ws}/agent/v1/connect`;
+  const refused = await new Promise<boolean>((resolve) => {
+    const bad = new WebSocket(runnerUrl, ["hive.runner.v1", token("max")]);
+    bad.onopen = () => resolve(false);
+    bad.onerror = () => resolve(true);
+    bad.onclose = () => resolve(true);
+  });
+  check(refused, "a person's token does not open the agent's connection");
+  const machine = { frames: [] as any[] };
+  const runner = new WebSocket(runnerUrl, [
+    "hive.runner.v1",
+    signChatRunner(keys.privateKey, { workspaceId: ws }),
+  ]);
+  runner.onmessage = (event) => {
+    if (event.data !== "pong") machine.frames.push(JSON.parse(String(event.data)));
+  };
+  await new Promise<void>((resolve, reject) => {
+    runner.onopen = () => resolve();
+    runner.onerror = () => reject(new Error("the agent could not connect"));
+  });
+  const say = (frame: unknown) => runner.send(JSON.stringify(frame));
+  const machineWaits = async (match: (f: any) => boolean, ms = 8000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      const found = machine.frames.find(match);
+      if (found) return found;
+      await sleep(100);
+    }
+    return undefined;
+  };
+  say({ t: "hello", v: 1, identity: { name: "Hive" }, active: [] });
+  check(!!(await machineWaits((f) => f.t === "welcome")), "the room welcomes the agent's machine");
+  const asked = await api("max", "POST", `/v1/channels/${channel}/messages`, {
+    body: "@hive what is up?",
+  });
+  check(
+    asked.status === 201 && asked.json.replyCount === 1,
+    "a mention makes a reply under it",
+    asked,
+  );
+  const started = await machineWaits((f) => f.t === "run.start");
+  check(!!started, "the machine is sent the run", machine.frames);
+  const runId = started?.run?.id as string;
+  say({ t: "run.ack", runId });
+  say({ t: "run.say", runId, n: 1, body: "Thinking out loud", steps: [] });
+  const streamed = await mia.waitFor(
+    (f) => f.t === "stream" || (f.t === "event" && f.type === "message.edited"),
+  );
+  check(!!streamed, "Mia sees the reply as it is written");
+  say({
+    t: "run.ask",
+    runId,
+    requestId: "per_1",
+    prompt: { kind: "approval", id: "per_1", title: "bash: ls" },
+  });
+  await sleep(800);
+  const answered = await api("mia", "POST", `/v1/runs/${runId}/answer`, {
+    promptId: "per_1",
+    choice: { reply: "once" },
+  });
+  check(answered.status === 200, "a teammate answers what the agent asks", answered);
+  check(
+    !!(await machineWaits((f) => f.t === "run.answer" && f.requestId === "per_1")),
+    "the machine is told the answer",
+  );
+  // The room sleeps with the agent connected, and wakes to hear it.
+  await sleep(35_000);
+  say({ t: "run.end", runId, n: 2, status: "done", body: "All done.", steps: [] });
+  check(
+    !!(await machineWaits((f) => f.t === "ack" && f.runId === runId)),
+    "a sleeping room hears the agent's end",
+  );
+  const replies = await api("max", "GET", `/v1/messages/${asked.json.id}/replies`);
+  const reply = replies.json.replies?.find((m: any) => m.author?.kind === "agent");
+  check(
+    reply?.body === "All done." && reply?.extra?.status === "done",
+    "the reply says how it ended",
+    reply,
+  );
+  check(
+    JSON.stringify(reply ?? {}).includes("per_1") && !JSON.stringify(reply).includes("requestId"),
+    "what the machine will answer with does not reach the app",
+  );
+  // The next mention reaches a machine that was connected before the room slept.
+  const second = await api("max", "POST", `/v1/channels/${channel}/messages`, {
+    body: "@hive again",
+  });
+  const next = await machineWaits((f) => f.t === "run.start" && f.run.text === "@hive again");
+  check(second.status === 201 && !!next, "a mention reaches the machine after the room slept");
+  const stopped = await api("max", "POST", `/v1/runs/${next?.run?.id}/stop`, {});
+  check(stopped.status === 200, "a person stops a run", stopped);
+  check(
+    !!(await machineWaits((f) => f.t === "run.stop" && f.runId === next?.run?.id)),
+    "the machine is told to stop",
+  );
+  check(
+    !machine.frames.some((f) => f.t === "event" || f.t === "typing"),
+    "the machine is never sent what people say to each other",
+    machine.frames.map((f) => f.t),
+  );
+  runner.close();
+
   // Coming back after being away
   mia.close();
   await sleep(500);
@@ -244,9 +348,17 @@ try {
   }
 
   // A file left in the workspace, which clearing the workspace out must take from the bucket too.
-  const left = await api("max", "POST", "/v1/files/uploads", { channelId: channel, name: "left.bin", mime: "application/pdf", bytes: 1234 });
+  const left = await api("max", "POST", "/v1/files/uploads", {
+    channelId: channel,
+    name: "left.bin",
+    mime: "application/pdf",
+    bytes: 1234,
+  });
   if (left.status === 201) {
-    await fetch(`${base}/w/${ws}${left.json.upload}`, { method: "PUT", body: new Uint8Array(1234) });
+    await fetch(`${base}/w/${ws}${left.json.upload}`, {
+      method: "PUT",
+      body: new Uint8Array(1234),
+    });
     console.log(`left in the bucket: w/${ws}/f/${left.json.fileId}`);
   }
 
