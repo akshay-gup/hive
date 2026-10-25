@@ -238,7 +238,7 @@ export function InboxScreen() {
   }
 
   return (
-    <View style={{ gap: 12, maxWidth: 760 }}>
+    <View style={{ gap: 12, width: "100%", maxWidth: 900, alignSelf: "flex-start" }}>
       <View style={[s.between, { gap: 12, borderBottomWidth: 1, borderBottomColor: colors.line }]}>
         <Tabs
           value={tab}
