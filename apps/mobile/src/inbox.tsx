@@ -108,16 +108,20 @@ function Row({
               </Text>
             )}
           </View>
-          {hovered && onDismiss ? (
-            <View style={[s.row, { gap: 2 }]}>
-              {!note.read && onRead && (
-                <IconButton icon={Check} label="Mark as read" onPress={onRead} />
-              )}
-              <IconButton icon={X} label="Dismiss" onPress={onDismiss} />
-            </View>
-          ) : (
-            <Text style={[s.small, { lineHeight: 20 }]}>{relativeDate(note.createdAt)}</Text>
-          )}
+          {/* The time keeps its place whether or not the buttons show, so nothing under the pointer moves. */}
+          <View style={{ minWidth: onDismiss ? 72 : 0, alignItems: "flex-end" }}>
+            <Text style={[s.small, { lineHeight: 20, opacity: hovered && onDismiss ? 0 : 1 }]}>
+              {relativeDate(note.createdAt)}
+            </Text>
+            {hovered && onDismiss && (
+              <View style={[s.row, { gap: 2, position: "absolute", right: 0, top: -6 }]}>
+                {!note.read && onRead && (
+                  <IconButton icon={Check} label="Mark as read" onPress={onRead} />
+                )}
+                <IconButton icon={X} label="Dismiss" onPress={onDismiss} />
+              </View>
+            )}
+          </View>
         </>
       )}
     </Pressable>
