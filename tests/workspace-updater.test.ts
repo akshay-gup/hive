@@ -6,7 +6,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -29,10 +28,6 @@ const DIGEST = `sha256:${"a".repeat(64)}`;
 let root: string;
 let health: Server;
 let wanted = { tag: "", digest: "", force: false };
-/** What the control plane says about settings: the revision in its answer, and the document behind it. */
-let configAnswer: unknown;
-let configDoc: unknown;
-let configAuth = "";
 
 const file = (path: string, content: string, mode = 0o644) => {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -125,22 +120,13 @@ before(async () => {
   health = createServer((request, response) => {
     // /<machine>: the version of that machine's /app, unless the build there is marked broken.
     const name = (request.url ?? "").split("/")[1];
-    if (request.url === "/wanted/config") {
-      configAuth = request.headers.authorization ?? "";
-      response.setHeader("content-type", "application/json");
-      response.end(JSON.stringify(configDoc));
-      return;
-    }
     if (request.url?.startsWith("/wanted")) {
       response.setHeader("content-type", "application/json");
-      response.end(JSON.stringify({ ...wanted, config: configAnswer }));
+      response.end(JSON.stringify(wanted));
       return;
     }
     const app = join(root, name, "app");
-    const settings = join(root, name, "etc", "workspace.json");
-    // A workspace whose settings say CRASH does not come up.
-    const crashes = existsSync(settings) && readFileSync(settings, "utf8").includes('"CRASH"');
-    if (!existsSync(app) || existsSync(join(app, "BROKEN")) || crashes) {
+    if (!existsSync(app) || existsSync(join(app, "BROKEN"))) {
       response.statusCode = 503;
       response.end("{}");
       return;
@@ -478,129 +464,4 @@ test("the watchdog gives up after three tries and spaces them out", async () => 
   const out = await watch(m);
   assert.match(out.out, /tried 3 times/);
   assert.notEqual(before, "");
-});
-
-// Settings: the workspace's own settings kept as the control plane wants them.
-
-const REV1 = "a".repeat(24);
-const REV2 = "b".repeat(24);
-const KEY = "hwk_wset.secretpart";
-const MADE_WITH = {
-  WORKSPACE_ID: "wset",
-  PORT: "8787",
-  TASK_WORKER_ENABLED: "true",
-  MODEL: "p/hive-default",
-  OPENCODE_CONFIG_CONTENT: JSON.stringify({ provider: { p: { options: { apiKey: KEY } } } }),
-};
-const settingsOf = (m: ReturnType<typeof machine>) =>
-  JSON.parse(readFileSync(join(m.etc, "workspace.json"), "utf8"));
-const services = (m: ReturnType<typeof machine>) =>
-  existsSync(m.log) ? readFileSync(m.log, "utf8").trim().split("\n") : [];
-
-/** A machine that is on the build it is told to run, with the settings it was made with, that asks where to. */
-function askingMachine(name: string, options: { broken?: boolean } = {}) {
-  const m = machine(name, options);
-  file(join(m.etc, "workspace.json"), JSON.stringify(MADE_WITH), 0o600);
-  file(
-    join(m.etc, "updater.json"),
-    JSON.stringify({
-      wantedUrl: `http://127.0.0.1:${(health.address() as AddressInfo).port}/wanted`,
-    }),
-  );
-  wanted = { tag: "v1", digest: DIGEST, force: false };
-  return m;
-}
-
-test("a change to the settings is put over the ones the machine was made with, and the workspace restarted on them", async () => {
-  const m = askingMachine("cfg-apply");
-  configAnswer = { v: 1, rev: REV1 };
-  configDoc = {
-    v: 1,
-    rev: REV1,
-    env: { TASK_WORKER_ENABLED: "false", NEW_ONE: "x", WORKSPACE_ID: "someone-else", PORT: "1" },
-  };
-  const { code, out } = await run(m, []);
-  assert.equal(code, 0, out);
-  const now = settingsOf(m);
-  assert.equal(now.TASK_WORKER_ENABLED, "false");
-  assert.equal(now.NEW_ONE, "x");
-  assert.equal(now.WORKSPACE_ID, "wset", "who it is is not up for change");
-  assert.equal(now.PORT, "8787");
-  assert.equal(now.MODEL, MADE_WITH.MODEL, "what was not changed is as it was");
-  assert.equal(configAuth, `Bearer ${KEY}`, "it asked with its own key");
-  assert.deepEqual(services(m), ["restart hive-workspace.service"]);
-  assert.equal(read(join(m.state, "config.rev")), REV1);
-  assert.equal(JSON.parse(read(join(m.state, "last-config.json"))).state, "updated");
-  assert.equal(statSync(join(m.etc, "workspace.json")).mode & 0o777, 0o600);
-  assert.deepEqual(JSON.parse(read(join(m.etc, "workspace.base.json"))), MADE_WITH);
-
-  // Asked again with nothing new: nothing happens.
-  assert.equal((await run(m, [])).code, 0);
-  assert.deepEqual(services(m), ["restart hive-workspace.service"]);
-
-  // A change taken away puts the setting back as it was made.
-  configAnswer = { v: 1, rev: REV2 };
-  configDoc = { v: 1, rev: REV2, env: {} };
-  assert.equal((await run(m, [])).code, 0);
-  assert.deepEqual(settingsOf(m), MADE_WITH);
-  assert.equal(services(m).length, 2);
-});
-
-test("settings that come to the same as the machine has are noted and the workspace is left running", async () => {
-  const m = askingMachine("cfg-same");
-  configAnswer = { v: 1, rev: REV1 };
-  configDoc = { v: 1, rev: REV1, env: { TASK_WORKER_ENABLED: "true" } };
-  assert.equal((await run(m, [])).code, 0);
-  assert.deepEqual(services(m), []);
-  assert.equal(read(join(m.state, "config.rev")), REV1);
-});
-
-test("settings in a form this updater does not know are left alone", async () => {
-  const m = askingMachine("cfg-newer");
-  configAnswer = { v: 2, rev: REV1 };
-  configDoc = { v: 2, rev: REV1, env: { TASK_WORKER_ENABLED: "false" }, files: [] };
-  const { code, out } = await run(m, []);
-  assert.equal(code, 0, out);
-  assert.match(out, /does not know/);
-  assert.deepEqual(settingsOf(m), MADE_WITH);
-  assert.deepEqual(services(m), []);
-});
-
-test("an old control plane that says nothing of settings changes nothing", async () => {
-  const m = askingMachine("cfg-none");
-  configAnswer = undefined;
-  assert.equal((await run(m, [])).code, 0);
-  assert.deepEqual(settingsOf(m), MADE_WITH);
-  assert.equal(existsSync(join(m.etc, "workspace.base.json")), false);
-});
-
-test("settings that are not what was said, or are not strings, are refused", async () => {
-  const m = askingMachine("cfg-bad");
-  configAnswer = { v: 1, rev: REV1 };
-  for (const doc of [
-    { v: 1, rev: REV2, env: { A: "1" } },
-    { v: 1, rev: REV1, env: { A: 1 } },
-    { v: 1, rev: REV1, env: { "bad name": "1" } },
-    { v: 1, rev: REV1, env: [] },
-  ]) {
-    configDoc = doc;
-    assert.equal((await run(m, [])).code, 0);
-    assert.deepEqual(settingsOf(m), MADE_WITH);
-  }
-  assert.deepEqual(services(m), []);
-});
-
-test("settings the workspace does not come up on are taken back, and not tried again", async () => {
-  const m = askingMachine("cfg-broken");
-  // These settings make the workspace not answer its health check.
-  configAnswer = { v: 1, rev: REV1 };
-  configDoc = { v: 1, rev: REV1, env: { CRASH: "1" } };
-  const { code } = await run(m, []);
-  assert.equal(code, 0);
-  assert.deepEqual(settingsOf(m), MADE_WITH);
-  assert.equal(services(m).length, 2, "restarted on them, then restarted on the old ones");
-  assert.equal(JSON.parse(read(join(m.state, "last-config.json"))).state, "failed");
-  assert.equal(read(join(m.state, "config.failed")), REV1);
-  await run(m, []);
-  assert.equal(services(m).length, 2, "the same revision is not tried again");
 });

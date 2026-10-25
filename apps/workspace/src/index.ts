@@ -1,5 +1,6 @@
 import { chownSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { noteStayedUp, startWith, watchSettings } from "./remote-settings.ts";
 import {
   agentEnv,
   BROWSER_INTERNAL_PORT,
@@ -17,8 +18,15 @@ import {
 } from "./supervisor.ts";
 
 // Read before root is given up: a workspace on a machine of its own is set up by a file only root can read.
-const env = withEnvFile(process.env);
-const volumeDir = env.VOLUME_DIR ?? "/data";
+// What it was made with is laid under what the control plane says its settings are now (see remote-settings.ts).
+const made = withEnvFile(process.env);
+const volumeDir = made.VOLUME_DIR ?? "/data";
+const started = await startWith(made, {
+  etc: process.env.HIVE_ETC ?? "/etc/hive",
+  state: process.env.HIVE_STATE ?? "/var/lib/hive",
+  volume: volumeDir,
+});
+const env = started.env;
 
 // A new machine mounts its volume owned by root. It starts as root only to hand the volume to the
 // workspace's own user, then becomes that user, so what it starts, the agent included, is not root
@@ -85,5 +93,17 @@ const supervisor = new Supervisor({
 });
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.on(signal, () => supervisor.stop(signal));
+
+// Settings are read at start, so taking new ones is a restart, which the service manager does once this stops.
+const STAYED_UP_MS = 45_000;
+if (started.rev) {
+  const rev = started.rev;
+  setTimeout(() => noteStayedUp(volumeDir, rev), STAYED_UP_MS).unref();
+}
+if (started.where)
+  watchSettings(started.where, started.seen, (rev) => {
+    process.stdout.write(`settings ${rev} from the control plane; restarting to take them\n`);
+    process.kill(process.pid, "SIGTERM");
+  });
 
 process.exit(await supervisor.run());

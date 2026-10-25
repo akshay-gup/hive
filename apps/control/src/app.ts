@@ -160,15 +160,16 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
   app.get("/v1/release/:id", async (c) => {
     if (!(await askers.allow(visitorOf(c)))) return c.json({ error: "Too many requests" }, 429);
     const id = idParam.parse(c.req.param("id"));
-    // Which revision of its settings it should be on rides along (nothing secret: a short name). A
-    // machine whose updater does not know about settings leaves it unread.
+    // Which revision of its settings it is to be on rides along (nothing secret: a short name), for
+    // whoever watches a workspace; the workspace itself asks for its settings (below).
     return c.json({
       ...(await releases.wantedFor(id)),
       config: await machineConfigs.answerFor(id),
     });
   });
-  // The settings themselves: they carry the workspace's key to the model gateway, so only the
-  // workspace they are for may have them, and it proves it with that key.
+  // The workspace's settings, which it asks for when it starts and now and then after. They carry its
+  // key to the model gateway, so only the workspace they are for may have them, and it proves it with
+  // that key. `rev` changes whenever anything in them does.
   app.get("/v1/release/:id/config", async (c) => {
     if (!(await askers.allow(visitorOf(c)))) return c.json({ error: "Too many requests" }, 429);
     const id = idParam.parse(c.req.param("id"));

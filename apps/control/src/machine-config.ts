@@ -10,15 +10,15 @@ const MAX_KEYS = 64;
 const MAX_VALUE = 16_384;
 
 /**
- * The shape of what a machine is told, for the updater on it to read. A machine that does not know a
- * version leaves the settings as they are and says so, so a version is only ever added to, and a new
- * kind of change takes a new number and a build that carries an updater that understands it.
+ * The shape of what a workspace is told. A workspace that does not know a version leaves its settings
+ * as they are and says so, so a version is only ever added to, and a new kind of change takes a new
+ * number and a build that understands it.
  */
 export const CONFIG_SCHEMA = 1;
 
 /**
  * Settings a machine's own identity and safety rest on: whatever else is changed, these are the ones
- * made when it was created. Kept out here, and again by the updater on the machine.
+ * made when it was created. Kept out here, and again by the workspace itself (remote-settings.ts).
  */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
   "WORKSPACE_ID",
@@ -27,6 +27,10 @@ export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
   "HOST",
   "PORT",
   "DATA_DIR",
+  "VOLUME_DIR",
+  "WORKSPACE_UID",
+  "WORKSPACE_GID",
+  "WORKSPACE_HOME",
 ]);
 
 /** What to change in a workspace's settings: a value sets it, `null` takes it away (back to nothing). */
@@ -70,8 +74,8 @@ export function checkPatch(input: unknown): Patch {
  * layers, the later ones winning: what the control plane works out for the workspace itself (the model
  * and the key to reach it by), what an operator sets for every workspace, and what they set for one.
  *
- * It does not say what the settings are, only what to change in them: the machine keeps what it was
- * made with and puts this over it, so taking an override away puts the setting back as it was.
+ * It does not say what the settings are, only what to change in them: the workspace keeps what it was
+ * made with and puts this over it when it starts, so taking an override away puts the setting back as it was.
  */
 export class MachineConfigs {
   constructor(
@@ -96,12 +100,12 @@ export class MachineConfigs {
     return patch;
   }
 
-  /** What a machine is asked to look at on every check: which revision it should be on, nothing more. */
+  /** The revision a workspace should be on, with nothing of what is in it. */
   async answerFor(workspaceId: string): Promise<{ v: number; rev: string }> {
     return { v: CONFIG_SCHEMA, rev: revisionOf(await this.patchFor(workspaceId)) };
   }
 
-  /** What it fetches when it is not on that revision, with the workspace's own key. */
+  /** What a workspace fetches, with its own key. */
   async documentFor(workspaceId: string): Promise<{ v: number; rev: string; env: Patch }> {
     const env = await this.patchFor(workspaceId);
     return { v: CONFIG_SCHEMA, rev: revisionOf(env), env };
