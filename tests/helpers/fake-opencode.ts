@@ -34,6 +34,8 @@ export interface FakeOpencode {
   prompts: FakePrompt[];
   /** The sessions that were stopped. */
   aborted: string[];
+  /** The answers Hive gave to what the agent asked: permissions and questions. */
+  answered: { kind: "permission" | "question"; requestID: string; action: string; body: Body }[];
   close: () => Promise<void>;
 }
 
@@ -43,6 +45,8 @@ interface Body {
   parts?: FakePrompt["parts"];
   model?: FakePrompt["model"];
   name?: string;
+  reply?: string;
+  answers?: string[][];
   config?: { url?: string; headers?: Record<string, string> };
 }
 
@@ -75,6 +79,7 @@ export async function fakeOpencode(options: {
   >();
   const prompts: FakePrompt[] = [];
   const aborted: string[] = [];
+  const answered: FakeOpencode["answered"] = [];
   let sessionCount = 0;
   let messageCount = 0;
 
@@ -224,6 +229,17 @@ export async function fakeOpencode(options: {
           return;
         }
       }
+      const answer = /^\/(permission|question)\/([^/]+)\/(reply|reject)$/.exec(path);
+      if (request.method === "POST" && answer) {
+        const body = await readBody(request);
+        answered.push({
+          kind: answer[1] as "permission" | "question",
+          requestID: decodeURIComponent(answer[2] ?? ""),
+          action: answer[3] ?? "",
+          body,
+        });
+        return json(response, true);
+      }
       if (request.method === "POST" && path === "/mcp") {
         const body = await readBody(request);
         const servers = registered.get(directory) ?? new Map();
@@ -250,6 +266,7 @@ export async function fakeOpencode(options: {
     url: `http://127.0.0.1:${port}`,
     prompts,
     aborted,
+    answered,
     close: async () => {
       for (const listener of listeners) listener.end();
       server.closeAllConnections();

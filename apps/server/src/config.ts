@@ -95,6 +95,11 @@ export interface Config {
   /** Idle minutes after which an unused channel worker is reaped. */
   channelWorkerIdleMinutes?: number;
   allowedOrigins: string[];
+  /**
+   * Where this machine gets the token it connects to the chat service with, and the key that asks for it:
+   * set on a workspace the control plane runs, where the agent answers mentions in chat channels.
+   */
+  chatRunner?: { tokenUrl: string; key: string };
   /** Set when the Hive control plane runs this workspace (WORKSPACE_ID, CONTROL_PLANE_PUBLIC_KEY). */
   managed?: ManagedWorkspace;
 }
@@ -158,6 +163,9 @@ export function readConfig(): Config {
       process.env.ALLOWED_ORIGINS ?? "http://localhost:8081,http://127.0.0.1:8081"
     ).split(","),
   };
+  const chatTokenUrl = process.env.CHAT_RUNNER_TOKEN_URL?.trim();
+  const chatKey = process.env.CHAT_RUNNER_KEY?.trim();
+  if (chatTokenUrl && chatKey) config.chatRunner = { tokenUrl: chatTokenUrl, key: chatKey };
   const workspaceId = process.env.WORKSPACE_ID?.trim();
   const controlPublicKey = process.env.CONTROL_PLANE_PUBLIC_KEY?.trim();
   if (workspaceId || controlPublicKey) {

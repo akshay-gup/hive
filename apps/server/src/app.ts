@@ -14,6 +14,8 @@ import { makeRuntime } from "./agent.ts";
 import { createAuth } from "./auth.ts";
 import { BrowserService } from "./browser.ts";
 import { channelGate } from "./channel-gate.ts";
+import { ChatRunnerHost } from "./chat-runner/host.ts";
+import { RunnerLink, type SocketFactory } from "./chat-runner/link.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { agentRoutes } from "./engine/routes.ts";
@@ -40,6 +42,7 @@ import {
   opencodeShimRoutes,
   PermissionRulesStore,
   PermissionTracker,
+  sessionDirectory,
 } from "./opencode/index.ts";
 import { mergeMessages, type RecordedMessage } from "./opencode/run-record.ts";
 import { readUpdateStatus } from "./update-status.ts";
@@ -71,7 +74,12 @@ export const SERVER_VERSION = readVersion();
 export async function createApp(
   db: Store,
   config: Config,
-  options: { threads?: ThreadBindingStore; jevAdapter?: JevAdapter } = {},
+  options: {
+    threads?: ThreadBindingStore;
+    jevAdapter?: JevAdapter;
+    /** How the connection to the chat service is made, for a test that stands in for it. */
+    chatRunner?: { fetcher?: typeof fetch; socket?: SocketFactory };
+  } = {},
 ) {
   const auth = await createAuth(db, config),
     files = new Files(db, config, auth),
@@ -329,9 +337,15 @@ export async function createApp(
   const publishRuns = async () =>
     publishLiveRuns(
       config.dataDir,
-      (await db.list(SHARED_OWNER, "live-runs").catch(() => [])).length,
+      (await db.list(SHARED_OWNER, "live-runs").catch(() => [])).length +
+        (await db.list(SHARED_OWNER, "live-chat-runs").catch(() => [])).length,
     );
-  void publishRuns();
+  // Runs for the chat service end with a restart (the chat service is told they were lost), so what is
+  // left of them from before is not counted.
+  void db
+    .removeBelow(SHARED_OWNER, "live-chat-runs", "startedAt", Number.MAX_SAFE_INTEGER)
+    .catch(() => 0)
+    .then(publishRuns);
   const shimDeps = {
     service: agent,
     bus,
@@ -383,14 +397,57 @@ export async function createApp(
   setTimeout(() => void shim.resume().catch(() => undefined), 15_000).unref?.();
   app.route("/api/agent/opencode", opencodePermissionRoutes(shimDeps));
   agent.opencodeRuntime = { bus, pool, tracker, config, hiveTools };
+  // Where the chat service starts the agent's runs: this machine connects out to it and does what it is given.
+  const chatLink = config.chatRunner
+    ? (() => {
+        let host!: ChatRunnerHost;
+        const link: RunnerLink = new RunnerLink({
+          tokenUrl: config.chatRunner.tokenUrl,
+          key: config.chatRunner.key,
+          onFrame: (frame) => host.onFrame(frame),
+          onOpen: () => host.onOpen(),
+          onClose: () => host.onClose(),
+          fetcher: options.chatRunner?.fetcher,
+          socket: options.chatRunner?.socket,
+          log: (line) => console.log(line),
+        });
+        host = new ChatRunnerHost({
+          send: (frame) => link.send(frame),
+          service: agent,
+          launcher: shim,
+          tracker,
+          replies: { bus, pool },
+          origin: () => link.origin,
+          directoryOf: (channelId, owner) => sessionDirectory(config, owner, channelId),
+          marks: {
+            set: async (runId) => {
+              await db.put(SHARED_OWNER, "live-chat-runs", { id: runId, startedAt: Date.now() });
+              await publishRuns();
+            },
+            clear: async (runId) => {
+              await db.remove(SHARED_OWNER, "live-chat-runs", runId);
+              await publishRuns();
+            },
+          },
+          fetcher: options.chatRunner?.fetcher,
+          log: (line) => console.log(line),
+        });
+        return { link, host };
+      })()
+    : undefined;
   const opencode = {
     /** Fails loudly when `opencode serve` cannot be reached, rather than serving a dead agent. */
     async start() {
       const { version } = await ensureOpencodeServerReachable(connection);
       console.log(`OpenCode server reachable at ${connection.url} (v${version})`);
       bus.start();
+      chatLink?.link.start();
     },
-    stop: () => bus.stop(),
+    stop: () => {
+      chatLink?.link.stop();
+      chatLink?.host.stop();
+      return bus.stop();
+    },
   };
   app.get("/api/calendars", async (c) => c.json(await workspace.calendars(c.get("owner"))));
   app.get("/api/calendar/events", async (c) => {

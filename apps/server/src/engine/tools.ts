@@ -42,6 +42,12 @@ export function conversationTools(
     latestText?: string;
     /** A guest is offered only what the conversation in their channel needs (see `guestTools`). */
     guest?: boolean;
+    /**
+     * A run for a mention in a shared channel (see `chatTools`) is offered the few tools whose results are
+     * for everyone in it; in a private channel not even the board, since what is made there is kept on the
+     * machine the agent runs on.
+     */
+    toolset?: "chat" | "chat-private";
   },
 ) {
   const {
@@ -53,6 +59,7 @@ export function conversationTools(
     jevOwner = owner,
     latestText = "",
     guest = false,
+    toolset,
   } = options;
   const key = (name: string, value: unknown) =>
     `${requestKey}:${name}:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
@@ -450,8 +457,16 @@ export function conversationTools(
       },
     }),
   ];
-  return guest ? tools.filter((tool) => guestTools.has(tool.name)) : tools;
+  const offered = guest ? tools.filter((tool) => guestTools.has(tool.name)) : tools;
+  return toolset
+    ? offered.filter((tool) => (toolset === "chat" ? chatTools : privateChatTools).has(tool.name))
+    : offered;
 }
+
+/** What the agent has in a shared channel: read a page, put an item on the channel's board. */
+export const chatTools: ReadonlySet<string> = new Set(["browse_web", "create_issue"]);
+/** In a private channel: what it makes is not kept apart for the people in it, so only reading. */
+export const privateChatTools: ReadonlySet<string> = new Set(["browse_web"]);
 
 /**
  * What the agent may be asked to do for a guest: show choices, put an item on their channel's board,

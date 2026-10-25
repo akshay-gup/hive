@@ -64,6 +64,26 @@ export interface OpencodeShimDeps {
   loadMessages?: (owner: string, threadId: string) => Promise<unknown[]>;
 }
 
+/**
+ * A run that the chat service started for a mention in a channel. It runs as any other, except that
+ * nothing about it is kept here (the chat service keeps the conversation), none of the orchestrator's
+ * choices, mail or board tools are offered, and everything it asks for is asked of the people in the channel.
+ */
+export interface ChatOrigin {
+  /** Where the session lives: a stand-in for the channel (see chat-runner/stubs.ts). */
+  binding: ChannelThread;
+  /** The person who asked is a guest. */
+  guest: boolean;
+  /** The channel is a private one. */
+  privateChannel: boolean;
+  /** What the agent is shown ahead of the person's words, given what it is told of its tools. */
+  context: (toolNotes: string) => string;
+  /** The person's own words. */
+  text: string;
+  /** Pictures that came with them. */
+  files: PromptFilePart[];
+}
+
 const runInputSchema = z.object({
   threadId: z.string().min(1),
   runId: z.string().min(1),
@@ -525,6 +545,7 @@ export class RunTranslator {
 }
 
 interface RunContext {
+  chat?: ChatOrigin;
   deps: OpencodeShimDeps;
   owner: string;
   input: RunInput;
@@ -606,14 +627,14 @@ async function closedChannel(
 }
 
 async function runOpencodeTurn(ctx: RunContext): Promise<void> {
-  const { deps, owner, input, send, signal } = ctx;
+  const { deps, owner, input, send, signal, chat } = ctx;
   const mention = normalizeMention(deps.config.agentMention);
 
   // Channel chats are chat-only surfaces: a channel opens directly and its
   // messages persist client-side. Threads auto-create client-side from
   // replies and @hive mentions, so a run scoped to a channel id never binds
   // a thread and never summons the worker.
-  if (input.threadId.startsWith("channel:")) {
+  if (!chat && input.threadId.startsWith("channel:")) {
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
     send({ type: "RUN_FINISHED", threadId: input.threadId, runId: input.runId });
     return;
@@ -624,19 +645,24 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   // first run binds it to the orchestrator channel instead of failing. This
   // runs before the mention gate so plain chat also leaves a bound thread.
   // A guest has no main chat: their runs are in threads of the channels they were added to.
-  const guest = await deps.service.access.isGuest(owner);
-  if (!guest) await deps.service.ensureOrchestratorChannel(owner);
-  const binding = guest
-    ? await deps.service.channelOfThread(owner, input.threadId)
-    : await deps.service.ensureThreadBinding(
-        owner,
-        input.threadId,
-        ORCHESTRATOR_CHANNEL_ID,
-        "Main chat",
-      );
-  const refusal = guest
-    ? await guestRefusal(deps, owner, binding)
-    : await closedChannel(deps, owner, binding);
+  // A run the chat service started has been checked there, and has its binding made already.
+  const guest = chat ? chat.guest : await deps.service.access.isGuest(owner);
+  if (!chat && !guest) await deps.service.ensureOrchestratorChannel(owner);
+  const binding = chat
+    ? chat.binding
+    : guest
+      ? await deps.service.channelOfThread(owner, input.threadId)
+      : await deps.service.ensureThreadBinding(
+          owner,
+          input.threadId,
+          ORCHESTRATOR_CHANNEL_ID,
+          "Main chat",
+        );
+  const refusal = chat
+    ? undefined
+    : guest
+      ? await guestRefusal(deps, owner, binding)
+      : await closedChannel(deps, owner, binding);
   if (!binding || refusal) {
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
     send({
@@ -647,16 +673,18 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     return;
   }
 
-  // Someone writing in a channel is what marks it unread for the others in it.
-  await deps.service.noteMessage(owner, binding.channelId).catch(() => undefined);
-  // And a person who is mentioned in it is told.
-  await deps.service
-    .notifyMentions(
-      owner,
-      binding.channelId,
-      lastUserText(input.messages as Array<Record<string, unknown>>) ?? "",
-    )
-    .catch(() => undefined);
+  if (!chat) {
+    // Someone writing in a channel is what marks it unread for the others in it.
+    await deps.service.noteMessage(owner, binding.channelId).catch(() => undefined);
+    // And a person who is mentioned in it is told.
+    await deps.service
+      .notifyMentions(
+        owner,
+        binding.channelId,
+        lastUserText(input.messages as Array<Record<string, unknown>>) ?? "",
+      )
+      .catch(() => undefined);
+  }
 
   // Mention-only triggering: without the mention token in the last user
   // message this is plain chat. Complete the run as a no-op — the message is
@@ -664,7 +692,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   // never touched (no session, no prompt). The in-flight slot is released by
   // settleRun in the route's finally block.
   let messages = input.messages as Array<Record<string, unknown>>;
-  let userText = lastUserText(messages);
+  let userText = chat ? chat.text : lastUserText(messages);
   // Choice panels belong to their conversation, as the transcript does: one set for everyone in a
   // channel's threads, and private to the person in the orchestrator chat.
   const jevHome = diskOwnerForChannel(binding.channelId, owner);
@@ -673,7 +701,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   // checked against its panel, and the agent is told what it says in words rather than as the
   // protocol message the client sent.
   let picked = false;
-  if (userText?.startsWith(jevActionPrefix)) {
+  if (!chat && userText?.startsWith(jevActionPrefix)) {
     try {
       const continuation = await readChoice(deps.service.jev, jevHome, input.threadId, userText);
       const index = lastUserIndex(messages);
@@ -695,7 +723,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   // Whatever else a person says retires the choices before it. The transcript already shows them
   // stale, so the stored panel has to agree even when this turn fails, is cancelled, or the agent
   // stays silent for want of a mention. The turn that retires a panel may still refine it.
-  const jev = deps.service.jev;
+  const jev = chat ? null : deps.service.jev;
   if (jev && !picked && messages.at(-1)?.role === "user") {
     try {
       const head = await jev.headSnapshot(jevHome, input.threadId);
@@ -711,7 +739,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   // Your own chat is a conversation with the agent: everything said there is for it. Only a shared
   // channel, where people talk to each other too, needs the agent to be called by name.
   const alone = binding.channelId === ORCHESTRATOR_CHANNEL_ID;
-  if (!userText || (!picked && !alone && !mentionsAgent(userText, mention))) {
+  if (!userText || (!chat && !picked && !alone && !mentionsAgent(userText, mention))) {
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
     send({ type: "RUN_FINISHED", threadId: input.threadId, runId: input.runId });
     return;
@@ -780,8 +808,9 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
         threads: deps.service.threads,
         clients: deps.pool,
         config: deps.config,
-        userRules: (binding) => deps.rules.effectiveRules(owner, binding),
-        permissionMode: (binding) => deps.rules.effectiveMode(owner, binding),
+        // In a shared channel the agent always asks first, whatever a channel's folder says.
+        userRules: (binding) => (chat ? [] : deps.rules.effectiveRules(owner, binding)),
+        permissionMode: (binding) => (chat ? "ask" : deps.rules.effectiveMode(owner, binding)),
       },
       owner,
       input.threadId,
@@ -790,7 +819,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     deps.bus.track(input.threadId, sessionId);
 
     // The person's own words, which the choice cards are judged against.
-    const stripped = stripMention(userText, mention);
+    const stripped = chat ? userText : stripMention(userText, mention);
     if (deps.hiveTools) {
       const toolInput = {
         ...input,
@@ -807,21 +836,23 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
           signal: toolAbort.signal,
           requestKey: `${input.threadId}:${input.runId}`,
           channelId: binding.channelId,
-          jev: deps.service.jev,
+          jev,
           jevMode: deps.config.jevMode,
           jevOwner: jevHome,
           latestText: stripped,
           guest,
+          ...(chat ? { toolset: chat.privateChannel ? "chat-private" : "chat" } : {}),
         }),
         toolAbort.signal,
+        chat ? { chat: true } : undefined,
       );
     }
-    const transcript = buildTranscript(messages);
+    const transcript = chat ? "" : buildTranscript(messages);
     // A bare mention ("@hive" and nothing else) still summons the agent;
     // point it at the conversation it just received.
     const promptText =
       stripped || "(summoned by mention with no additional text — see the conversation above)";
-    const fileParts = promptFileParts(messages);
+    const fileParts = chat ? chat.files : promptFileParts(messages);
 
     const translator = new RunTranslator(input, send, finish, {
       onAsked: (asked) => {
@@ -839,6 +870,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       onReplied: (requestId) => {
         waiting(requestId, false);
         deps.tracker.remove(requestId);
+        if (chat) send({ type: "CUSTOM", name: "prompt-done", value: { requestId } });
       },
       onQuestion: (asked) => {
         waiting(asked.id, true);
@@ -855,6 +887,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       onQuestionDone: (requestId) => {
         waiting(requestId, false);
         deps.tracker.removeQuestion(requestId);
+        if (chat) send({ type: "CUSTOM", name: "prompt-done", value: { requestId } });
       },
     });
     ctx.translator = translator;
@@ -875,11 +908,12 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
           {
             type: "text",
             synthetic: true,
-            text:
-              `[hive context] channel=${binding.channelId} thread=${input.threadId} name=${binding.name}\n` +
-              `${toolLease?.instructions ?? ""}\n` +
-              `You were summoned by mention and have not participated until now. ` +
-              `The full visible conversation (everyone talking) follows so you can catch up:\n${transcript}`,
+            text: chat
+              ? chat.context(toolLease?.instructions ?? "")
+              : `[hive context] channel=${binding.channelId} thread=${input.threadId} name=${binding.name}\n` +
+                `${toolLease?.instructions ?? ""}\n` +
+                `You were summoned by mention and have not participated until now. ` +
+                `The full visible conversation (everyone talking) follows so you can catch up:\n${transcript}`,
           },
           ...fileParts,
           { type: "text", text: promptText },
@@ -930,6 +964,7 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
     owner: string,
     input: RunInput,
     onEvent?: (event: AguiEvent) => void,
+    chat?: ChatOrigin,
   ): Promise<void> | undefined => {
     const { threadId, runId } = input;
     if (inflight.has(threadId)) return undefined;
@@ -937,12 +972,13 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
     const stopper = new AbortController();
     stoppers.set(threadId, stopper);
     settling.add(threadId);
-    void deps.runMarks?.set(threadId, owner).catch(() => undefined);
+    // A run for the chat service is not carried on after a restart: the chat service is told it was lost.
+    if (!chat) void deps.runMarks?.set(threadId, owner).catch(() => undefined);
     const record = new RunRecord();
     // Writes go one after another, so the last one is the newest state.
     let saving: Promise<void> = Promise.resolve();
     const save = (withInput = false) => {
-      if (!deps.saveMessages || threadId.startsWith("channel:")) return;
+      if (chat || !deps.saveMessages || threadId.startsWith("channel:")) return;
       const messages = [
         ...(withInput ? mergeableMessages(input.messages) : []),
         ...record.messages(),
@@ -964,6 +1000,7 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
       onEvent?.(event);
     };
     const ctx: RunContext = {
+      chat,
       deps,
       owner,
       input,
@@ -982,14 +1019,16 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
         save();
         await saving;
         settling.delete(threadId);
-        await deps.runMarks?.clear(threadId).catch(() => undefined);
-        // What was said while it worked is answered next, without anyone having to be there.
-        const next = pending.get(threadId);
-        pending.delete(threadId);
-        if (next && deps.loadMessages) {
-          const messages = await deps.loadMessages(next, threadId);
-          const run = launch(next, { threadId, runId: `run-${Date.now()}`, messages });
-          void run?.catch(() => undefined);
+        if (!chat) {
+          await deps.runMarks?.clear(threadId).catch(() => undefined);
+          // What was said while it worked is answered next, without anyone having to be there.
+          const next = pending.get(threadId);
+          pending.delete(threadId);
+          if (next && deps.loadMessages) {
+            const messages = await deps.loadMessages(next, threadId);
+            const run = launch(next, { threadId, runId: `run-${Date.now()}`, messages });
+            void run?.catch(() => undefined);
+          }
         }
       }
     })();
@@ -1098,5 +1137,10 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
       void run?.catch(() => undefined);
     }
   };
-  return Object.assign(app, { resume });
+  /** Stop the run on a thread, if there is one. */
+  const stop = (threadId: string) => {
+    pending.delete(threadId);
+    stoppers.get(threadId)?.abort();
+  };
+  return Object.assign(app, { resume, launch, stop });
 }
