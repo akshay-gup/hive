@@ -1,16 +1,22 @@
 import type { AgentNotification } from "../../../packages/domain/src/agent";
 
-/** What a notice is about: a person naming you, an agent you asked, or the workspace's own news. */
+/** What a notice is about: a person naming you, the agent answering or finishing for you, or the workspace's own news. */
 export type NoticeKind = "mention" | "agent" | "update";
 export type NoticeTab = "all" | NoticeKind;
 
-export const noticeKind = (note: Pick<AgentNotification, "channelId" | "taskId">): NoticeKind =>
-  note.channelId ? "mention" : note.taskId ? "agent" : "update";
+export const noticeKind = (
+  note: Pick<AgentNotification, "channelId" | "taskId" | "by" | "byName">,
+): NoticeKind =>
+  note.channelId && (note.by || note.byName)
+    ? "mention"
+    : note.channelId || note.taskId
+      ? "agent"
+      : "update";
 
 export const noticeTabs: { id: NoticeTab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "mention", label: "Mentions" },
-  { id: "agent", label: "My agents" },
+  { id: "agent", label: "Hive" },
   { id: "update", label: "Updates" },
 ];
 

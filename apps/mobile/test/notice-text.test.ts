@@ -21,10 +21,15 @@ const note = (id: string, over: Partial<AgentNotification>): AgentNotification =
   ...over,
 });
 const notes = [
-  note("a", { channelId: "launch", createdAt: "2026-10-22T09:00:00" }),
+  note("a", { channelId: "launch", byName: "Mia", createdAt: "2026-10-22T09:00:00" }),
   note("b", { taskId: "t1", createdAt: "2026-10-22T11:00:00", read: true }),
   note("c", { createdAt: "2026-10-21T20:00:00" }),
-  note("d", { channelId: "design", createdAt: "2026-10-18T08:00:00", read: true }),
+  note("d", {
+    channelId: "design",
+    by: "mia@example.com",
+    createdAt: "2026-10-18T08:00:00",
+    read: true,
+  }),
 ];
 
 test("a notice is a mention, an agent's result or an update by what it points at", () => {
@@ -32,6 +37,8 @@ test("a notice is a mention, an agent's result or an update by what it points at
   assert.equal(noticeAction(notes[0]), "Open channel");
   assert.equal(noticeAction(notes[1]), "View task");
   assert.equal(noticeAction(notes[2]), "");
+  // The agent's answer in a channel names no person, so it is the agent's.
+  assert.equal(noticeKind({ channelId: "general" }), "agent");
 });
 
 test("a tab and the unread switch pick the notices to show, newest first", () => {

@@ -13,7 +13,7 @@ import { useWorkspace } from "./workspace";
 const IDLE = "Here when you need me";
 const titles: Partial<Record<Section, { title: string; subtitle: string }>> = {
   activity: { title: "Activity", subtitle: "Plans, progress, decisions and results." },
-  inbox: { title: "Inbox", subtitle: "Results, decisions and mentions for you." },
+  inbox: { title: "Notifications", subtitle: "Answers, results and mentions for you." },
   ideas: { title: "Ideas", subtitle: "Useful next steps, grounded in your world." },
   goals: {
     title: "Goals",

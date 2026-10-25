@@ -1,5 +1,5 @@
-import { BellOff, Check, Mail, Settings, Trash2 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { BellOff, Check, Settings, X } from "lucide-react-native";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import type { AgentNotification } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
@@ -7,7 +7,6 @@ import { authorTint } from "./channel-message";
 import {
   groupByDay,
   type NoticeTab,
-  noticeAction,
   noticeFrom,
   noticesFor,
   noticeTabs,
@@ -17,7 +16,6 @@ import { NotificationSettingsSheet } from "./notification-settings";
 import { useMuseThread } from "./threads";
 import {
   Button,
-  Card,
   colors,
   Empty,
   ErrorNotice,
@@ -26,9 +24,7 @@ import {
   Mascot,
   radius,
   relativeDate,
-  Segmented,
   s,
-  timeLabel,
   type WebPressState,
 } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -36,7 +32,7 @@ import { useWorkspace } from "./workspace";
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Who a notice is from: a person's initial in their own tint, or the bee for what the agents did. */
-function From({ note, size = 34 }: { note: AgentNotification; size?: number }) {
+function From({ note, size = 36 }: { note: AgentNotification; size?: number }) {
   const { data } = useAgentWorkspace();
   const from = noticeFrom(note);
   // What no person did is the agent's, or the workspace's: the bee.
@@ -57,18 +53,21 @@ function From({ note, size = 34 }: { note: AgentNotification; size?: number }) {
   );
 }
 
-/** One notice in the list: who, what, a line of it, and when. An unread one has a dot and a bold title. */
+/**
+ * One notice in the list: who, what, a line of it, and when. An unread one has a dot and a heavier
+ * title. Where there is a pointer, hovering swaps the time for what can be done with it (mark it read,
+ * put it away); on a phone the row is only the notice, and tapping goes where it points.
+ */
 function Row({
   note,
-  selected,
   onPress,
-  onToggle,
+  onRead,
+  onDismiss,
 }: {
   note: AgentNotification;
-  selected: boolean;
   onPress: () => void;
-  /** Without it (on a phone) the row is only the notice; what to do with it is one tap away. */
-  onToggle?: () => void;
+  onRead?: () => void;
+  onDismiss?: () => void;
 }) {
   return (
     <Pressable
@@ -81,140 +80,142 @@ function Row({
           gap: 12,
           alignItems: "flex-start",
           paddingVertical: 12,
-          paddingHorizontal: 12,
+          paddingRight: 12,
+          paddingLeft: 4,
           borderRadius: radius.lg,
-          backgroundColor: selected
-            ? colors.primarySoft
-            : pressed || hovered
-              ? colors.surfaceHover
-              : "transparent",
+          backgroundColor: pressed || hovered ? colors.surfaceHover : "transparent",
         },
       ]}
     >
-      <View style={{ width: 8, paddingTop: 13 }}>
-        {!note.read && (
-          <View
-            accessibilityLabel="Unread"
-            style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }}
-          />
-        )}
-      </View>
-      <From note={note} />
-      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <Text style={[s.text, { fontWeight: note.read ? "400" : "700" }]} numberOfLines={2}>
-          {note.title}
-        </Text>
-        {!!note.body && (
-          <Text style={s.muted} numberOfLines={2}>
-            {note.body}
-          </Text>
-        )}
-        <Text style={s.small}>{relativeDate(note.createdAt)}</Text>
-      </View>
-      {onToggle && (
-        <IconButton
-          icon={note.read ? Mail : Check}
-          label={note.read ? "Mark as unread" : "Mark as read"}
-          onPress={onToggle}
-        />
+      {({ hovered }: WebPressState) => (
+        <>
+          <View style={{ width: 8, paddingTop: 14 }}>
+            {!note.read && (
+              <View
+                accessibilityLabel="Unread"
+                style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }}
+              />
+            )}
+          </View>
+          <From note={note} />
+          <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+            <Text style={[s.text, { fontWeight: note.read ? "500" : "700" }]} numberOfLines={1}>
+              {note.title}
+            </Text>
+            {!!note.body && (
+              <Text style={s.muted} numberOfLines={1}>
+                {note.body}
+              </Text>
+            )}
+          </View>
+          {hovered && onDismiss ? (
+            <View style={[s.row, { gap: 2 }]}>
+              {!note.read && onRead && (
+                <IconButton icon={Check} label="Mark as read" onPress={onRead} />
+              )}
+              <IconButton icon={X} label="Dismiss" onPress={onDismiss} />
+            </View>
+          ) : (
+            <Text style={[s.small, { lineHeight: 20 }]}>{relativeDate(note.createdAt)}</Text>
+          )}
+        </>
       )}
     </Pressable>
   );
 }
 
-/**
- * What a notice says in full, and what to do with it: go where it points, mark it read or unread,
- * or put it away. Beside the list on a wide window; a phone goes straight to where it points.
- */
-function Detail({
-  note,
-  busy,
-  onOpen,
-  onToggle,
-  onDismiss,
+/** The kinds, as underlined words with what is unread in each; the agent's tab carries its name. */
+function Tabs({
+  value,
+  onChange,
+  counts,
+  agentName,
 }: {
-  note: AgentNotification;
-  busy: boolean;
-  onOpen: () => void;
-  onToggle: () => void;
-  onDismiss: () => void;
+  value: NoticeTab;
+  onChange: (tab: NoticeTab) => void;
+  counts: Record<NoticeTab, number>;
+  agentName: string;
 }) {
-  const action = noticeAction(note);
   return (
-    <Card style={{ gap: 16 }}>
-      <View style={[s.row, { gap: 12, alignItems: "flex-start" }]}>
-        <From note={note} size={40} />
-        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <Text style={s.heading}>{note.title}</Text>
-          <Text style={s.small}>
-            {new Date(note.createdAt).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })}{" "}
-            · {timeLabel(note.createdAt)}
-          </Text>
-        </View>
-      </View>
-      {!!note.body && (
-        <View
-          style={{
-            borderLeftWidth: 3,
-            borderLeftColor: colors.lineStrong,
-            paddingLeft: 14,
-            paddingVertical: 2,
-          }}
-        >
-          <Text selectable style={[s.text, { lineHeight: 22 }]}>
-            {note.body}
-          </Text>
-        </View>
-      )}
-      <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-        {!!action && (
-          <Button primary small busy={busy} onPress={onOpen}>
-            {action}
-          </Button>
-        )}
-        <Button small icon={note.read ? Mail : Check} onPress={onToggle}>
-          {note.read ? "Mark as unread" : "Mark as read"}
-        </Button>
-        <Button small icon={Trash2} onPress={onDismiss}>
-          Dismiss
-        </Button>
-      </View>
-    </Card>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ flexGrow: 0, flexShrink: 1 }}
+      contentContainerStyle={{ gap: 22 }}
+      accessibilityLabel="Kind of notification"
+    >
+      {noticeTabs.map((tab) => {
+        const on = tab.id === value;
+        const name = tab.id === "agent" ? agentName : tab.label;
+        const count = counts[tab.id];
+        return (
+          <Pressable
+            key={tab.id}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={count ? `${name}, ${count} unread` : name}
+            onPress={() => onChange(tab.id)}
+            style={[
+              s.row,
+              {
+                gap: 6,
+                paddingVertical: 10,
+                borderBottomWidth: 2,
+                borderBottomColor: on ? colors.primary : "transparent",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                s.text,
+                { color: on ? colors.text : colors.muted, fontWeight: on ? "600" : "400" },
+              ]}
+            >
+              {name}
+            </Text>
+            {count > 0 && (
+              <View
+                style={{
+                  minWidth: 18,
+                  height: 18,
+                  paddingHorizontal: 5,
+                  borderRadius: 9,
+                  backgroundColor: colors.primary,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: colors.onPrimary, fontSize: 11, fontWeight: "700" }}>
+                  {count}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
 /**
- * The notices that are the person's own: what their agents did, who named them, and what the
- * workspace has to say. Tabs by kind with what is unread in each, grouped by day, and a pane beside
- * the list to read one and act on it.
+ * The notices that are the person's own: what the agent answered or finished for them, who named
+ * them, and what the workspace has to say. Tabs by kind with what is unread in each, one list grouped
+ * by day; a notice opens where it points.
  */
 export function InboxScreen() {
   const { data, mutate } = useAgentWorkspace();
   const { navigate, open } = useWorkspace();
   const { select } = useMuseThread();
   const { width } = useWindowDimensions();
-  const split = width >= 1000;
+  const wide = width >= 700;
   const [tab, setTab] = useState<NoticeTab>("all");
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  const [chosen, setChosen] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [settings, setSettings] = useState(false);
   const all = data?.notifications ?? [];
-  const shown = useMemo(() => noticesFor(all, tab, unreadOnly), [all, tab, unreadOnly]);
+  const shown = useMemo(() => noticesFor(all, tab, false), [all, tab]);
   const groups = useMemo(() => groupByDay(shown), [shown]);
   const counts = useMemo(() => unreadCounts(all), [all]);
-  const note = shown.find((n) => n.id === chosen) ?? (split ? shown[0] : undefined);
-  // Opening one on a wide window marks it read, as opening a message does.
-  const noteId = note?.id;
-  const noteRead = note?.read;
-  useEffect(() => {
-    if (split && noteId && noteId === chosen && noteRead === false)
-      void mutate(`/notifications/${noteId}/read`, {}).catch(() => undefined);
-  }, [split, noteId, chosen, noteRead, mutate]);
 
   async function run(what: string, path: string) {
     setBusy(what);
@@ -227,8 +228,6 @@ export function InboxScreen() {
       setBusy("");
     }
   }
-  const toggle = (n: AgentNotification) =>
-    run(n.id, `/notifications/${n.id}/${n.read ? "unread" : "read"}`);
   async function go(n: AgentNotification) {
     if (!n.read) await run(n.id, `/notifications/${n.id}/read`);
     if (n.taskId) open({ type: "task", taskId: n.taskId });
@@ -239,148 +238,74 @@ export function InboxScreen() {
   }
 
   return (
-    <View style={{ gap: 16 }}>
-      {/* On a wide window the tabs and the buttons share a line; on a phone the tabs are one row, the actions another. */}
-      <View style={split ? [s.between, { gap: 12 }] : { gap: 8 }}>
-        {/* The tabs are as wide as their names, so on a phone they slide sideways. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={split ? { flexGrow: 0 } : { alignSelf: "stretch", flexGrow: 0 }}
-        >
-          <Segmented
-            label="Kind of notification"
-            value={tab}
-            onChange={setTab}
-            options={noticeTabs.map((t) => {
-              // A phone has no room for the long names, so "My agents" is "Agents" there.
-              const name = split ? t.label : t.id === "agent" ? "Agents" : t.label;
-              return {
-                id: t.id,
-                label: counts[t.id] ? `${name} ${counts[t.id]}` : name,
-                accessibilityLabel: counts[t.id] ? `${t.label}, ${counts[t.id]} unread` : t.label,
-              };
-            })}
-          />
-        </ScrollView>
-        {split ? (
-          <View style={[s.row, { gap: 8 }]}>
-            <Button small primary={unreadOnly} onPress={() => setUnreadOnly((on) => !on)}>
-              Unread only
-            </Button>
+    <View style={{ gap: 12, maxWidth: 760 }}>
+      <View style={[s.between, { gap: 12, borderBottomWidth: 1, borderBottomColor: colors.line }]}>
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          counts={counts}
+          agentName={data?.identity.name || "Hive"}
+        />
+        <View style={[s.row, { gap: 4 }]}>
+          {wide ? (
             <Button
               small
-              icon={Check}
               disabled={!counts.all}
               busy={busy === "all"}
               onPress={() => void run("all", "/notifications/read-all")}
             >
-              Mark all as read
+              Mark all read
             </Button>
-            <Button
-              small
-              icon={Trash2}
-              disabled={!all.length}
-              busy={busy === "clear"}
-              onPress={() => void run("clear", "/notifications/dismiss-all")}
-            >
-              Clear all
-            </Button>
+          ) : (
             <IconButton
-              icon={Settings}
-              label="Notification settings"
-              onPress={() => setSettings(true)}
+              icon={Check}
+              label="Mark all as read"
+              onPress={() => void run("all", "/notifications/read-all")}
             />
-          </View>
-        ) : (
-          <View style={[s.between, { gap: 8 }]}>
-            <Button small primary={unreadOnly} onPress={() => setUnreadOnly((on) => !on)}>
-              Unread only
-            </Button>
-            <View style={[s.row, { gap: 4 }]}>
-              <IconButton
-                icon={Check}
-                label="Mark all as read"
-                onPress={() => void run("all", "/notifications/read-all")}
-              />
-              <IconButton
-                icon={Trash2}
-                label="Clear all"
-                onPress={() => void run("clear", "/notifications/dismiss-all")}
-              />
-              <IconButton
-                icon={Settings}
-                label="Notification settings"
-                onPress={() => setSettings(true)}
-              />
-            </View>
-          </View>
-        )}
+          )}
+          <IconButton
+            icon={Settings}
+            label="Notification settings"
+            onPress={() => setSettings(true)}
+          />
+        </View>
       </View>
       <ErrorNotice error={error} />
       {settings && <NotificationSettingsSheet onClose={() => setSettings(false)} />}
       {!shown.length ? (
         <Empty
           icon={BellOff}
-          title={unreadOnly || all.length ? "You're all caught up" : "Nothing here yet"}
+          title={all.length ? "You're all caught up" : "Nothing here yet"}
           detail={
             all.length
-              ? unreadOnly
-                ? "Nothing is waiting for you in this tab."
-                : "Nothing of this kind yet."
-              : "What your agents finish, and where people mention you, will show up here."
+              ? "Nothing of this kind yet."
+              : "What the agent answers or finishes for you, and where people mention you, will show up here."
           }
-        >
-          {unreadOnly && (
-            <Button small onPress={() => setUnreadOnly(false)}>
-              Show all
-            </Button>
-          )}
-        </Empty>
+        />
       ) : (
-        <View style={[s.row, { alignItems: "flex-start", gap: 20 }]}>
-          <View
-            style={
-              split
-                ? { flexGrow: 0, flexShrink: 0, width: 440, gap: 4 }
-                : { flex: 1, minWidth: 0, gap: 4 }
-            }
-          >
-            {groups.map((group) => (
-              <View key={group.label} style={{ gap: 2, marginBottom: 12 }}>
-                <Text style={[s.label, { paddingHorizontal: 12, paddingBottom: 4 }]}>
-                  {group.label}
-                </Text>
-                {group.notes.map((n) => (
-                  <Row
-                    key={n.id}
-                    note={n}
-                    selected={split && note?.id === n.id}
-                    onToggle={split ? () => void toggle(n) : undefined}
-                    onPress={() => (split ? setChosen(n.id) : void go(n))}
-                  />
-                ))}
-              </View>
+        groups.map((group) => (
+          <View key={group.label} style={{ gap: 2 }}>
+            <Text style={[s.label, { paddingHorizontal: 12, paddingVertical: 6 }]}>
+              {group.label}
+            </Text>
+            {group.notes.map((n) => (
+              <Row
+                key={n.id}
+                note={n}
+                onPress={() => void go(n)}
+                onRead={wide ? () => void run(n.id, `/notifications/${n.id}/read`) : undefined}
+                onDismiss={
+                  wide ? () => void run(n.id, `/notifications/${n.id}/dismiss`) : undefined
+                }
+              />
             ))}
           </View>
-          {split && note && (
-            <View style={{ flex: 1, minWidth: 0, position: "sticky" as never, top: 0 }}>
-              <Detail
-                note={note}
-                busy={busy === note.id}
-                onOpen={() => void go(note)}
-                onToggle={() => void toggle(note)}
-                onDismiss={() => void run(note.id, `/notifications/${note.id}/dismiss`)}
-              />
-            </View>
-          )}
-        </View>
+        ))
       )}
-      {split && (
-        <Text style={[s.small, { fontSize: fontSize.caption }]}>
-          Only what is yours is here: results of agents you started, and mentions of you.
-        </Text>
-      )}
+      <Text style={[s.small, { fontSize: fontSize.caption, paddingHorizontal: 12 }]}>
+        Only what is yours is here: what the agent answered or finished for you, and mentions of
+        you.
+      </Text>
     </View>
   );
 }
