@@ -38,6 +38,7 @@ CRANE=${HIVE_CRANE:-crane}
 HEALTH=${HIVE_HEALTH:-http://127.0.0.1:8787/api/health}
 SERVICE=${HIVE_SERVICE:-hive-workspace.service}
 IDLE_CHECK=${HIVE_IDLE_CHECK:-$ETC/idle-check}
+RUNS_FILE=${HIVE_RUNS_FILE:-/data/hive/runs-live}
 HEALTH_WAIT=${HIVE_HEALTH_WAIT:-60}
 IDLE_WAIT=${HIVE_IDLE_WAIT:-1800}
 MIN_FREE_MB=${HIVE_MIN_FREE_MB:-3072}
@@ -89,13 +90,19 @@ if [ -z "$repo" ] && [ -f "$ETC/image.json" ]; then
   repo=$(jq -r '.image // empty' "$ETC/image.json" | sed -E 's/[@:][^/@:]*$//; s/@.*$//')
 fi
 
-# Waits until the workspace is idle, so a restart does not cut off the agent. The check is a command an
-# operator provides (exit 0 means idle); there is none by default, and --force skips it. Fails if it
-# is still busy after IDLE_WAIT.
+# Waits until the workspace is idle, so a restart does not cut off the agent. Idle is no run going (the
+# server keeps the number in $RUNS_FILE, a run waiting for an answer counted), or, if an operator put a
+# command at $IDLE_CHECK, that command's exit 0. --force skips the wait. Fails if still busy after IDLE_WAIT.
+busy() {
+  if [ -x "$IDLE_CHECK" ]; then ! "$IDLE_CHECK"; return; fi
+  local n
+  n=$(tr -d '[:space:]' <"$RUNS_FILE" 2>/dev/null || true)
+  [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt 0 ]
+}
 wait_idle() {
-  { [ -z "$force" ] && [ -x "$IDLE_CHECK" ]; } || return 0
+  [ -z "$force" ] || return 0
   local waited=0
-  until "$IDLE_CHECK"; do
+  while busy; do
     [ "$waited" -lt "$IDLE_WAIT" ] || return 1
     sleep 30
     waited=$((waited + 30))

@@ -27,6 +27,7 @@ import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
 import type { JevAdapter } from "./jev/adapter.ts";
 import { createJevService } from "./jev/service.ts";
+import { publishLiveRuns } from "./live-runs.ts";
 import { ManagedSignIn } from "./managed.ts";
 import { HiveToolBridge } from "./opencode/hive-tools.ts";
 import {
@@ -323,6 +324,14 @@ export async function createApp(
   const pool = new OpencodeClientPool(connection);
   const tracker = new PermissionTracker();
   const rules = new PermissionRulesStore(config.dataDir);
+  // How many runs are going, where whatever restarts the workspace can see it. The marks outlive a
+  // restart (the runs are taken up again), so what is counted at the start is what is about to resume.
+  const publishRuns = async () =>
+    publishLiveRuns(
+      config.dataDir,
+      (await db.list(SHARED_OWNER, "live-runs").catch(() => [])).length,
+    );
+  void publishRuns();
   const shimDeps = {
     service: agent,
     bus,
@@ -334,8 +343,12 @@ export async function createApp(
     runMarks: {
       set: async (threadId: string, owner: string) => {
         await db.put(SHARED_OWNER, "live-runs", { id: threadId, owner, startedAt: Date.now() });
+        await publishRuns();
       },
-      clear: (threadId: string) => db.remove(SHARED_OWNER, "live-runs", threadId),
+      clear: async (threadId: string) => {
+        await db.remove(SHARED_OWNER, "live-runs", threadId);
+        await publishRuns();
+      },
       all: async () =>
         (
           await db.list<{ id: string; owner: string; startedAt: number }>(SHARED_OWNER, "live-runs")

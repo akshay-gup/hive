@@ -70,8 +70,12 @@ written to `/etc/hive/workspace.json` once, at first boot. That file is only wha
   know leaves its settings alone and says so in `update.config`; the code that reads settings is part of
   the build, so a build that understands a new kind of change is how the workspaces learn it. What is
   not a setting at all goes in `machine/hive-ensure`, which runs from the new build on every update.
-- A restart interrupts a run in progress; the server resumes it (above). A check that the workspace
-  is idle before taking new settings is not built yet.
+- **Idle.** The server keeps the number of runs going in `<DATA_DIR>/runs-live` (a run waiting for an
+  answer or an approval counts). Before it restarts for new settings the workspace waits for none, and
+  `hive-update` waits for the same before putting a build on (or for an `/etc/hive/idle-check` command
+  if an operator put one there; `--force` skips it). Both give up waiting after half an hour, so a count
+  left behind by a server that went down badly cannot hold changes back for ever. A restart that does
+  land on a run is resumed by the server (above).
 
 ## Design
 

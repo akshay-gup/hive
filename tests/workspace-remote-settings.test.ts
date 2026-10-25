@@ -8,7 +8,9 @@ import {
   noteStayedUp,
   overlay,
   readDoc,
+  runsGoing,
   startWith,
+  waitIdle,
   watchSettings,
   whereFrom,
 } from "../apps/workspace/src/remote-settings.ts";
@@ -184,11 +186,18 @@ test("it asks to be restarted once, when the control plane has other settings th
   const where = { url: "https://control.test/config", key: KEY };
   const changes: string[] = [];
   says = doc(REV1, {});
-  const stop = watchSettings(where, REV1, (rev) => changes.push(rev), {
-    everyMs: 10,
-    fetcher,
-    timeoutMs: 200,
-  });
+  const stop = watchSettings(
+    where,
+    REV1,
+    (rev) => {
+      changes.push(rev);
+    },
+    {
+      everyMs: 10,
+      fetcher,
+      timeoutMs: 200,
+    },
+  );
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.deepEqual(changes, [], "the same revision is left alone");
   says = "down";
@@ -198,4 +207,17 @@ test("it asks to be restarted once, when the control plane has other settings th
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.deepEqual(changes, [REV2]);
   stop();
+});
+
+test("it waits for no run to be going, and gives up waiting after a while", async () => {
+  const file = join(root, "runs-live");
+  assert.equal(runsGoing(file), 0, "no file: nothing to wait for");
+  writeFileSync(file, "garbage\n");
+  assert.equal(runsGoing(file), 0);
+  writeFileSync(file, "2\n");
+  assert.equal(runsGoing(file), 2);
+
+  assert.equal(await waitIdle(file, { pollMs: 5, maxMs: 40 }), false, "still busy when it gave up");
+  setTimeout(() => writeFileSync(file, "0\n"), 30);
+  assert.equal(await waitIdle(file, { pollMs: 5, maxMs: 2_000 }), true);
 });

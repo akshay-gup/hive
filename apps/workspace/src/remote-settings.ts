@@ -251,7 +251,7 @@ export async function startWith(
 export function watchSettings(
   where: Where,
   running: string | undefined,
-  onChange: (rev: string) => void,
+  onChange: (rev: string) => void | Promise<void>,
   options: { everyMs?: number; fetcher?: typeof fetch; timeoutMs?: number } = {},
 ): () => void {
   let stopped = false;
@@ -261,7 +261,7 @@ export function watchSettings(
       if (stopped || !("doc" in answer) || answer.doc.rev === running) return;
       stopped = true;
       clearInterval(timer);
-      onChange(answer.doc.rev);
+      void Promise.resolve(onChange(answer.doc.rev)).catch(() => undefined);
     },
     options.everyMs ?? 5 * 60_000,
   );
@@ -270,4 +270,28 @@ export function watchSettings(
     stopped = true;
     clearInterval(timer);
   };
+}
+
+/** How many runs the server says are going; none if it says nothing, since there is then nothing to wait for. */
+export function runsGoing(file: string): number {
+  const n = Number.parseInt(read(file)?.trim() ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Waits for no run to be going, so a restart does not cut one off, but not for ever: a count left behind
+ * by a server that went down badly would otherwise keep the new settings out. Resolves with whether it
+ * was idle (false: it gave up waiting).
+ */
+export async function waitIdle(
+  file: string,
+  options: { pollMs?: number; maxMs?: number } = {},
+): Promise<boolean> {
+  const pollMs = options.pollMs ?? 15_000;
+  const until = Date.now() + (options.maxMs ?? 30 * 60_000);
+  while (runsGoing(file) > 0) {
+    if (Date.now() >= until) return false;
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return true;
 }

@@ -1,6 +1,7 @@
 import { chownSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { noteStayedUp, startWith, watchSettings } from "./remote-settings.ts";
+import { noteStayedUp, startWith, waitIdle, watchSettings } from "./remote-settings.ts";
 import {
   agentEnv,
   BROWSER_INTERNAL_PORT,
@@ -101,8 +102,13 @@ if (started.rev) {
   setTimeout(() => noteStayedUp(volumeDir, rev), STAYED_UP_MS).unref();
 }
 if (started.where)
-  watchSettings(started.where, started.seen, (rev) => {
-    process.stdout.write(`settings ${rev} from the control plane; restarting to take them\n`);
+  watchSettings(started.where, started.seen, async (rev) => {
+    process.stdout.write(
+      `settings ${rev} from the control plane; waiting for no run to be going\n`,
+    );
+    // Runs in progress finish first (the server counts one waiting for an answer), for up to half an hour.
+    const idle = await waitIdle(join(env.DATA_DIR?.trim() || join(volumeDir, "hive"), "runs-live"));
+    process.stdout.write(`${idle ? "idle" : "still busy"}; restarting to take settings ${rev}\n`);
     process.kill(process.pid, "SIGTERM");
   });
 

@@ -236,6 +236,20 @@ test("a busy workspace is left alone, and the update waits", async () => {
   assert.equal(state(m).state, "waiting");
 });
 
+test("a workspace with a run going (the count the server keeps) is left alone; with none, it is updated", async () => {
+  const m = machine("runs");
+  const runs = join(m.dir, "runs-live");
+  file(runs, "2\n");
+  const busy = await run(m, ["--to", "v2"], { HIVE_IDLE_WAIT: "0", HIVE_RUNS_FILE: runs });
+  assert.equal(busy.code, 0);
+  assert.equal(read(join(m.app, "VERSION")), "v1");
+  assert.equal(state(m).state, "waiting");
+  file(runs, "0\n");
+  const idle = await run(m, ["--to", "v2"], { HIVE_IDLE_WAIT: "0", HIVE_RUNS_FILE: runs });
+  assert.equal(idle.code, 0, idle.out);
+  assert.equal(read(join(m.app, "VERSION")), "v2");
+});
+
 test("--force does not wait for an idle workspace", async () => {
   const m = machine("force");
   file(join(m.etc, "idle-check"), "#!/usr/bin/env bash\nexit 1\n", 0o755);
