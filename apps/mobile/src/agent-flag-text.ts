@@ -10,13 +10,16 @@ export function flagWhere(flag: FlagRow): string {
       flag.channelName ? `#${flag.channelName}` : "a channel"
     }`;
   if (flag.scope === "task") return "A task the agent was working on";
-  if (flag.scope === "machine") return "Something on the machine";
+  if (flag.scope === "machine") return "On the machine, outside any run";
   return "A private chat with the agent";
 }
 
 /** What was done, in plain words. */
 export function flagWhat(flag: FlagRow): string {
   const what = RULE_TEXT[flag.rule] ?? "something kept apart";
+  // The watch itself: it is not the agent that did anything.
+  if (flag.rule === "watch") return `The kernel watch: ${flag.target}`;
+  if (flag.scope === "machine") return `A program that is not the workspace server opened ${what}`;
   if (flag.rule === "obfuscation") return "The agent ran a command that hides what it opens";
   return flag.action === "blocked" ? `The agent was refused ${what}` : `The agent opened ${what}`;
 }

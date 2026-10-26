@@ -88,19 +88,22 @@ export function AgentFlags({ owner }: { owner: boolean }) {
       <Text style={s.muted}>
         When the agent opens the workspace's own data (its database, keys, other channels' folders),
         it is marked here. The agent runs on the workspace's machine and can reach all of it, so
-        this shows what was seen, and cannot stop it.
+        this shows what was seen. Where the machine has a kernel watch, it sees reads however they
+        are made.
       </Text>
       <ErrorNotice error={error} />
       {answer && (
         <View style={{ gap: 8 }}>
           <Text style={s.text}>
             {answer.mode === "enforce"
-              ? "Refusing is on: what the agent asks leave for and that reaches this data is turned down."
+              ? "Refusing is on: a run that reaches this data is stopped on the spot, and what it read is not shown."
               : "Refusing is off: it is only marked."}
           </Text>
           <Text style={s.small}>
-            Every request from a channel asks first, so those can be turned down before they happen.
-            The agent can still go around with root, and runs that do not ask are only marked.
+            What the agent asks leave for is turned down before it happens, and the rest is stopped
+            as soon as it is seen. The agent has root, so it can still go around this, and one read
+            can slip through before it is seen. If the kernel watch stops working, the agent is
+            paused.
           </Text>
           {owner && (
             <View style={s.row}>

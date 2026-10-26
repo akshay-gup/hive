@@ -34,6 +34,27 @@ test("who asked and where is said in a few words, whatever is known", () => {
   assert.equal(flagWhere(flag({ scope: "task" })), "A task the agent was working on");
 });
 
+test("a flag of the kernel watch, or of something outside any run, is not said to be the agent's", () => {
+  const machine = flag({
+    scope: "machine",
+    source: "kernel",
+    askerName: undefined,
+    channelName: undefined,
+  });
+  assert.equal(flagWhere(machine), "On the machine, outside any run");
+  assert.equal(
+    flagWhat(machine),
+    "A program that is not the workspace server opened the workspace's database",
+  );
+  const down = flag({
+    scope: "machine",
+    source: "watch",
+    rule: "watch",
+    target: "the kernel watch went quiet",
+  });
+  assert.equal(flagWhat(down), "The kernel watch: the kernel watch went quiet");
+});
+
 test("what was done is said as it was: opened, or refused", () => {
   assert.equal(flagWhat(flag()), "The agent opened the workspace's database");
   assert.equal(
