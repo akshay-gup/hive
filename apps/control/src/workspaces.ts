@@ -280,7 +280,9 @@ export class WorkspaceService {
     const chat = this.options.chat;
     if (!chat) throw new HttpError("Chat is not set up", 404);
     const record = await this.db.get<WorkspaceRecord>(HOME, "workspaces", id);
-    if (!record || record.status !== "ready")
+    // While it is being made too: it is not called ready until the agent has connected, and it
+    // connects with this.
+    if (!record || (record.status !== "ready" && record.status !== "provisioning"))
       throw new HttpError("This workspace is not ready", 409);
     const token = signChatRunner(this.options.keys.privateKey, { workspaceId: id });
     return {

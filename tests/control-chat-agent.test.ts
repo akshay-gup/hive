@@ -162,3 +162,24 @@ test("wakes are rate limited per workspace", async () => {
   for (let i = 0; i < 8; i++) statuses.push((await wake(control, mine.id)).status);
   assert.equal(statuses.filter((s) => s === 429).length, 2);
 });
+
+test("a workspace still being made is given its runner token, since it is not ready until the agent has connected", async () => {
+  const mine = await workspace();
+  const set = async (from: string, to: string) => {
+    const done = await db.compareAndSwap(
+      "control",
+      "workspaces",
+      mine.id,
+      { status: from },
+      { status: to },
+    );
+    assert.ok(
+      done,
+      `${from} to ${to}: ${JSON.stringify(await db.get("control", "workspaces", mine.id))}`,
+    );
+  };
+  await set("ready", "provisioning");
+  assert.equal((await runnerToken(control, mine.id, mine.key)).status, 200);
+  await set("provisioning", "failed");
+  assert.equal((await runnerToken(control, mine.id, mine.key)).status, 409);
+});
