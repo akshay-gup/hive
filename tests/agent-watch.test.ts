@@ -127,3 +127,32 @@ test("in the stricter mode what reaches the machine's data is turned down, and s
   assert.equal(ask("read", [`${own}/notes.md`]), false);
   assert.equal(ask("webfetch", ["https://example.com"]), false);
 });
+
+test("in the stricter mode the run is told of each serious call, with the call, even one marked before", () => {
+  const { watch } = watching();
+  const told: (string | undefined)[] = [];
+  const run = watch.forRun({
+    scope: "channel",
+    directory: own,
+    onSerious: ({ callId }) => told.push(callId),
+  });
+  run(tool("a", "bash", { command: "cat /data/hive/postgres/PG_VERSION" }));
+  assert.deepEqual(told, [], "not while it only marks");
+  watch.setMode("enforce");
+  run(tool("b", "bash", { command: "cat /data/hive/postgres/PG_VERSION" }));
+  run(tool("c", "bash", { command: "cat /data/hive/postgres/PG_VERSION" }));
+  run(tool("d", "bash", { command: "find / -name x" }));
+  assert.deepEqual(told, ["b", "c"], "each serious call, and not the minor one");
+});
+
+test("results are held back only while refusing is on and the kernel watch is alive", () => {
+  const { watch } = watching();
+  assert.equal(watch.holdMs(), 0);
+  let alive = true;
+  watch.setKernel({ alive: () => alive });
+  assert.equal(watch.holdMs(), 0, "not while it only marks");
+  watch.setMode("enforce");
+  assert.equal(watch.holdMs(), 300);
+  alive = false;
+  assert.equal(watch.holdMs(), 0, "nothing to wait for when no kernel flag can come");
+});

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { RunEvent } from "../../../../packages/domain/src/agent.ts";
+import { WITHHELD } from "../agent-watch/egress.ts";
 import type { Store } from "../db.ts";
 import { backgroundFailure } from "../log.ts";
 import type { OpenCodeEvent } from "./events.ts";
@@ -20,6 +21,11 @@ export class TaskRunLog {
     private readonly runId: string,
     private readonly guard: () => Promise<void>,
   ) {}
+  /** Calls whose result is not to be shown (see agent-watch/egress.ts). */
+  private readonly withheld = new Set<string>();
+  withhold(callId: string) {
+    this.withheld.add(callId);
+  }
   handle(event: OpenCodeEvent) {
     const props = event.properties;
     if (event.type === "message.updated") {
@@ -82,7 +88,10 @@ export class TaskRunLog {
         toolCallId: part.callID,
         toolState: part.state.status,
         toolInput: part.state.input,
-        detail: part.state.error ?? part.state.output ?? "",
+        detail:
+          part.callID && this.withheld.has(part.callID)
+            ? WITHHELD
+            : (part.state.error ?? part.state.output ?? ""),
       };
     } else return;
     if (record.detail.length > 200000)

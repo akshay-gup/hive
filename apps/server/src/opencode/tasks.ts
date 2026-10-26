@@ -457,10 +457,16 @@ export async function runOpencodeTask(
     clearTimeout(settleTimer);
   };
 
-  const watching = runtime.watch?.forRun({ scope: "task", directory });
+  const watching = runtime.watch?.forRun({
+    scope: "task",
+    directory,
+    onSerious: ({ callId }) => {
+      if (callId) runLog.withhold(callId);
+    },
+  });
   const unsubscribe = runtime.bus.onEvent(scope, (event) => {
-    runLog.handle(event);
     watching?.(event);
+    runLog.handle(event);
     if (event.type === "permission.asked") {
       const props = event.properties as {
         id?: string;

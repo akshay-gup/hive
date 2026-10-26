@@ -30,6 +30,7 @@ import {
   ORCHESTRATOR_CHANNEL_ID,
 } from "../../../../packages/domain/src/agent.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
+import { Egress } from "../agent-watch/egress.ts";
 import type { AgentWatch } from "../agent-watch/watch.ts";
 import type { Config } from "../config.ts";
 import type { AgentService } from "../engine/service.ts";
@@ -756,7 +757,10 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   const donePromise = new Promise<void>((resolve) => {
     resolveDone = resolve;
   });
+  // What the run says goes through here to the screen, which can hold a result or withhold it.
+  let egress: Egress | undefined;
   const finish = () => {
+    egress?.flushNow();
     toolAbort.abort();
     settleRun(ctx);
     resolveDone();
@@ -869,8 +873,12 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       scope: chat ? "channel" : "own-chat",
       ...(chat ? { runId: input.runId } : {}),
       directory,
+      onSerious: ({ callId }) => {
+        if (callId) egress?.withhold(callId);
+      },
     });
-    const translator = new RunTranslator(input, send, finish, {
+    egress = new Egress(send, { holdMs: () => deps.watch?.holdMs() ?? 0 });
+    const translator = new RunTranslator(input, (event) => egress?.push(event), finish, {
       onAsked: (asked) => {
         const scope = {
           scope: input.threadId,
@@ -921,8 +929,9 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     });
     ctx.translator = translator;
     ctx.unsubscribe = deps.bus.onEvent(input.threadId, (event) => {
-      translator.handle(event);
+      // Looked at first: a call's result can be on its way in the same event that first shows what it asked for.
       watching?.(event);
+      translator.handle(event);
     });
 
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });

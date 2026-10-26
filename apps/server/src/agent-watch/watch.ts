@@ -9,6 +9,11 @@ export interface WatchRun {
   runId?: string;
   /** Where the run works, and so what it may open without being marked. */
   directory: string;
+  /**
+   * Told when the run does something that reaches the machine's own data, in the stricter mode: with the call,
+   * if it was one tool call, so its result can be kept from the screen.
+   */
+  onSerious?: (info: { callId?: string; finding: WatchFinding }) => void;
 }
 
 export interface WatchDeps {
@@ -22,6 +27,8 @@ export interface WatchDeps {
 /** The most a single run is marked for, and the most kept for a moment when the chat service is out of reach. */
 const PER_RUN = 50;
 const KEPT = 100;
+/** How long a result waits for the kernel's word (it usually comes in a few milliseconds). */
+const KERNEL_HOLD_MS = 300;
 
 /** What one run's watch is: the handler of its events, and the verdict on what it asks leave for. */
 export type RunWatch = ((event: OpenCodeEvent) => void) & {
@@ -40,6 +47,8 @@ const plain = (tool: string) => tool.replace(/^hive_[a-f0-9]{16}_/, "");
 export class AgentWatch {
   private mode: WatchMode = "audit";
   private kept: WatchFinding[] = [];
+  /** The kernel watch, when this machine has one, which is what makes holding results back worth it. */
+  private kernel: { alive: () => boolean } | null = null;
 
   constructor(private readonly deps: WatchDeps) {}
 
@@ -49,6 +58,15 @@ export class AgentWatch {
 
   get current(): WatchMode {
     return this.mode;
+  }
+
+  setKernel(kernel: { alive: () => boolean } | null) {
+    this.kernel = kernel;
+  }
+
+  /** How long a result of the agent's shell or file tools is held before it is shown: only while a kernel flag could still hide it. */
+  holdMs(): number {
+    return this.mode === "enforce" && this.kernel?.alive() ? KERNEL_HOLD_MS : 0;
   }
 
   /** The handler for one run's events. */
@@ -66,11 +84,10 @@ export class AgentWatch {
       tool: string,
       command: string | undefined,
       action: WatchFinding["action"],
+      callId?: string,
     ) => {
       const key = `${found.rule}:${found.target}`;
-      if (seen.has(key) || seen.size >= PER_RUN) return;
-      seen.add(key);
-      this.report({
+      const finding: WatchFinding = {
         source: found.source,
         scope: run.scope,
         ...(run.runId ? { runId: run.runId } : {}),
@@ -81,7 +98,12 @@ export class AgentWatch {
         severity: found.severity,
         action,
         mode: this.mode,
-      });
+      };
+      // Said every time, even of what was marked before: each call's result has to be kept back.
+      if (this.mode === "enforce" && found.severity !== "low") run.onSerious?.({ callId, finding });
+      if (seen.has(key) || seen.size >= PER_RUN) return;
+      seen.add(key);
+      this.report(finding);
     };
     const handle = (event: OpenCodeEvent) => {
       if (event.type !== "message.part.updated") return;
@@ -109,7 +131,7 @@ export class AgentWatch {
         env: this.deps.env,
         setup,
       }))
-        mark(found, tool, typeof command === "string" ? command : undefined, "marked");
+        mark(found, tool, typeof command === "string" ? command : undefined, "marked", part.callID);
     };
     const asked: RunWatch["asked"] = (ask) => {
       const findings = classifyAsk({
