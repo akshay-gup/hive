@@ -13,6 +13,7 @@ import { isActive, RUN_LIMITS, type Run, type Runs } from "../../../packages/cha
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { RecordStore } from "../../../packages/chat-core/src/store.ts";
 import type { Channel } from "../../../packages/domain/src/agent.ts";
+import type { WatchMode } from "../../../packages/domain/src/agent-watch.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
 import {
   type AgentExtra,
@@ -106,6 +107,21 @@ export class AgentLink {
     }
   }
 
+  /** What is done when the agent is seen opening the machine's own data: only marked, or turned down where it can be. */
+  async watchMode(): Promise<WatchMode> {
+    const kept = await this.deps.store.get<{ id: string; mode?: string }>(
+      "system",
+      "agent",
+      "watch",
+    );
+    return kept?.mode === "enforce" ? "enforce" : "audit";
+  }
+
+  async setWatchMode(mode: WatchMode): Promise<void> {
+    await this.deps.store.put("system", "agent", { id: "watch", mode });
+    this.send({ t: "watch", mode });
+  }
+
   // What the machine says
 
   /** A frame that is not understood, or is for a run that is over, changes nothing. */
@@ -191,7 +207,12 @@ export class AgentLink {
         else await this.finish(run.id, "failed", "lost", {}, false);
       } else runs.requeue(run.id);
     }
-    this.send({ t: "welcome", limits: { maxRunMs: RUN_LIMITS.maxRunMs }, resume: keep });
+    this.send({
+      t: "welcome",
+      limits: { maxRunMs: RUN_LIMITS.maxRunMs },
+      resume: keep,
+      watch: await this.watchMode(),
+    });
     await this.pump();
   }
 

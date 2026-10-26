@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classify } from "../apps/server/src/agent-watch/classify.ts";
+import { classify, classifyAsk } from "../apps/server/src/agent-watch/classify.ts";
 
 /**
  * The watch reads what a tool was asked to open, or the words of a shell command, and says whether it
@@ -111,4 +111,35 @@ test("a finding says where and how severe", () => {
     source: "command",
   });
   assert.equal(bash("find / -name x")[0]?.severity, "low");
+});
+
+test("what the agent asks leave for is read the same way, before it is done", () => {
+  const ask = (permission: string, patterns: string[], metadata?: object) =>
+    classifyAsk({ permission, patterns, metadata, cwd: own, env, setup }).map((f) => f.rule);
+  assert.deepEqual(ask("read", ["/data/hive/postgres/PG_VERSION"]), ["database"]);
+  assert.deepEqual(ask("external_directory", ["/data/hive/*"]), ["database"]);
+  assert.deepEqual(ask("bash", ["cat /data/hive/session-signing-key"]), ["keys"]);
+  assert.deepEqual(ask("bash", ["ls"], { command: "cat /etc/hive/workspace.json" }), ["keys"]);
+  assert.deepEqual(ask("read", [`${own}/notes.md`]), []);
+  // The shapes real OpenCode 1.18.33 asks in: a command or file outside the working folder is asked as the
+  // folder, with the command or the file in the metadata; a file inside has its first slash left off.
+  assert.deepEqual(
+    ask("external_directory", ["/data/hive/postgres/*"], {
+      command: "cat /data/hive/postgres/PG_VERSION && ls",
+      directories: ["/data/hive/postgres"],
+    }),
+    ["database"],
+  );
+  assert.deepEqual(
+    ask("external_directory", ["/data/hive/postgres/*"], {
+      filepath: "/data/hive/postgres/PG_VERSION",
+      parentDir: "/data/hive/postgres",
+    }),
+    ["database"],
+  );
+  assert.deepEqual(ask("read", ["data/hive/owners/shared/channels/c2/note"]), ["other-channel"]);
+  assert.deepEqual(ask("read", [`${own.slice(1)}/note`]), []);
+  assert.deepEqual(ask("bash", ["npm install"]), []);
+  assert.deepEqual(ask("webfetch", ["https://example.com"]), []);
+  assert.deepEqual(ask("task", ["anything"]), []);
 });

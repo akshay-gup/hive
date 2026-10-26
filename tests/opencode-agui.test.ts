@@ -382,6 +382,29 @@ describe("RunTranslator", () => {
     assert.ok(!isDone());
   });
 
+  it("says nothing to the person of an ask that was turned down on the spot", () => {
+    const events: Array<Record<string, unknown>> = [];
+    const translator = new RunTranslator(
+      { threadId: "t1", runId: "r1", messages: [] },
+      (event) => events.push(event),
+      () => undefined,
+      {
+        onAsked: (asked) => asked.metadata !== undefined && (asked.metadata as { no?: boolean }).no,
+      },
+    );
+    const ask = (id: string, metadata: object) =>
+      translator.handle({
+        id,
+        type: "permission.asked",
+        properties: { id, sessionID: "ses_1", permission: "read", patterns: ["/x"], metadata },
+      });
+    ask("req_no", { no: true });
+    assert.equal(events.length, 0);
+    ask("req_yes", {});
+    assert.equal(events.length, 1);
+    assert.equal((events[0]?.value as Record<string, unknown> | undefined)?.requestId, "req_yes");
+  });
+
   it("tells the person when the agent asks a question, and keeps the run going", () => {
     const kept: string[] = [];
     const events: Array<Record<string, unknown>> = [];

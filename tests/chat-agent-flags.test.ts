@@ -66,6 +66,7 @@ const listed = async (who: Who) => {
   return {
     status: response.status,
     body: (await response.json()) as {
+      mode: "audit" | "enforce";
       unreviewed: number;
       flags: (WatchRecord & { askerName?: string; channelName?: string })[];
     },
@@ -198,4 +199,24 @@ test("a flag is not a people event: the machine's socket is never sent one", asy
   const before = machine?.frames.length ?? 0;
   await flag({ scope: "channel", runId: run.id });
   assert.equal(machine?.frames.length, before);
+});
+
+test("only the owner changes what is done about it, and the machine is told", async () => {
+  const frames: RoomFrame[] = [];
+  machine = { frames, send: (text) => frames.push(JSON.parse(text)), close: () => {} };
+  assert.equal((await listed("olive")).body.mode, "audit");
+  for (const who of ["ada", "max", "gus"] as const)
+    assert.equal((await call(who, "PUT", "/v1/agent-watch", { mode: "enforce" })).status, 404, who);
+  assert.equal((await listed("olive")).body.mode, "audit");
+  const set = await call("olive", "PUT", "/v1/agent-watch", { mode: "enforce" });
+  assert.equal(set.status, 200);
+  assert.deepEqual(frames.at(-1), { t: "watch", mode: "enforce" });
+  assert.equal((await listed("ada")).body.mode, "enforce");
+  assert.equal((await call("olive", "PUT", "/v1/agent-watch", { mode: "nonsense" })).status, 422);
+  // A machine that connects later is told with its welcome.
+  frames.length = 0;
+  await core.agent.onFrame(
+    JSON.stringify({ t: "hello", v: 1, identity: { name: "Hive" }, active: [] }),
+  );
+  assert.equal((frames.find((f) => f.t === "welcome") as { watch?: string }).watch, "enforce");
 });

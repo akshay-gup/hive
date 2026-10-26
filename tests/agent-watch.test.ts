@@ -109,3 +109,21 @@ test("the mode a finding is made in is the one the watch is set to", () => {
   assert.equal(sent[0]?.mode, "enforce");
   assert.equal(sent[0]?.source, "file-tool");
 });
+
+test("in the stricter mode what reaches the machine's data is turned down, and said to have been", () => {
+  const { watch, sent } = watching();
+  const run = watch.forRun({ scope: "channel", runId: "r", directory: own });
+  const ask = (permission: string, patterns: string[]) => run.asked({ permission, patterns });
+  // Marked and let through while it only marks.
+  assert.equal(ask("read", ["/data/hive/postgres/PG_VERSION"]), false);
+  assert.equal(sent[0]?.action, "marked");
+  watch.setMode("enforce");
+  assert.equal(ask("bash", ["cat /data/hive/session-signing-key"]), true);
+  assert.equal(sent[1]?.action, "blocked");
+  assert.equal(sent[1]?.mode, "enforce");
+  assert.equal(sent[1]?.command, "cat /data/hive/session-signing-key");
+  // What is only a mention of the folder, or in its own folder, is let through.
+  assert.equal(ask("bash", ["find / -name x"]), false);
+  assert.equal(ask("read", [`${own}/notes.md`]), false);
+  assert.equal(ask("webfetch", ["https://example.com"]), false);
+});

@@ -292,3 +292,52 @@ export function classify(args: {
     add({ rule: "obfuscation", severity: "low", target: "(command)", source: "command" });
   return [...found.values()];
 }
+
+const PATH_ASKS = new Set([
+  "read",
+  "edit",
+  "write",
+  "patch",
+  "apply_patch",
+  "grep",
+  "glob",
+  "list",
+  "external_directory",
+]);
+
+/**
+ * The same, for what the agent has asked leave to do before doing it: a permission names a tool and the
+ * paths or the command it wants. Only here can anything be turned down before it happens.
+ */
+export function classifyAsk(args: {
+  permission: string;
+  patterns: string[];
+  metadata?: unknown;
+  cwd: string;
+  env: Record<string, string | undefined>;
+  setup: WatchSetup;
+}): Finding[] {
+  const { permission, patterns, cwd, env, setup } = args;
+  const meta = (args.metadata ?? {}) as { command?: unknown; filepath?: unknown };
+  const found = new Map<string, Finding>();
+  const keep = (list: Finding[]) => {
+    // One finding to a rule: the command and the folder it was asked as are one thing.
+    for (const finding of list) if (!found.has(finding.rule)) found.set(finding.rule, finding);
+  };
+  const asRead = (path: string) =>
+    classify({ tool: "read", input: { filePath: path }, cwd, env, setup });
+  const asBash = (command: string) =>
+    classify({ tool: "bash", input: { command }, cwd, env, setup });
+  // A shell command that reaches outside the folder it works in is asked about as that folder, with the
+  // command it came from alongside: the command says more than the folder does.
+  if (typeof meta.command === "string") keep(asBash(meta.command));
+  else if (permission === "bash") keep(asBash(patterns.join(" ; ")));
+  if (typeof meta.filepath === "string") keep(asRead(meta.filepath));
+  if (PATH_ASKS.has(permission))
+    for (const pattern of patterns) {
+      keep(asRead(pattern));
+      // OpenCode leaves the first slash off the path of a file it asks to read.
+      if (!/^[/~.]/.test(pattern)) keep(asRead(`/${pattern}`));
+    }
+  return [...found.values()];
+}

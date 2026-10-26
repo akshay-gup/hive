@@ -429,6 +429,7 @@ export async function createApp(
           replies: { bus, pool },
           channelFiles: agent.channelFiles,
           origin: () => link.origin,
+          setWatchMode: (mode) => watch.setMode(mode),
           directoryOf: (channelId, owner) => sessionDirectory(config, owner, channelId),
           standIns: () => agent.standInIds(),
           forgetChannel: (channelId) => agent.purgeChannel(channelId),

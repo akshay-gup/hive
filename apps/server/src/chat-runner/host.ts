@@ -1,3 +1,4 @@
+import type { WatchMode } from "../../../../packages/domain/src/agent-watch.ts";
 import type {
   PromptChoice,
   RoomFrame,
@@ -33,6 +34,8 @@ export interface HostDeps {
   replies: TrackerReplyDeps;
   /** The chat service's address, which the addresses of a message's files are on. */
   origin: () => string | null;
+  /** What the room says is to be done when the agent is seen opening the machine's own data. */
+  setWatchMode?: (mode: WatchMode) => void;
   /** The folder a channel's work is in. */
   directoryOf: (channelId: string, owner: string) => string;
   /** Reads a file of a channel's folder, to put it in the agent's reply. */
@@ -160,7 +163,11 @@ export class ChatRunnerHost {
 
   onFrame(frame: RoomFrame) {
     switch (frame.t) {
+      case "watch":
+        this.deps.setWatchMode?.(frame.mode);
+        return;
       case "welcome": {
+        this.deps.setWatchMode?.(frame.watch ?? "audit");
         // What the room does not want kept is stopped, and nothing more is said of it.
         const keep = new Set(frame.resume);
         for (const run of this.runs.values())

@@ -41,6 +41,8 @@ export interface AskedPermissionProps {
   permission: string;
   patterns: string[];
   tool?: { messageID: string; callID: string };
+  /** What OpenCode adds to the ask (for a shell command, what it will run). */
+  metadata?: unknown;
 }
 
 /** One thing the agent asks the person, as its question tool words it. */
@@ -139,13 +141,20 @@ export class PermissionTracker {
     deps: TrackerReplyDeps,
     requestId: string,
     reply: PermissionReply,
+    /** What the agent is told when it is turned down. */
+    message?: string,
   ): Promise<PendingPermissionRequest> {
     const request = this.pending.get(requestId);
     if (!request) throw new Error(`Permission request ${requestId} is not pending`);
     await deps.bus.enqueue(request.scope, () =>
       deps.pool
         .forDirectory(request.directory)
-        .permission.reply({ requestID: requestId, directory: request.directory, reply })
+        .permission.reply({
+          requestID: requestId,
+          directory: request.directory,
+          reply,
+          ...(message ? { message } : {}),
+        })
         .then((result: { error?: unknown }) => {
           if (result.error)
             throw new Error(

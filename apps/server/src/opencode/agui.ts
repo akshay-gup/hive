@@ -322,7 +322,8 @@ interface ToolTrack {
 type AguiEvent = Record<string, unknown>;
 
 export interface TranslatorPermissionHooks {
-  onAsked?: (props: AskedPermissionProps) => void;
+  /** True if the ask was turned down on the spot: nobody is then asked. */
+  onAsked?: (props: AskedPermissionProps) => boolean | undefined;
   onReplied?: (requestId: string) => void;
   /** The agent asked the person a question (see approvals.ts), and later it was answered or turned down. */
   onQuestion?: (props: AskedQuestionProps) => void;
@@ -405,8 +406,9 @@ export class RunTranslator {
           permission: props.permission as string,
           patterns: (props.patterns as string[]) ?? [],
           tool: props.tool as { messageID: string; callID: string } | undefined,
+          metadata: props.metadata,
         };
-        this.permissionHooks.onAsked?.(asked);
+        if (this.permissionHooks.onAsked?.(asked)) return;
         // Phase 3 surfaces this for user reply; until then it is informational.
         this.send({
           type: "CUSTOM",
@@ -863,18 +865,36 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       stripped || "(summoned by mention with no additional text — see the conversation above)";
     const fileParts = chat ? chat.files : promptFileParts(messages);
 
+    const watching = deps.watch?.forRun({
+      scope: chat ? "channel" : "own-chat",
+      ...(chat ? { runId: input.runId } : {}),
+      directory,
+    });
     const translator = new RunTranslator(input, send, finish, {
       onAsked: (asked) => {
+        const scope = {
+          scope: input.threadId,
+          threadId: input.threadId,
+          channelId: binding.channelId,
+          directory,
+        };
+        // What the agent asks leave for is looked at before anyone is asked; in the stricter mode what reaches
+        // the machine's own data is turned down here.
+        if (watching?.asked(asked)) {
+          deps.tracker.record(scope, asked);
+          void deps.tracker
+            .reply(
+              deps,
+              asked.id,
+              "reject",
+              "That is the workspace's own data, which this agent is not to open. Do not look for another way to it; say so and carry on with what else was asked.",
+            )
+            .catch(() => undefined);
+          return true;
+        }
         waiting(asked.id, true);
-        deps.tracker.record(
-          {
-            scope: input.threadId,
-            threadId: input.threadId,
-            channelId: binding.channelId,
-            directory,
-          },
-          asked,
-        );
+        deps.tracker.record(scope, asked);
+        return undefined;
       },
       onReplied: (requestId) => {
         waiting(requestId, false);
@@ -900,11 +920,6 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       },
     });
     ctx.translator = translator;
-    const watching = deps.watch?.forRun({
-      scope: chat ? "channel" : "own-chat",
-      ...(chat ? { runId: input.runId } : {}),
-      directory,
-    });
     ctx.unsubscribe = deps.bus.onEvent(input.threadId, (event) => {
       translator.handle(event);
       watching?.(event);

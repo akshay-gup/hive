@@ -449,7 +449,7 @@ export function PeopleSheet() {
       )}
       {manages && (
         <View style={{ marginTop: 28 }}>
-          <AgentFlags />
+          <AgentFlags owner={mine === "owner"} />
         </View>
       )}
 

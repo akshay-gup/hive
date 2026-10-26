@@ -22,6 +22,7 @@ const when = (at: string) => {
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 interface Answer {
+  mode: "audit" | "enforce";
   unreviewed: number;
   flags: FlagRow[];
 }
@@ -31,7 +32,7 @@ interface Answer {
  * other channels' folders), for an owner or admin. It is a watch and not a lock: the agent has the machine,
  * so this marks what it can see, and says who asked and where.
  */
-export function AgentFlags() {
+export function AgentFlags({ owner }: { owner: boolean }) {
   const { api } = useWorkspace();
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [busy, setBusy] = useState("");
@@ -67,6 +68,19 @@ export function AgentFlags() {
     }
   }
 
+  async function setMode(mode: "audit" | "enforce") {
+    setBusy("mode");
+    setError("");
+    try {
+      await api.request("/chat/v1/agent-watch", { mode }, "PUT");
+      await load();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  }
+
   const rows = [...(answer?.flags ?? [])].sort(flagOrder);
   return (
     <View style={{ gap: 12 }}>
@@ -77,6 +91,30 @@ export function AgentFlags() {
         this shows what was seen, and cannot stop it.
       </Text>
       <ErrorNotice error={error} />
+      {answer && (
+        <View style={{ gap: 8 }}>
+          <Text style={s.text}>
+            {answer.mode === "enforce"
+              ? "Refusing is on: what the agent asks leave for and that reaches this data is turned down."
+              : "Refusing is off: it is only marked."}
+          </Text>
+          <Text style={s.small}>
+            Every request from a channel asks first, so those can be turned down before they happen.
+            The agent can still go around with root, and runs that do not ask are only marked.
+          </Text>
+          {owner && (
+            <View style={s.row}>
+              <Button
+                small
+                busy={busy === "mode"}
+                onPress={() => void setMode(answer.mode === "enforce" ? "audit" : "enforce")}
+              >
+                {answer.mode === "enforce" ? "Turn refusing off" : "Turn refusing on"}
+              </Button>
+            </View>
+          )}
+        </View>
+      )}
       {!answer ? (
         <Pending height={72} />
       ) : (

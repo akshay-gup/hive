@@ -24,6 +24,7 @@ import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { first, type Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
 import type { Channel, ChannelFootprint } from "../../../packages/domain/src/agent.ts";
+import { WATCH_MODES } from "../../../packages/domain/src/agent-watch.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
 import { choiceSchema } from "../../../packages/domain/src/chat-agent.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
@@ -575,6 +576,7 @@ export class ChatCore {
         (await this.store.list<Channel>(SHARED_OWNER, "channels")).map((ch) => [ch.id, ch.name]),
       );
       return c.json({
+        mode: await this.agent.watchMode(),
         unreviewed: this.flags.unreviewed(),
         flags: this.flags.list().map((flag) => ({
           ...flag,
@@ -584,6 +586,14 @@ export class ChatCore {
           ...(flag.channelId ? { channelName: channels.get(flag.channelId) } : {}),
         })),
       });
+    });
+    // Only the owner changes what is done about it.
+    app.put("/v1/agent-watch", async (c) => {
+      const person = await this.access.person(c.get("owner"));
+      if (person?.role !== "owner") throw new AppError("Not found", 404);
+      const { mode } = z.object({ mode: z.enum(WATCH_MODES) }).parse(await body(c));
+      await this.agent.setWatchMode(mode);
+      return c.json({ mode });
     });
     app.post("/v1/agent-flags/review", async (c) => {
       await watcher(c.get("owner"));

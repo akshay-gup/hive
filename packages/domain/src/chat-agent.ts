@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { watchFindingSchema } from "./agent-watch.ts";
+import { type WatchMode, watchFindingSchema } from "./agent-watch.ts";
 
 /**
  * How the agent and the chat service talk. The agent's reply to a mention is one message (`author_kind`
@@ -216,7 +216,9 @@ export interface ContextMessage {
 }
 
 export type RoomFrame =
-  | { t: "welcome"; limits: { maxRunMs: number }; resume: string[] }
+  | { t: "welcome"; limits: { maxRunMs: number }; resume: string[]; watch?: WatchMode }
+  /** The owner changed what is done when the agent is seen opening the machine's own data. */
+  | { t: "watch"; mode: WatchMode }
   | { t: "run.start"; run: RunStart }
   | {
       t: "run.answer";
