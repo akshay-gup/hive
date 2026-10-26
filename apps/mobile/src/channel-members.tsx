@@ -1,9 +1,19 @@
-import { Archive, Bell, BellOff, LogOut, UserMinus, UserPlus, Users } from "lucide-react-native";
+import {
+  Archive,
+  Bell,
+  BellOff,
+  LogOut,
+  Trash2,
+  UserMinus,
+  UserPlus,
+  Users,
+} from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { ChannelPeopleView } from "../../../packages/domain/src/agent";
 import { useManagesAccess } from "./access";
 import { ArchiveChannelSheet } from "./channel-archive";
+import { DeleteChannelSheet } from "./channel-delete";
 import { channelsChanged } from "./channel-events";
 import { Confirm } from "./confirm";
 import { useHosted } from "./hosted/context";
@@ -73,6 +83,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [archiving, setArchiving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const notices = usePrefs();
   const base = `/api/agent/channels/${encodeURIComponent(channelId)}`;
 
@@ -455,6 +466,20 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
             </View>
           )}
 
+          {you?.delete && (
+            <View style={{ gap: 6 }}>
+              <Text style={s.small}>
+                Take the channel away with everything in it: its messages, files and the agent's
+                work here. This cannot be undone.
+              </Text>
+              <View style={s.row}>
+                <Button small danger icon={Trash2} onPress={() => setDeleting(true)}>
+                  Delete channel…
+                </Button>
+              </View>
+            </View>
+          )}
+
           {you?.leave && (
             <View style={s.row}>
               <Confirm
@@ -467,6 +492,24 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
             </View>
           )}
         </View>
+      )}
+      {deleting && (
+        <DeleteChannelSheet
+          id={channelId}
+          name={view?.name ?? name ?? channelId}
+          onClose={() => setDeleting(false)}
+          onArchiveInstead={() => {
+            setDeleting(false);
+            setArchiving(true);
+          }}
+          onDeleted={() => {
+            setDeleting(false);
+            // It is gone for everyone: move to somewhere that is still there.
+            close();
+            if (mainId) select({ id: mainId, existing: true });
+            else retry();
+          }}
+        />
       )}
       {archiving && (
         <ArchiveChannelSheet

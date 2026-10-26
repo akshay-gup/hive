@@ -926,3 +926,45 @@ test("a file someone else sent, or one in another channel, cannot be put in the 
   );
   assert.equal((await replyTo(asked.id)).files.length, 0);
 });
+
+test("deleting a channel tells the machine, and a machine that asks is told which of its channels are gone", async () => {
+  const room = await make("max", "Design");
+  const keep = await make("max", "Keep");
+  const machine = connectMachine();
+  await hello();
+  const sent = (m: ReturnType<typeof connectMachine>) =>
+    m.frames.filter((f) => f.t === "channels.gone").flatMap((f) => (f as { ids: string[] }).ids);
+  assert.equal((await call("max", "DELETE", `/v1/channels/${room.id}`)).status, 200);
+  await settle();
+  assert.deepEqual(sent(machine), [room.id]);
+  // A machine that was off when it happened asks when it comes back, and is told only of the gone ones.
+  const later = connectMachine();
+  await hello();
+  await fromMachine({ t: "channels.have", ids: [room.id, keep.id, "never-was"] });
+  assert.deepEqual(sent(later).sort(), [room.id, "never-was"].sort());
+});
+
+test("those who may delete a channel are shown what is in it first, and others are refused", async () => {
+  const room = await make("max", "Planning");
+  await post("max", room.id, "one");
+  const two = await post("max", room.id, "two");
+  await post("mia", room.id, "a reply", { threadRoot: two.id });
+  const asked = await call("max", "GET", `/v1/channels/${room.id}/footprint`);
+  assert.equal(asked.status, 200);
+  const footprint = (await asked.json()) as Record<string, number>;
+  assert.equal(footprint.messages, 3);
+  assert.equal(footprint.threads, 1);
+  assert.equal(footprint.files, 0);
+  assert.ok(footprint.people >= 2);
+  // Mia is a member, not a manager.
+  assert.equal((await call("mia", "GET", `/v1/channels/${room.id}/footprint`)).status, 403);
+  assert.equal((await call("mia", "DELETE", `/v1/channels/${room.id}`)).status, 403);
+  const view = (await (await call("max", "GET", `/v1/channels/${room.id}/members`)).json()) as {
+    you: { delete: boolean };
+  };
+  assert.equal(view.you.delete, true);
+  const theirs = (await (await call("mia", "GET", `/v1/channels/${room.id}/members`)).json()) as {
+    you: { delete: boolean };
+  };
+  assert.equal(theirs.you.delete, false);
+});

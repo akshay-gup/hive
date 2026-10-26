@@ -39,3 +39,7 @@ test("what belongs to the agent stays with the workspace server", () => {
   ])
     assert.equal(chatPathOf(path), null, path);
 });
+
+test("what a channel holds, shown before it is deleted, is asked of the chat service", () => {
+  assert.equal(chatPathOf("/api/agent/channels/abc/footprint"), "/v1/channels/abc/footprint");
+});

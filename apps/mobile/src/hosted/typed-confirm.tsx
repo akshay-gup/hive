@@ -19,6 +19,7 @@ export function TypedConfirmSheet({
   error,
   onConfirm,
   onClose,
+  also,
 }: {
   title: string;
   subtitle?: string;
@@ -31,9 +32,11 @@ export function TypedConfirmSheet({
   error: string;
   onConfirm: () => void;
   onClose: () => void;
+  /** Something else that has to be so before the button works, such as a box ticked. */
+  also?: boolean;
 }) {
   const [typed, setTyped] = useState("");
-  const ready = word === undefined || matchesConfirmation(typed, word);
+  const ready = (word === undefined || matchesConfirmation(typed, word)) && also !== false;
   return (
     <Sheet title={title} subtitle={subtitle} onClose={busy ? () => {} : onClose}>
       <View style={{ gap: 16 }}>

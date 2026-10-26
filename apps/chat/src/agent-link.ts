@@ -142,6 +142,8 @@ export class AgentLink {
         return this.rewrite(frame.runId, true);
       case "run.end":
         return this.end(frame);
+      case "channels.have":
+        return this.channelsHave(frame.ids);
       case "beat":
         this.deps.runs.beat(frame.runIds);
         return;
@@ -608,6 +610,16 @@ export class AgentLink {
     for (const run of this.deps.runs.active())
       if (run.channelId === channelId) await this.finish(run.id, "stopped", "access");
     this.deps.runs.removeOfChannel(channelId);
+    // What the machine kept for it goes too. A machine that is not here asks when it next connects.
+    this.send({ t: "channels.gone", ids: [channelId] });
+  }
+
+  /** The machine says which channels it keeps something for: it is told which no longer exist. */
+  private async channelsHave(ids: string[]): Promise<void> {
+    const gone: string[] = [];
+    for (const id of ids)
+      if (!(await this.deps.store.get<Channel>(SHARED_OWNER, "channels", id))) gone.push(id);
+    if (gone.length) this.send({ t: "channels.gone", ids: gone });
   }
 
   /** The machine's connection ended: what was sent and not taken goes back to wait for the next. */

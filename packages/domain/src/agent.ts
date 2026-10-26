@@ -532,7 +532,20 @@ export interface ChannelPeopleView {
     topic: boolean;
     /** Switch the agent on or off in the channel. */
     agent: boolean;
+    /** Take the channel away with everything in it: its managers, and the owner and admins. */
+    delete: boolean;
   };
+}
+/** What a channel holds, so the person about to delete it sees what would go. */
+export interface ChannelFootprint {
+  messages: number;
+  /** Conversations in threads, and the replies in them. */
+  threads: number;
+  files: number;
+  fileBytes: number;
+  people: number;
+  /** The agent's work in it, which goes from the workspace machine too. */
+  agentRuns: number;
 }
 const emailAddress = z
   .string()

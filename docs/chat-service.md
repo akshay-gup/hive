@@ -101,6 +101,13 @@ something, the person who asked is told at once, not at the end; the notice is t
 the run is now. A prompt records, from the machine, how many steps and letters of the reply came before it, so the
 app shows it where it came up.
 
+**Deleting a channel** takes its messages, threads and files in the chat service, and tells the machine
+(`channels.gone`): it removes the agent's sessions in it, its folder, the tasks made or asked for there, and what
+the agent learned there, and only for a channel it holds as a stand-in (`createdBy: "chat"`). A machine that was
+off asks when it connects (`channels.have`) and is told which of its channels no longer exist, which also clears
+stand-ins left from before. The app asks three times: it shows what would go, with numbers, and offers archiving
+instead; the person ticks that they understand; and types the channel's name.
+
 What a run is shown stays on the machine's disk (the OpenCode session and the channel's folder) and is readable by
 any later run there. That is why a private channel has to be switched on, and why the machine is the workspace's.
 
@@ -108,7 +115,7 @@ any later run there. That is why a private channel has to be switched on, and wh
 
 Presence, search, pins, edit history, multipart uploads over 100 MB, push and email notifications, retention;
 for the agent: direct messages, an auto-approve mode and "always allow" rules, choices cards, requests for
-uploads, mail, goals and memory in channels, tidying the machine's stand-in folders,
+uploads, mail, goals and memory in channels,
 and keeping the machine awake while it works (a free plan on a host that stops idle machines can stop mid-run; on
 DigitalOcean nothing stops). A workspace server still has its own channel records, members and privacy rules, which the app no
 longer shows: channels in the app are the chat service's alone. Pictures are made smaller on the web and the

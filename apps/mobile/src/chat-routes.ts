@@ -5,7 +5,8 @@
  * agent (a channel's tasks, its threads with the agent, its working folder) stays with the workspace
  * server. A path that starts with `/chat/` is the chat service's own and goes there as it is.
  */
-const CHANNEL_PARTS = /^(members|managers|archive|mentionable|read|messages|since|threads|files)$/;
+const CHANNEL_PARTS =
+  /^(members|managers|archive|footprint|mentionable|read|messages|since|threads|files)$/;
 // A channel's threads and files in the chat service are its people's; the workspace server's (the
 // agent's) have other names: `/threads` and `/files` with an `agent` prefix, below.
 

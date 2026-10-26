@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { z } from "zod";
 import {
   Access,
@@ -1707,6 +1707,46 @@ export class AgentService {
     if ((await this.access.scope(owner)).person?.role === "guest")
       throw new AppError("A guest cannot see who is in the workspace", 403);
     return [...(await this.access.known())].map(([email, who]) => ({ email, ...who }));
+  }
+  /** The channels this machine keeps something for because the chat service asked the agent in them. */
+  async standInIds(): Promise<string[]> {
+    return (await this.db.list<Channel>(SHARED_OWNER, "channels"))
+      .filter((channel) => channel.createdBy === "chat")
+      .map((channel) => channel.id);
+  }
+  /**
+   * Take away everything this machine kept for a channel that was deleted in the chat service: the
+   * agent's sessions in it, its tasks and what came of them, what it learned there, its folder and
+   * its record. Only a channel the machine holds as a stand-in is touched, and a failure part-way
+   * leaves the record, so it is tried again when the machine next connects.
+   */
+  async purgeChannel(channelId: string): Promise<void> {
+    if (channelId === ORCHESTRATOR_CHANNEL_ID) return;
+    const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
+    if (channel?.createdBy !== "chat") return;
+    const directory = channelWorkspaceDir(this.config.dataDir, SHARED_OWNER, channelId);
+    const runtime = this.opencodeRuntime;
+    if (runtime)
+      for (const binding of await this.threads.list(SHARED_OWNER, channelId))
+        if (binding.opencodeSessionId)
+          await runtime.pool
+            .forDirectory(directory)
+            .session.delete({ sessionID: binding.opencodeSessionId, directory })
+            .catch(() => undefined);
+    // Work asked for in the channel would be there for everyone once the channel is not.
+    for (const task of await this.db.list<AgentTask>(SHARED_OWNER, "tasks")) {
+      if (task.channelId !== channelId && task.originChannelId !== channelId) continue;
+      this.worker.abort(task.id);
+      await this.db.remove(SHARED_OWNER, "tasks", task.id);
+      await this.taskFiles
+        .removeAll(task.id, this.workspaceOf(task, SHARED_OWNER))
+        .catch((error) => backgroundFailure("remove task files", error));
+    }
+    for (const kind of ["memories", "goals", "projects", "notifications"] as const)
+      for (const item of await this.db.list<{ id: string; channelId?: string }>(SHARED_OWNER, kind))
+        if (item.channelId === channelId) await this.db.remove(SHARED_OWNER, kind, item.id);
+    await rm(directory, { recursive: true, force: true });
+    await this.db.remove(SHARED_OWNER, "channels", channelId);
   }
   /** The workspace's projects by id: what a task is held against to know who may see it. */
   private async projectsById(owner: string): Promise<Map<string, Project>> {

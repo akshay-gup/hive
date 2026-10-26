@@ -157,6 +157,7 @@ export class ChannelPeople {
           setEveryone: false,
           topic: false,
           agent: false,
+          delete: false,
         },
       };
     return {
@@ -186,6 +187,7 @@ export class ChannelPeople {
         setEveryone: runs(person) && isPublic(channel),
         topic: channel.status !== "archived" && person.role !== "guest" && (runs(person) || inIt),
         agent: channel.status !== "archived" && manager,
+        delete: manager,
       },
     };
   }

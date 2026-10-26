@@ -154,6 +154,8 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     after: promptPlaceSchema.optional(),
   }),
   z.object({ t: z.literal("run.asked.done"), runId: text(100), promptId: text(100) }),
+  /** The channels the machine keeps something for, to be told which no longer exist. */
+  z.object({ t: z.literal("channels.have"), ids: z.array(text(100)).max(1000) }),
   z.object({
     t: z.literal("run.end"),
     runId: text(100),
@@ -223,6 +225,8 @@ export type RoomFrame =
     }
   | { t: "run.stop"; runId: string; by: string; reason: "user" | "access" | "timeout" }
   | { t: "ack"; runId: string }
+  /** These channels are gone (deleted): what the machine kept for them goes too. */
+  | { t: "channels.gone"; ids: string[] }
   /** Where to send a file's bytes: an address on the chat service, good for a few minutes. */
   | { t: "file.upload"; reqId: string; fileId: string; path: string }
   | { t: "file.attached"; reqId: string }

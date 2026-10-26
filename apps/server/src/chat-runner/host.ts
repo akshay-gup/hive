@@ -41,6 +41,9 @@ export interface HostDeps {
   maxRuns?: number;
   /** The name the agent goes by in the chat. */
   name?: string;
+  /** The channels this machine keeps something for, and a way to take it all away for one that is deleted. */
+  standIns?: () => Promise<string[]>;
+  forgetChannel?: (channelId: string) => Promise<void>;
   /** Told when runs begin and end, for whatever waits on the machine to be idle. */
   marks?: {
     set: (runId: string) => void | Promise<void>;
@@ -118,6 +121,37 @@ export class ChatRunnerHost {
       active: [...this.runs.values()].map((r) => ({ runId: r.runId, n: r.n })),
     });
     for (const frame of this.finals.values()) this.deps.send(frame);
+    // The room says which of the channels kept here are gone, whenever they were deleted.
+    void this.reportStandIns();
+  }
+
+  private async reportStandIns() {
+    try {
+      const ids = (await this.deps.standIns?.()) ?? [];
+      if (ids.length) this.deps.send({ t: "channels.have", ids });
+    } catch (error) {
+      this.log(`could not list the channels kept: ${String(error)}`);
+    }
+  }
+
+  /** What was kept for channels that are gone goes, unless the agent is working in one, which waits. */
+  private async forget(ids: string[], tries = 0) {
+    const busy: string[] = [];
+    for (const id of ids) {
+      if ([...this.runs.values()].some((run) => run.start.channel.id === id)) {
+        busy.push(id);
+        continue;
+      }
+      try {
+        await this.deps.forgetChannel?.(id);
+      } catch (error) {
+        this.log(`could not clear what was kept for ${id}: ${String(error)}`);
+      }
+    }
+    if (busy.length && tries < 12) {
+      const timer = setTimeout(() => void this.forget(busy, tries + 1), 5_000);
+      (timer as unknown as { unref?: () => void }).unref?.();
+    }
   }
 
   onClose() {
@@ -157,6 +191,9 @@ export class ChatRunnerHost {
       }
       case "ack":
         this.finals.delete(frame.runId);
+        return;
+      case "channels.gone":
+        void this.forget(frame.ids);
         return;
       case "file.upload":
       case "file.attached":

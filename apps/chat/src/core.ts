@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   Access,
+  canOpen,
   isDm,
   managesChannel,
   type Person,
@@ -19,9 +20,9 @@ import { Reads } from "../../../packages/chat-core/src/reads.ts";
 import { Runs } from "../../../packages/chat-core/src/runs.ts";
 import { migrate } from "../../../packages/chat-core/src/schema.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
-import type { Sql } from "../../../packages/chat-core/src/sql.ts";
+import { first, type Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
-import type { Channel } from "../../../packages/domain/src/agent.ts";
+import type { Channel, ChannelFootprint } from "../../../packages/domain/src/agent.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
 import { choiceSchema } from "../../../packages/domain/src/chat-agent.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
@@ -239,6 +240,34 @@ export class ChatCore {
     return { ok: true };
   }
 
+  /**
+   * What a channel holds, for the person about to delete it: they are shown what would go. For those
+   * who may delete it.
+   */
+  async channelFootprint(owner: string, channelId: string): Promise<ChannelFootprint> {
+    const person = await this.access.person(owner);
+    const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
+    if (!person || !channel || !canOpen(person, channel))
+      throw new AppError("Channel not found", 404);
+    if (isDm(channel) || !managesChannel(person, channel))
+      throw new AppError("Only a channel manager, an admin or the owner can delete a channel", 403);
+    const count = (query: string) => first<{ n: number }>(this.sql, query, channelId)?.n ?? 0;
+    return {
+      messages: count(
+        "SELECT COUNT(*) AS n FROM messages WHERE channel_id = ? AND deleted_at IS NULL",
+      ),
+      threads: count(
+        "SELECT COUNT(*) AS n FROM messages WHERE channel_id = ? AND reply_count > 0 AND deleted_at IS NULL",
+      ),
+      files: count("SELECT COUNT(*) AS n FROM files WHERE channel_id = ? AND state = 'ready'"),
+      fileBytes: count(
+        "SELECT COALESCE(SUM(bytes), 0) AS n FROM files WHERE channel_id = ? AND state = 'ready'",
+      ),
+      people: (await this.access.openers(channel)).length,
+      agentRuns: count("SELECT COUNT(*) AS n FROM runs WHERE channel_id = ?"),
+    };
+  }
+
   /** The ids of the people who may open a channel now; none for one that does not exist. */
   private async audience(channelId: string): Promise<Set<string>> {
     const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
@@ -357,6 +386,9 @@ export class ChatCore {
       await this.announceChange(id, before);
       return c.json(result);
     });
+    app.get("/v1/channels/:id/footprint", async (c) =>
+      c.json(await this.channelFootprint(c.get("owner"), c.req.param("id"))),
+    );
     app.delete("/v1/channels/:id", async (c) =>
       c.json(await this.deleteChannel(c.get("owner"), c.req.param("id"))),
     );

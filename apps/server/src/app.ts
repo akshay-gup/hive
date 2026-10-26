@@ -424,6 +424,8 @@ export async function createApp(
           channelFiles: agent.channelFiles,
           origin: () => link.origin,
           directoryOf: (channelId, owner) => sessionDirectory(config, owner, channelId),
+          standIns: () => agent.standInIds(),
+          forgetChannel: (channelId) => agent.purgeChannel(channelId),
           marks: {
             set: async (runId) => {
               await db.put(SHARED_OWNER, "live-chat-runs", { id: runId, startedAt: Date.now() });
