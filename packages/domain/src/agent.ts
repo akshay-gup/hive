@@ -200,7 +200,7 @@ export interface Goal {
   milestones: { id: string; title: string; done: boolean }[];
   createdAt: string;
   createdBy?: string;
-  /** The private channel it came out of, which keeps it from the people who are not in that channel. */
+  /** The channel it came out of, kept as a label. It does not keep the task from anyone: who may see it is its project's say, and the agent that made it can read the machine it is kept on. */
   channelId?: string;
 }
 /**
