@@ -52,7 +52,13 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     c.json(await service.updateProject(c.get("owner"), c.req.param("id"), await c.req.json())),
   );
   app.delete("/projects/:id", async (c) =>
-    c.json(await service.deleteProject(c.get("owner"), c.req.param("id"))),
+    c.json(
+      await service.deleteProject(
+        c.get("owner"),
+        c.req.param("id"),
+        await c.req.json().catch(() => ({})),
+      ),
+    ),
   );
   app.post("/tasks/:id/accept", async (c) =>
     c.json(await service.accept(c.get("owner"), c.req.param("id"))),

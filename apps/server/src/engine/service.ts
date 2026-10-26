@@ -30,6 +30,7 @@ import {
   createChannelSchema,
   createProjectSchema,
   createTaskSchema,
+  deleteProjectSchema,
   type Evidence,
   GENERAL_PROJECT_ID,
   type Goal,
@@ -1793,21 +1794,48 @@ export class AgentService {
     });
     return projectFor(scope.person, saved);
   }
-  /** Delete a project; its tasks move to General. */
-  async deleteProject(owner: string, id: string): Promise<{ deleted: string }> {
+  /**
+   * Delete a project. Its tasks move to another project, General unless one is named, or are deleted
+   * with it. Everything is checked before anything is changed.
+   */
+  async deleteProject(
+    owner: string,
+    id: string,
+    raw: unknown = {},
+  ): Promise<{ deleted: string; moved: number; removed: number }> {
+    const input = deleteProjectSchema.parse(raw ?? {});
     if (id === GENERAL_PROJECT_ID) throw new AppError("General cannot be deleted", 422);
+    const scope = await this.access.scope(owner);
     const project = await this.visibleProject(owner, id);
-    if (!managesProject((await this.access.scope(owner)).person, project))
+    if (!managesProject(scope.person, project))
       throw new AppError("Only a project admin can delete this project", 403);
+    const inside = (await this.db.list<AgentTask>(owner, "tasks")).filter(
+      (task) => task.projectId === id,
+    );
+    if (input.deleteTasks) {
+      if (
+        inside.some((task) => task.leaseId && ["running", "waiting_approval"].includes(task.status))
+      )
+        throw new AppError("Stop the tasks that are running before deleting the project", 409);
+      if (inside.some((task) => !canSeeTask(scope, task)))
+        throw new AppError(
+          "Some of its tasks belong to channels you cannot open, so move them instead",
+          409,
+        );
+    } else {
+      const target = input.moveTo ?? GENERAL_PROJECT_ID;
+      if (target === id) throw new AppError("Move the tasks to another project", 422);
+      await this.assertProjectWork(owner, target);
+    }
+    const target = input.moveTo ?? GENERAL_PROJECT_ID;
     await this.db.remove(owner, "projects", id);
-    for (const task of await this.db.list<AgentTask>(owner, "tasks"))
-      if (task.projectId === id)
-        await this.db.put(owner, "tasks", {
-          ...task,
-          projectId: GENERAL_PROJECT_ID,
-          updatedAt: date(),
-        });
-    return { deleted: id };
+    if (input.deleteTasks) {
+      for (const task of inside) await this.deleteTask(owner, task.id);
+      return { deleted: id, moved: 0, removed: inside.length };
+    }
+    for (const task of inside)
+      await this.db.put(owner, "tasks", { ...task, projectId: target, updatedAt: date() });
+    return { deleted: id, moved: inside.length, removed: 0 };
   }
   async createMonitor(
     owner: string,

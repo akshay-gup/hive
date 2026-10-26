@@ -283,3 +283,47 @@ test("every task is in a project: work that names none is in General, which ever
   assert.equal((await call("max", "DELETE", `/api/agent/projects/${doomed.id}`)).status, 200);
   assert.equal((await tasksOf("max")).find((t) => t.id === inside.id)?.projectId, "general");
 });
+
+test("deleting a project moves its tasks to a project of the person's choosing, or deletes them with it", async () => {
+  const task = async (who: Who, project: Project, title: string) =>
+    (await json(await call(who, "POST", "/api/agent/tasks", manual(project, title)))) as AgentTask;
+  const from = await make("max", { name: "Old site" });
+  const to = await make("max", { name: "New site" });
+  const moved = await task("max", from, "Carry over");
+  const result = await call("max", "DELETE", `/api/agent/projects/${from.id}`, { moveTo: to.id });
+  assert.deepEqual(await json(result), { deleted: from.id, moved: 1, removed: 0 });
+  assert.equal((await tasksOf("max")).find((t) => t.id === moved.id)?.projectId, to.id);
+
+  // Not to itself, not to where the person may not work, and not both at once.
+  const keep = await make("max", { name: "Keep" });
+  const closed = await make("mia", { name: "Mia's own", access: "private" });
+  await task("max", keep, "Stays");
+  for (const [body, status] of [
+    [{ moveTo: keep.id }, 422],
+    [{ moveTo: closed.id }, 404],
+    [{ moveTo: "general", deleteTasks: true }, 422],
+  ] as const) {
+    const refused = await call("max", "DELETE", `/api/agent/projects/${keep.id}`, body);
+    assert.equal(refused.status, status, JSON.stringify(body));
+  }
+  assert.ok(
+    (await projectsOf("max")).some((p) => p.id === keep.id),
+    "still there",
+  );
+
+  // Deleting the tasks with it.
+  const gone = await task("max", keep, "Goes too");
+  const removed = await call("max", "DELETE", `/api/agent/projects/${keep.id}`, {
+    deleteTasks: true,
+  });
+  assert.deepEqual(await json(removed), { deleted: keep.id, moved: 0, removed: 2 });
+  assert.equal(
+    (await tasksOf("max")).some((t) => t.id === gone.id),
+    false,
+  );
+  // With nothing said, they go to General, as the agent's tool does.
+  const plain = await make("max", { name: "Plain" });
+  const kept = await task("max", plain, "Kept");
+  await call("max", "DELETE", `/api/agent/projects/${plain.id}`);
+  assert.equal((await tasksOf("max")).find((t) => t.id === kept.id)?.projectId, "general");
+});

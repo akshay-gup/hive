@@ -6,8 +6,8 @@ import {
   type ProjectAccess,
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
-import { AccessChoice, ProjectPeople } from "./project-access";
-import { accessLine } from "./project-text";
+import { AccessChoice, ProjectPeople, RadioRows } from "./project-access";
+import { accessLine, canWorkIn } from "./project-text";
 import {
   Button,
   colors,
@@ -151,6 +151,8 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
   );
 }
 
+const DELETE_TASKS = "__delete-tasks";
+
 /**
  * A project's settings: its name, how open it is and who is in it, for those who run it; to everyone
  * else, who can see and work on it. Deleting keeps its tasks in General.
@@ -165,8 +167,11 @@ export function ProjectManage({
   onClose: () => void;
 }) {
   const { api } = useWorkspace();
-  const { refresh } = useAgentWorkspace();
+  const { data, refresh } = useAgentWorkspace();
   const [name, setName] = useState(project.name);
+  const [deleting, setDeleting] = useState(false);
+  // What becomes of its tasks: another project, or gone with it.
+  const [fate, setFate] = useState<string>(GENERAL_PROJECT_ID);
   const [access, setAccess] = useState<ProjectAccess>(project.access ?? "open");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -195,7 +200,15 @@ export function ProjectManage({
     setError("");
     setBusy(true);
     try {
-      await api.request(`/api/agent/projects/${project.id}`, undefined, "DELETE");
+      await api.request(
+        `/api/agent/projects/${project.id}`,
+        taskCount === 0
+          ? undefined
+          : fate === DELETE_TASKS
+            ? { deleteTasks: true }
+            : { moveTo: fate },
+        "DELETE",
+      );
       await refresh();
       onClose();
     } catch (e) {
@@ -241,11 +254,46 @@ export function ProjectManage({
         )}
         <ProjectPeople project={project} />
         {canManage && project.id !== GENERAL_PROJECT_ID && (
-          <View style={{ gap: 8 }}>
+          <View style={{ gap: 12 }}>
+            {deleting && taskCount > 0 && (
+              <View style={{ gap: 8 }}>
+                <Text style={s.label}>
+                  What should happen to its {taskCount} task{taskCount === 1 ? "" : "s"}?
+                </Text>
+                <RadioRows
+                  label="What happens to its tasks"
+                  value={fate}
+                  onChange={(next) => {
+                    setFate(next);
+                    setArmed(false);
+                  }}
+                  disabled={busy}
+                  options={[
+                    ...(data?.projects ?? [])
+                      .filter((other) => other.id !== project.id && canWorkIn(other))
+                      .sort(
+                        (a, b) =>
+                          Number(b.id === GENERAL_PROJECT_ID) - Number(a.id === GENERAL_PROJECT_ID),
+                      )
+                      .map((other) => ({ id: other.id, title: `Move them to ${other.name}` })),
+                    {
+                      id: DELETE_TASKS,
+                      title: "Delete them with the project",
+                      detail: "They are removed for good, with their notes and files.",
+                    },
+                  ]}
+                />
+              </View>
+            )}
             <Button
               danger
               disabled={busy}
               onPress={() => {
+                // A project with nothing in it, and one whose tasks are to move, ask once; deleting tasks asks twice.
+                if (!deleting && taskCount > 0) {
+                  setDeleting(true);
+                  return;
+                }
                 if (armed) void remove();
                 else {
                   setArmed(true);
@@ -253,9 +301,24 @@ export function ProjectManage({
                 }
               }}
             >
-              {armed ? "Tap again to confirm delete" : "Delete project"}
+              {armed
+                ? fate === DELETE_TASKS && taskCount > 0
+                  ? `Tap again to delete the project and ${taskCount} task${taskCount === 1 ? "" : "s"}`
+                  : "Tap again to confirm delete"
+                : "Delete project"}
             </Button>
-            <Text style={s.small}>Deleting keeps its tasks — they move to General.</Text>
+            {deleting && (
+              <Button
+                small
+                disabled={busy}
+                onPress={() => {
+                  setDeleting(false);
+                  setArmed(false);
+                }}
+              >
+                Cancel
+              </Button>
+            )}
           </View>
         )}
       </View>

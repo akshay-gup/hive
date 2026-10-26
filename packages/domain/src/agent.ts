@@ -254,6 +254,16 @@ export const updateProjectSchema = z.object({
   members: z.array(projectMemberSchema).max(200).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
+/** What becomes of a deleted project's tasks: they move to another project (General when it does not say), or are deleted with it. */
+export const deleteProjectSchema = z
+  .object({
+    moveTo: z.string().trim().min(1).max(80).optional(),
+    deleteTasks: z.boolean().optional(),
+  })
+  .refine((value) => !(value.moveTo && value.deleteTasks), {
+    message: "Move the tasks or delete them, not both",
+  });
+export type DeleteProjectInput = z.infer<typeof deleteProjectSchema>;
 export interface Monitor {
   id: string;
   taskId: string;

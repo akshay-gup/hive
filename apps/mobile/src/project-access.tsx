@@ -14,19 +14,23 @@ import { useWorkspace } from "./workspace";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/** How open a project is: one of three, each with what it means. */
-export function AccessChoice({
+/** One choice of several, each with a line on what it means. */
+export function RadioRows<T extends string>({
+  label,
+  options,
   value,
   onChange,
   disabled,
 }: {
-  value: ProjectAccess;
-  onChange: (access: ProjectAccess) => void;
+  label: string;
+  options: { id: T; title: string; detail?: string }[];
+  value: T;
+  onChange: (id: T) => void;
   disabled?: boolean;
 }) {
   return (
-    <View style={{ gap: 8 }} accessibilityRole="radiogroup" accessibilityLabel="Who can see it">
-      {accessChoices.map((choice) => {
+    <View style={{ gap: 8 }} accessibilityRole="radiogroup" accessibilityLabel={label}>
+      {options.map((choice) => {
         const on = choice.id === value;
         return (
           <Pressable
@@ -69,12 +73,33 @@ export function AccessChoice({
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[s.text, { fontWeight: "600" }]}>{choice.title}</Text>
-              <Text style={s.small}>{choice.detail}</Text>
+              {!!choice.detail && <Text style={s.small}>{choice.detail}</Text>}
             </View>
           </Pressable>
         );
       })}
     </View>
+  );
+}
+
+/** How open a project is: one of three, each with what it means. */
+export function AccessChoice({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ProjectAccess;
+  onChange: (access: ProjectAccess) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <RadioRows
+      label="Who can see it"
+      options={accessChoices}
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+    />
   );
 }
 
