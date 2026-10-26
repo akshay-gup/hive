@@ -227,8 +227,6 @@ export interface Project {
   description?: string;
   createdAt: string;
   updatedAt: string;
-  /** The private channel it came out of, which keeps it from the people who are not in that channel. */
-  channelId?: string;
   /** Who may see and work on it; open when it does not say. */
   access?: ProjectAccess;
   members?: ProjectMember[];

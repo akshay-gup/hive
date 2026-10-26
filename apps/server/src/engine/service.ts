@@ -848,11 +848,7 @@ export class AgentService {
       ),
       goals: goals.filter((goal) => !goal.channelId || scope.allows(goal.channelId)),
       projects: projects
-        .filter(
-          (project) =>
-            (!project.channelId || scope.allows(project.channelId)) &&
-            canViewProject(scope.person, project),
-        )
+        .filter((project) => canViewProject(scope.person, project))
         .map((project) => projectFor(scope.person, project)),
       monitors: monitors.filter((monitor) => !monitor.taskId || !hidden.has(monitor.taskId)),
       ideas,
@@ -1742,7 +1738,7 @@ export class AgentService {
         .removeAll(task.id, this.workspaceOf(task, SHARED_OWNER))
         .catch((error) => backgroundFailure("remove task files", error));
     }
-    for (const kind of ["memories", "goals", "projects", "notifications"] as const)
+    for (const kind of ["memories", "goals", "notifications"] as const)
       for (const item of await this.db.list<{ id: string; channelId?: string }>(SHARED_OWNER, kind))
         if (item.channelId === channelId) await this.db.remove(SHARED_OWNER, kind, item.id);
     await rm(directory, { recursive: true, force: true });
@@ -1783,7 +1779,7 @@ export class AgentService {
     if (write && project && !canWorkInProject(scope.person, project))
       throw new AppError("You can look at this project but not change what is in it", 403);
   }
-  async createProject(owner: string, raw: unknown, channelId?: string): Promise<Project> {
+  async createProject(owner: string, raw: unknown): Promise<Project> {
     const input = createProjectSchema.parse(raw);
     const person = (await this.access.scope(owner)).person;
     if (person?.role === "guest") throw new AppError("A guest cannot start a project", 403);
@@ -1797,7 +1793,6 @@ export class AgentService {
       // Who makes it runs it. Where there are no roles there is nobody to name.
       members: person?.email ? [{ email: person.email, role: "admin" }] : [],
       createdBy: owner,
-      ...(channelId ? { channelId } : {}),
     };
     return projectFor(person, await this.db.put(owner, "projects", project));
   }

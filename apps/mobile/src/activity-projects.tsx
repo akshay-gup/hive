@@ -207,7 +207,7 @@ export function ProjectsList({ onPick }: { onPick?: () => void }) {
       </View>
       {projects.map((project) =>
         row(project.id, project.name, letter(project.name), {
-          lock: !!project.channelId || project.access === "private",
+          lock: project.access === "private",
           project,
         }),
       )}

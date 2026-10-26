@@ -295,7 +295,7 @@ export function conversationTools(
         name: z.string().trim().min(1).max(80),
         description: z.string().trim().max(500).optional(),
       }),
-      execute: async (args) => service.createProject(owner, args, await privateChannel()),
+      execute: async (args) => service.createProject(owner, args),
     }),
     defineTool({
       name: "update_project",
