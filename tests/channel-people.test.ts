@@ -109,9 +109,15 @@ test("a channel made before people could join channels is open to the whole team
   );
 });
 
-/** A private channel with a conversation and a piece of work in it, and who is in it. */
+/**
+ * A private channel with a conversation in it, and a piece of work in a private project of its own: who sees
+ * the work is the project's say, and not the channel's.
+ */
 async function finance() {
   const channel = await make("max", "Finance", "private");
+  const project = (await json(
+    await call("max", "POST", "/api/agent/projects", { name: "Finance", access: "private" }),
+  )) as { id: string };
   const thread = (await world.server.agent.registerThread(
     world.owner("max"),
     channel.id,
@@ -120,6 +126,7 @@ async function finance() {
   const task = (await world.server.agent.createTask(world.owner("max"), {
     prompt: "Check the payroll run",
     channelId: channel.id,
+    projectId: project.id,
   })) as AgentTask;
   return { channel, thread, task };
 }
@@ -157,14 +164,6 @@ test("a private channel is found only by the people in it, whoever else is askin
     ["GET", `/api/conversation?threadId=channel:${channel.id}`],
     ["GET", `/api/conversation?threadId=${thread.threadId}`],
     ["PUT", `/api/conversation?threadId=${thread.threadId}`, { messages: [] }],
-    ["GET", `/api/agent/tasks/${task.id}`],
-    ["PATCH", `/api/agent/tasks/${task.id}`, { title: "Different" }],
-    ["DELETE", `/api/agent/tasks/${task.id}`],
-    ["POST", `/api/agent/tasks/${task.id}/notes`, { text: "hello" }],
-    ["POST", `/api/agent/tasks/${task.id}/control`, { action: "pause" }],
-    ["POST", `/api/agent/tasks/${task.id}/input`, { answer: "yes" }],
-    ["POST", `/api/agent/tasks/${task.id}/accept`, {}],
-    ["POST", `/api/agent/tasks/${task.id}/delegate`, { target: "orchestrator" }],
     ["POST", "/api/agent/tasks", { title: "x", kind: "manual", channelId: channel.id }],
     ["POST", "/api/agent/threads/bind", { threadId: "t-new", channelId: channel.id }],
     ["GET", `/api/agent/opencode/live?threadId=${thread.threadId}`],
@@ -195,6 +194,22 @@ test("a private channel is found only by the people in it, whoever else is askin
         assert.match(error, /not found/i, `${who} ${method} ${path}: ${error}`);
       }
     }
+  // Its work is the project's: those who may not see the project are told there is no such task, and the
+  // owner and admins, who see every project, are not.
+  const ofTask: [string, string, unknown?][] = [
+    ["GET", `/api/agent/tasks/${task.id}`],
+    ["PATCH", `/api/agent/tasks/${task.id}`, { title: "Different" }],
+    ["DELETE", `/api/agent/tasks/${task.id}`],
+    ["POST", `/api/agent/tasks/${task.id}/notes`, { text: "hello" }],
+    ["POST", `/api/agent/tasks/${task.id}/control`, { action: "pause" }],
+    ["POST", `/api/agent/tasks/${task.id}/input`, { answer: "yes" }],
+    ["POST", `/api/agent/tasks/${task.id}/accept`, {}],
+    ["POST", `/api/agent/tasks/${task.id}/delegate`, { target: "orchestrator" }],
+  ];
+  for (const [method, path, body] of ofTask)
+    assert.equal((await call("mia", method, path, body)).status, 404, `mia ${method} ${path}`);
+  assert.equal((await call("ada", "GET", `/api/agent/tasks/${task.id}`)).status, 200);
+  assert.equal((await call("olive", "GET", `/api/agent/tasks/${task.id}`)).status, 200);
   // The people in it use all of it.
   for (const path of ["tasks", "threads", "files", "members"])
     assert.equal(
@@ -218,7 +233,7 @@ test("a private channel is found only by the people in it, whoever else is askin
   );
 });
 
-test("the work and the notices of a private channel are shown to the people in it", async () => {
+test("the work in a private project, and the notices of it, are shown to its people and to those who run the workspace", async () => {
   const { channel, task } = await privateWorld();
   await world.server.agent.notify(world.owner("max"), "Payroll is ready", "Look it over", task.id);
   await world.db.put("shared", "memories", {
@@ -244,16 +259,23 @@ test("the work and the notices of a private channel are shown to the people in i
   assert.ok(mine.tasks.some((t) => t.id === task.id));
   assert.ok(mine.notifications.some((n) => n.taskId === task.id));
   assert.deepEqual(mine.memories.map((m) => m.id).sort(), ["mem-finance", "mem-team"]);
+  // What the agent learned in the channel is the channel's; the work is the project's.
   for (const who of ["mia", "ada", "olive"] as const) {
     const theirs = await seen(who);
-    assert.ok(!theirs.tasks.some((t) => t.id === task.id), who);
-    assert.ok(!theirs.notifications.some((n) => n.taskId === task.id), who);
     assert.deepEqual(
       theirs.memories.map((m) => m.id),
       ["mem-team"],
       who,
     );
   }
+  const mia = await seen("mia");
+  assert.ok(!mia.tasks.some((t) => t.id === task.id));
+  assert.ok(!mia.notifications.some((n) => n.taskId === task.id));
+  for (const who of ["ada", "olive"] as const)
+    assert.ok(
+      (await seen(who)).tasks.some((t) => t.id === task.id),
+      who,
+    );
   const notifications = (await json(await call("mia", "GET", "/api/agent/notifications"))) as {
     taskId?: string;
   }[];
@@ -398,7 +420,7 @@ test("what the agent learns in a private channel stays in it", async () => {
   assert.ok(miaSees.some((m) => m.id === shared.id));
 });
 
-test("goals, projects and monitors the agent makes in a private channel are shown only to the people in it", async () => {
+test("goals the agent makes in a private channel are shown only to the people in it, and monitors follow their task", async () => {
   const { channel, thread, task } = await privateWorld();
   const tool = (name: string, channelId: string) => {
     const found = conversationTools(
@@ -425,10 +447,7 @@ test("goals, projects and monitors the agent makes in a private channel are show
     );
   };
   const goal = await tool("create_goal", channel.id);
-  const project = await tool("create_project", channel.id);
-  const open = await make("max", "Open air");
-  const plain = await tool("create_project", open.id);
-  // A monitor belongs to its task, which is the channel's.
+  // A monitor belongs to its task, which is its project's.
   await world.db.put("shared", "monitors", {
     id: "mon-finance",
     taskId: task.id,
@@ -444,24 +463,19 @@ test("goals, projects and monitors the agent makes in a private channel are show
   const seen = async (who: Who) =>
     (await json(await call(who, "GET", "/api/agent"))) as {
       goals: { id: string }[];
-      projects: { id: string }[];
       monitors: { id: string }[];
     };
   const mine = await seen("max");
   assert.ok(mine.goals.some((g) => g.id === goal.id));
-  assert.ok(mine.projects.some((p) => p.id === project.id));
   assert.ok(mine.monitors.some((m) => m.id === "mon-finance"));
-  for (const who of ["mia", "ada", "olive"] as const) {
-    const theirs = await seen(who);
-    assert.ok(!theirs.goals.some((g) => g.id === goal.id), who);
-    assert.ok(!theirs.projects.some((p) => p.id === project.id), who);
-    assert.ok(!theirs.monitors.some((m) => m.id === "mon-finance"), who);
-    // What the agent made in a public channel is the workspace's, as it was.
+  for (const who of ["mia", "ada", "olive"] as const)
+    assert.ok(!(await seen(who)).goals.some((g) => g.id === goal.id), who);
+  assert.ok(!(await seen("mia")).monitors.some((m) => m.id === "mon-finance"));
+  for (const who of ["ada", "olive"] as const)
     assert.ok(
-      theirs.projects.some((p) => p.id === plain.id),
+      (await seen(who)).monitors.some((m) => m.id === "mon-finance"),
       who,
     );
-  }
 });
 
 test("anyone in a private channel can add and take out people, and the last one cannot leave", async () => {

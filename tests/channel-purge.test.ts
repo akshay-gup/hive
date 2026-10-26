@@ -11,7 +11,7 @@ import type { AgentMemory, AgentTask, Channel } from "../packages/domain/src/age
 
 /**
  * What the agent's machine keeps for a channel it was mentioned in goes when the channel is deleted in the
- * chat service: its folder, its threads, its tasks and what the agent learned there. Only a channel the
+ * chat service: its folder, its threads and what the agent learned there. Only a channel the
  * machine holds as a stand-in is touched.
  */
 let db: Store;
@@ -77,7 +77,7 @@ async function keepSomething(id: string, createdBy: string) {
   return { folder, task };
 }
 
-test("everything the machine kept for a deleted channel goes: folder, threads, tasks, what it learned, the record", async () => {
+test("everything the machine kept for a deleted channel goes: folder, threads, what it learned, the record; its tasks, which are their projects', stay", async () => {
   const gone = await keepSomething("chat-gone", "chat");
   const kept = await keepSomething("chat-kept", "chat");
   assert.deepEqual((await server.agent.standInIds()).sort(), ["chat-gone", "chat-kept"]);
@@ -85,7 +85,8 @@ test("everything the machine kept for a deleted channel goes: folder, threads, t
   await server.agent.purgeChannel("chat-gone");
 
   assert.equal(await db.get("shared", "channels", "chat-gone"), null);
-  assert.equal(await db.get("shared", "tasks", gone.task.id), null);
+  // Tasks belong to projects, not channels.
+  assert.ok(await db.get<AgentTask>("shared", "tasks", gone.task.id));
   assert.equal(await db.get("shared", "memories", "memory-chat-gone"), null);
   await assert.rejects(readdir(gone.folder), "the folder is gone");
   // Another channel is left as it was.

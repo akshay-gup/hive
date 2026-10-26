@@ -13,7 +13,7 @@ export function footprintLines(footprint: ChannelFootprint): string[] {
       ? `${count(footprint.files, "file")} (${fileSize(footprint.fileBytes)}), for good`
       : "No files",
     footprint.agentRuns
-      ? `What the agent did here (${count(footprint.agentRuns, "request")}): its working folder, the tasks it made, and what it learned, on the workspace machine`
+      ? `What the agent did here (${count(footprint.agentRuns, "request")}): its working folder and what it learned, on the workspace machine`
       : "Anything the agent kept for it on the workspace machine",
     `${count(footprint.people, "person", "people")} ${footprint.people === 1 ? "loses" : "lose"} it`,
   ];

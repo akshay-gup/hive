@@ -8,7 +8,7 @@ import { createApp } from "../apps/server/src/app.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import { conversationTools, guestTools } from "../apps/server/src/engine/tools.ts";
-import type { AgentTask, Channel, ChannelThread } from "../packages/domain/src/agent.ts";
+import type { AgentTask, Channel, ChannelThread, Project } from "../packages/domain/src/agent.ts";
 import {
   generateWorkspaceKeys,
   signWorkspaceToken,
@@ -98,6 +98,8 @@ const world: {
   hrThread?: ChannelThread;
   acmeTask?: AgentTask;
   hrTask?: AgentTask;
+  acmeProject?: Project;
+  hrProject?: Project;
 } = {};
 async function setUp() {
   if (world.acme) return world as Required<typeof world>;
@@ -110,13 +112,30 @@ async function setUp() {
   assert.equal(added.status, 200);
   world.acmeThread = await server.agent.registerThread(owner("olive"), world.acme.id, "Kickoff");
   world.hrThread = await server.agent.registerThread(owner("olive"), world.hr.id, "Payroll");
+  // What a guest may see of the work is their projects': Gus is in Acme's, and not in HR's.
+  world.acmeProject = await server.agent.createProject(owner("olive"), {
+    name: "Acme",
+    access: "private",
+  });
+  world.hrProject = await server.agent.createProject(owner("olive"), {
+    name: "HR",
+    access: "private",
+  });
+  await server.agent.updateProject(owner("olive"), world.acmeProject.id, {
+    members: [
+      { email: "olive@example.com", role: "admin" },
+      { email: "gus@example.com", role: "member" },
+    ],
+  });
   world.acmeTask = await server.agent.createTask(owner("olive"), {
     prompt: "Draft the Acme proposal",
     channelId: world.acme.id,
+    projectId: world.acmeProject.id,
   });
   world.hrTask = await server.agent.createTask(owner("olive"), {
     prompt: "Check the payroll run",
     channelId: world.hr.id,
+    projectId: world.hrProject.id,
   });
   return world as Required<typeof world>;
 }
@@ -262,7 +281,7 @@ test("a guest is shown who they are, and none of the team's mail, calendar or fi
   assert.equal((await call("max", "GET", "/api/workspace")).status, 200);
 });
 
-test("the work a guest is shown is that of their channels, and the rest of the workspace is hidden", async () => {
+test("the work a guest is shown is that of their projects, and the rest of the workspace is hidden", async () => {
   const w = await setUp();
   await db.put("shared", "goals", {
     id: "g1",
@@ -281,16 +300,18 @@ test("the work a guest is shown is that of their channels, and the rest of the w
     seen.tasks.map((task: AgentTask) => task.id),
     [w.acmeTask.id],
   );
-  // Their tasks are in General, which is the one project they are shown.
+  // The one project they are named in.
   assert.deepEqual(
     seen.projects.map((project: { id: string }) => project.id),
-    ["general"],
+    [w.acmeProject.id],
   );
   assert.deepEqual([seen.goals, seen.monitors, seen.ideas, seen.memories], [[], [], [], []]);
   assert.deepEqual(seen.notifications, []);
   assert.deepEqual(await json(await call("gus", "GET", "/api/agent/notifications")), []);
-  // The team sees it all.
-  const all = await json(await call("max", "GET", "/api/agent"));
+  // The owner sees it all; a teammate who is in neither private project sees neither.
+  const max = await json(await call("max", "GET", "/api/agent"));
+  assert.deepEqual(max.tasks, []);
+  const all = await json(await call("olive", "GET", "/api/agent"));
   assert.deepEqual(
     all.tasks.map((task: AgentTask) => task.id).sort(),
     [w.acmeTask.id, w.hrTask.id].sort(),
@@ -298,7 +319,7 @@ test("the work a guest is shown is that of their channels, and the rest of the w
   assert.equal(all.memories.length, 1);
 });
 
-test("a guest looks at their channel's work and keeps its board, and does not steer the agent", async () => {
+test("a guest looks at their project's work and keeps its board, and does not steer the agent", async () => {
   const w = await setUp();
   // They can open a task of their channel, and not one of another's.
   assert.equal((await call("gus", "GET", `/api/agent/tasks/${w.acmeTask.id}`)).status, 200);
@@ -308,6 +329,7 @@ test("a guest looks at their channel's work and keeps its board, and does not st
     title: "Send the brief",
     kind: "manual",
     channelId: w.acme.id,
+    projectId: w.acmeProject.id,
   });
   assert.equal(item.status, 201);
   const made = (await json(item)) as AgentTask;
@@ -322,6 +344,7 @@ test("a guest looks at their channel's work and keeps its board, and does not st
         title: "x",
         kind: "manual",
         channelId: w.hr.id,
+        projectId: w.acmeProject.id,
       })
     ).status,
     404,

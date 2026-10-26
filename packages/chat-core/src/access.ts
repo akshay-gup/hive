@@ -1,7 +1,6 @@
 import {
   type Channel,
   type ChannelView,
-  GENERAL_PROJECT_ID,
   ORCHESTRATOR_CHANNEL_ID,
   type Project,
   type ProjectRole,
@@ -79,8 +78,7 @@ export function projectRole(person: Person | null, project: ProjectRules): Proje
  * the team. A workspace that keeps no roles shows everyone everything.
  */
 export function canViewProject(person: Person | null, project: ProjectRules): boolean {
-  // General is where work goes that names no project, a guest's too: what is in it is shown by its channel.
-  if (!person || runs(person) || project.id === GENERAL_PROJECT_ID) return true;
+  if (!person || runs(person)) return true;
   if (person.role === "guest" || (project.access ?? "open") === "private")
     return projectRole(person, project) !== null;
   return true;
@@ -91,7 +89,7 @@ export function canViewProject(person: Person | null, project: ProjectRules): bo
  * may, and in the others its admins and members; a viewer only looks.
  */
 export function canWorkInProject(person: Person | null, project: ProjectRules): boolean {
-  if (!person || runs(person) || project.id === GENERAL_PROJECT_ID) return true;
+  if (!person || runs(person)) return true;
   const role = projectRole(person, project);
   if (role === "admin" || role === "member") return true;
   return person.role !== "guest" && (project.access ?? "open") === "open";
@@ -116,16 +114,12 @@ export function projectFor(person: Person | null, project: Project): Project {
 }
 
 /**
- * Whether a task is to be shown to the person: it belongs to a channel they may open, or was asked for
- * in one, and, if it is in a project, the project is theirs to see.
+ * Whether a task is to be shown to the person: only its project says. A task whose project is not
+ * known is the team's, as General's are, and not a guest's.
  */
-export function canSeeTask(
-  scope: Scope,
-  task: { channelId?: string | null; originChannelId?: string | null },
-  project?: ProjectRules | null,
-): boolean {
-  if (project && !canViewProject(scope.person, project)) return false;
-  return scope.allows(task.channelId) || scope.allows(task.originChannelId);
+export function canSeeTask(scope: Scope, project?: ProjectRules | null): boolean {
+  if (!project) return scope.person?.role !== "guest";
+  return canViewProject(scope.person, project);
 }
 
 /** What a request may reach: whether the channel with this id is one the person may open. */

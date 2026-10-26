@@ -728,7 +728,7 @@ export class AgentService {
   private async guestSnapshot(owner: string, scope: Scope): Promise<AgentWorkspace> {
     const projects = await this.projectsById(owner);
     const tasks = (await this.db.list<AgentTask>(owner, "tasks")).filter((task) =>
-      canSeeTask(scope, task, task.projectId ? projects.get(task.projectId) : null),
+      canSeeTask(scope, task.projectId ? projects.get(task.projectId) : null),
     );
     const ids = new Set(tasks.map((task) => task.id));
     const prefs = await this.notificationPrefs(owner);
@@ -795,9 +795,7 @@ export class AgentService {
       reviews
         .filter((review) => {
           const task = review.taskId ? tasks.get(review.taskId) : undefined;
-          return (
-            task && !canSeeTask(scope, task, task.projectId ? projects.get(task.projectId) : null)
-          );
+          return task && !canSeeTask(scope, task.projectId ? projects.get(task.projectId) : null);
         })
         .map((review) => review.id),
     );
@@ -834,9 +832,7 @@ export class AgentService {
     const projectOf = new Map(projects.map((project) => [project.id, project]));
     const hidden = new Set(
       tasks
-        .filter(
-          (task) => !canSeeTask(scope, task, task.projectId ? projectOf.get(task.projectId) : null),
-        )
+        .filter((task) => !canSeeTask(scope, task.projectId ? projectOf.get(task.projectId) : null))
         .map((task) => task.id),
     );
     const byId = new Map(tasks.map((task) => [task.id, task]));
@@ -938,6 +934,9 @@ export class AgentService {
     if (input.goalId && !(await this.db.get(owner, "goals", input.goalId)))
       throw new AppError("Goal not found", 404);
     await this.ensureDefaultProject(owner);
+    // A guest is only in the projects they were named in, so there is no default for them.
+    if (!input.projectId && (await this.access.scope(owner)).person?.role === "guest")
+      throw new AppError("Choose one of the projects you were added to", 422);
     const projectId = input.projectId ?? GENERAL_PROJECT_ID;
     await this.assertProjectWork(owner, projectId);
     const channelId = input.channelId ?? ORCHESTRATOR_CHANNEL_ID;
@@ -1712,8 +1711,8 @@ export class AgentService {
   }
   /**
    * Take away everything this machine kept for a channel that was deleted in the chat service: the
-   * agent's sessions in it, its tasks and what came of them, what it learned there, its folder and
-   * its record. Only a channel the machine holds as a stand-in is touched, and a failure part-way
+   * agent's sessions in it, what it learned there, its folder and its record. Tasks are the projects',
+   * not the channel's, and stay. Only a channel the machine holds as a stand-in is touched, and a failure part-way
    * leaves the record, so it is tried again when the machine next connects.
    */
   async purgeChannel(channelId: string): Promise<void> {
@@ -1729,15 +1728,6 @@ export class AgentService {
             .forDirectory(directory)
             .session.delete({ sessionID: binding.opencodeSessionId, directory })
             .catch(() => undefined);
-    // Work asked for in the channel would be there for everyone once the channel is not.
-    for (const task of await this.db.list<AgentTask>(SHARED_OWNER, "tasks")) {
-      if (task.channelId !== channelId && task.originChannelId !== channelId) continue;
-      this.worker.abort(task.id);
-      await this.db.remove(SHARED_OWNER, "tasks", task.id);
-      await this.taskFiles
-        .removeAll(task.id, this.workspaceOf(task, SHARED_OWNER))
-        .catch((error) => backgroundFailure("remove task files", error));
-    }
     for (const kind of ["memories", "goals", "notifications"] as const)
       for (const item of await this.db.list<{ id: string; channelId?: string }>(SHARED_OWNER, kind))
         if (item.channelId === channelId) await this.db.remove(SHARED_OWNER, kind, item.id);
@@ -1775,7 +1765,7 @@ export class AgentService {
     const project = task.projectId
       ? await this.db.get<Project>(owner, "projects", task.projectId)
       : null;
-    if (!canSeeTask(scope, task, project)) throw new AppError("Task not found", 404);
+    if (!canSeeTask(scope, project)) throw new AppError("Task not found", 404);
     if (write && project && !canWorkInProject(scope.person, project))
       throw new AppError("You can look at this project but not change what is in it", 403);
   }
@@ -1852,11 +1842,6 @@ export class AgentService {
         inside.some((task) => task.leaseId && ["running", "waiting_approval"].includes(task.status))
       )
         throw new AppError("Stop the tasks that are running before deleting the project", 409);
-      if (inside.some((task) => !canSeeTask(scope, task)))
-        throw new AppError(
-          "Some of its tasks belong to channels you cannot open, so move them instead",
-          409,
-        );
     } else {
       const target = input.moveTo ?? GENERAL_PROJECT_ID;
       if (target === id) throw new AppError("Move the tasks to another project", 422);

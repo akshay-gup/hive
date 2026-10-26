@@ -148,7 +148,7 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     await service.assertTask(owner, found, write);
     // What an agent does goes on without anyone asking it, in the channel's workspace: a guest does
     // not steer it. The board's own items, which nothing runs, are theirs to keep.
-    if (write && (found.kind !== "manual" || !scope.allows(found.channelId))) throw refuse();
+    if (write && found.kind !== "manual") throw refuse();
   };
 
   const match = (pattern: RegExp) => pattern.exec(path);
@@ -188,9 +188,11 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
   }
 
   if (method === "POST" && path === "/api/agent/tasks") {
-    const { channelId, kind } = await body();
-    if (kind !== "manual" || typeof channelId !== "string") throw refuse();
-    return channel(channelId);
+    // A guest keeps the board of a project they are in: the project says whether they may, when it is made.
+    const { channelId, projectId, kind } = await body();
+    if (kind !== "manual" || typeof projectId !== "string") throw refuse();
+    if (typeof channelId === "string") channel(channelId);
+    return;
   }
   const oneTask = match(/^\/api\/agent\/tasks\/([^/]+)$/);
   if (oneTask) {

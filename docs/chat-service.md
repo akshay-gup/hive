@@ -102,8 +102,8 @@ the run is now. A prompt records, from the machine, how many steps and letters o
 app shows it where it came up.
 
 **Deleting a channel** takes its messages, threads and files in the chat service, and tells the machine
-(`channels.gone`): it removes the agent's sessions in it, its folder, the tasks made or asked for there, and what
-the agent learned there, and only for a channel it holds as a stand-in (`createdBy: "chat"`). A machine that was
+(`channels.gone`): it removes the agent's sessions in it, its folder, and what the agent learned there (tasks are
+their projects', and stay), and only for a channel it holds as a stand-in (`createdBy: "chat"`). A machine that was
 off asks when it connects (`channels.have`) and is told which of its channels no longer exist, which also clears
 stand-ins left from before. The app asks three times: it shows what would go, with numbers, and offers archiving
 instead; the person ticks that they understand; and types the channel's name.
