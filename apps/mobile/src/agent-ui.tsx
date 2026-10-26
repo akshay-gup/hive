@@ -430,7 +430,7 @@ export function AgentActivityScreen() {
         />
       )}
       {creating && <TaskCreate onClose={() => setCreating(false)} />}
-      {view === "activity" && <ActivityScreen />}
+      {view === "activity" && <ActivityScreen projectId={projectFilter} />}
     </View>
   );
 }

@@ -37,6 +37,8 @@ import type {
   CalendarEvent,
   EmailDraft,
 } from "../../../packages/domain/src";
+import { scopeActivity } from "./activity-scope";
+import { useAgentWorkspace } from "./agent-workspace";
 import { AnimatedBee } from "./animated-bee";
 import { localDateTime, zonedInstant } from "./date-time";
 import {
@@ -1080,8 +1082,11 @@ export function FilesScreen() {
     </View>
   );
 }
-export function ActivityScreen() {
-  const { workspace: w, open } = useWorkspace();
+/** The workspace's reviews and timeline, or, with a project, those of its tasks only. */
+export function ActivityScreen({ projectId = null }: { projectId?: string | null }) {
+  const { workspace, open } = useWorkspace();
+  const { data } = useAgentWorkspace();
+  const w = { ...workspace, ...scopeActivity(workspace, data?.tasks ?? [], projectId) };
   const [filter, setFilter] = useState("all");
   const pending = w.actions.filter((a) => a.status === "awaiting_review");
   const actions = w.actions.filter((a) => filter === "all" || a.status === "awaiting_review");
@@ -1182,7 +1187,11 @@ export function ActivityScreen() {
             <Empty
               icon={Clock3}
               title="The beginning of something lighter"
-              detail="Your actions and their results will be recorded here."
+              detail={
+                projectId
+                  ? "What the agent does for this project's tasks will be recorded here."
+                  : "Your actions and their results will be recorded here."
+              }
             />
           )}
         </Card>
