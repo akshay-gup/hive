@@ -248,3 +248,38 @@ test("the people a project can name are the workspace's, and a guest is not told
   );
   assert.equal((await call("gus", "GET", "/api/agent/projects/people")).status, 403);
 });
+
+test("every task is in a project: work that names none is in General, which everyone may use and no one may take away", async () => {
+  const task = (await json(
+    await call("mia", "POST", "/api/agent/tasks", { title: "Loose", kind: "manual", input: {} }),
+  )) as AgentTask;
+  assert.equal(task.projectId, "general");
+  // Even a person who is only a viewer elsewhere has General.
+  const project = await make("max", { name: "Audit", access: "private" });
+  await call("max", "PATCH", `/api/agent/projects/${project.id}`, {
+    members: [
+      { email: "max@example.com", role: "admin" },
+      { email: "mia@example.com", role: "viewer" },
+    ],
+  });
+  assert.equal(
+    (await call("mia", "POST", "/api/agent/tasks", { title: "Mine", kind: "manual", input: {} }))
+      .status,
+    201,
+  );
+  // A task moves between projects but never out of them, and General stays.
+  const out = await call("mia", "PATCH", `/api/agent/tasks/${task.id}`, { projectId: null });
+  assert.ok(out.status >= 400 && out.status < 500);
+  assert.equal((await call("olive", "DELETE", "/api/agent/projects/general")).status, 422);
+  assert.equal(
+    (await call("olive", "PATCH", "/api/agent/projects/general", { access: "private" })).status,
+    422,
+  );
+  // A project that is deleted gives its tasks to General.
+  const doomed = await make("max", { name: "Short lived" });
+  const inside = (await json(
+    await call("max", "POST", "/api/agent/tasks", manual(doomed, "Goes to General")),
+  )) as AgentTask;
+  assert.equal((await call("max", "DELETE", `/api/agent/projects/${doomed.id}`)).status, 200);
+  assert.equal((await tasksOf("max")).find((t) => t.id === inside.id)?.projectId, "general");
+});

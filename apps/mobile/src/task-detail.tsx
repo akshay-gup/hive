@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import {
   type AgentTask,
+  GENERAL_PROJECT_ID,
   type Project,
   type TaskPriority,
   type TaskStatus,
@@ -259,13 +260,10 @@ export function TaskDetail({
           <Text style={s.label}>Project</Text>
           <Segmented<string>
             label="Project"
-            value={task.projectId ?? "none"}
+            value={task.projectId ?? GENERAL_PROJECT_ID}
             disabled={busy}
-            onChange={(projectId) =>
-              void patch({ projectId: projectId === "none" ? null : projectId })
-            }
+            onChange={(projectId) => void patch({ projectId })}
             options={[
-              { id: "none", label: "No project" },
               // Only where the person may put work, and the one the task is in.
               ...projects
                 .filter((project) => canWorkIn(project) || project.id === task.projectId)

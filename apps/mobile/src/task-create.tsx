@@ -1,15 +1,27 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { type TaskPriority, taskPriorities } from "../../../packages/domain/src/agent";
+import {
+  GENERAL_PROJECT_ID,
+  type TaskPriority,
+  taskPriorities,
+} from "../../../packages/domain/src/agent";
+import { useActivityProjects } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
+import { canWorkIn } from "./project-text";
 import { priorityColors } from "./task-board";
-import { Button, ErrorNotice, Field, fontSize, Sheet, s } from "./ui";
+import { Button, ErrorNotice, Field, fontSize, Segmented, Sheet, s } from "./ui";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Create a manual issue (human task). New issues start in No project. */
+/** Create a manual issue (human task). New issues go in the project the page is on, or General. */
 export function TaskCreate({ onClose }: { onClose: () => void }) {
-  const { refresh, mutate } = useAgentWorkspace();
+  const { data, refresh, mutate } = useAgentWorkspace();
+  const { selected } = useActivityProjects();
+  // Where it goes: the project the page is on, if work may be put there, otherwise General.
+  const places = (data?.projects ?? []).filter(canWorkIn);
+  const [projectId, setProjectId] = useState(
+    places.some((project) => project.id === selected) && selected ? selected : GENERAL_PROJECT_ID,
+  );
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
@@ -41,6 +53,7 @@ export function TaskCreate({ onClose }: { onClose: () => void }) {
         title: trimmed,
         ...(description.trim() ? { prompt: description.trim() } : {}),
         kind: "manual",
+        projectId,
         priority,
         startAt: startAt.trim() || null,
         dueAt: dueAt.trim() || null,
@@ -75,6 +88,16 @@ export function TaskCreate({ onClose }: { onClose: () => void }) {
           placeholder="Details, links, what done looks like. Optional."
           style={{ minHeight: 96 }}
         />
+        <View style={{ gap: 6 }}>
+          <Text style={s.label}>Project</Text>
+          <Segmented<string>
+            label="Project"
+            value={projectId}
+            disabled={busy}
+            onChange={setProjectId}
+            options={places.map((project) => ({ id: project.id, label: project.name }))}
+          />
+        </View>
         <View style={{ gap: 6 }}>
           <Text style={s.label}>Priority</Text>
           <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>

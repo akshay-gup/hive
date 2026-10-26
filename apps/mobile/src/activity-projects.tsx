@@ -66,22 +66,18 @@ export function useActivityTitle(): { title: string; subtitle: string } {
   const { selected } = useActivityProjects();
   const { data } = useAgentWorkspace();
   const tasks = data?.tasks ?? [];
-  const mine = tasks.filter((task) =>
-    selected === null ? true : selected === "none" ? !task.projectId : task.projectId === selected,
-  );
+  const mine = tasks.filter((task) => selected === null || task.projectId === selected);
   const waiting = mine.filter((task) => task.kind !== "manual" && needsYou(task.status)).length;
   const project =
-    typeof selected === "string" && selected !== "none"
-      ? data?.projects.find((item) => item.id === selected)
-      : undefined;
+    typeof selected === "string" ? data?.projects.find((item) => item.id === selected) : undefined;
   const counts = `${mine.length} ${mine.length === 1 ? "task" : "tasks"}${waiting ? ` · ${waiting} need you` : ""}`;
   return {
-    title: project ? project.name : selected === "none" ? "No project" : "All work",
+    title: project ? project.name : "All work",
     subtitle: [project?.description, counts].filter(Boolean).join(" · "),
   };
 }
 
-/** The list of projects: all the work, each project, the work that has none, and a way to make one. */
+/** The list of projects: all the work, each project, and a way to make one. */
 export function ProjectsList({ onPick }: { onPick?: () => void }) {
   const { data } = useAgentWorkspace();
   const { selected, select, newProject, manage } = useActivityProjects();
@@ -91,9 +87,7 @@ export function ProjectsList({ onPick }: { onPick?: () => void }) {
   const waiting = (id: ProjectSelection) =>
     tasks.filter(
       (task) =>
-        task.kind !== "manual" &&
-        needsYou(task.status) &&
-        (id === null ? true : id === "none" ? !task.projectId : task.projectId === id),
+        task.kind !== "manual" && needsYou(task.status) && (id === null || task.projectId === id),
     ).length;
   const height = dense ? 32 : 40;
   const tile = dense ? 20 : 24;
@@ -216,20 +210,6 @@ export function ProjectsList({ onPick }: { onPick?: () => void }) {
           lock: !!project.channelId || project.access === "private",
           project,
         }),
-      )}
-      {row(
-        "none",
-        "No project",
-        <View
-          style={{
-            width: tile,
-            height: tile,
-            borderRadius: 6,
-            borderWidth: 1.5,
-            borderStyle: "dashed",
-            borderColor: colors.lineStrong,
-          }}
-        />,
       )}
       <Pressable
         accessibilityRole="button"

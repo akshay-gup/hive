@@ -281,10 +281,12 @@ test("the work a guest is shown is that of their channels, and the rest of the w
     seen.tasks.map((task: AgentTask) => task.id),
     [w.acmeTask.id],
   );
+  // Their tasks are in General, which is the one project they are shown.
   assert.deepEqual(
-    [seen.goals, seen.projects, seen.monitors, seen.ideas, seen.memories],
-    [[], [], [], [], []],
+    seen.projects.map((project: { id: string }) => project.id),
+    ["general"],
   );
+  assert.deepEqual([seen.goals, seen.monitors, seen.ideas, seen.memories], [[], [], [], []]);
   assert.deepEqual(seen.notifications, []);
   assert.deepEqual(await json(await call("gus", "GET", "/api/agent/notifications")), []);
   // The team sees it all.

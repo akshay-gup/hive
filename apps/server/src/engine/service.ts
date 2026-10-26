@@ -31,6 +31,7 @@ import {
   createProjectSchema,
   createTaskSchema,
   type Evidence,
+  GENERAL_PROJECT_ID,
   type Goal,
   goalInputSchema,
   type Idea,
@@ -210,8 +211,29 @@ export class AgentService {
       name: "Hive",
       tone: "warm",
     });
+    await this.ensureDefaultProject(owner);
     // Maintenance works on shared records as the workspace itself, which has no orchestrator chat.
     if (owner !== SHARED_OWNER) await this.ensureOrchestratorChannel(owner);
+  }
+  /**
+   * Every task is in a project, so there is always one for work that names none: General, open to the
+   * whole team. Tasks from before there were projects to be in are put in it when it is made.
+   */
+  private async ensureDefaultProject(owner: string): Promise<void> {
+    const now = date();
+    const made = await this.db.insertIfAbsent<Project>(owner, "projects", {
+      id: GENERAL_PROJECT_ID,
+      name: "General",
+      description: "Where work goes when it is not in another project.",
+      access: "open",
+      members: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (!made) return;
+    for (const task of await this.db.list<AgentTask>(owner, "tasks"))
+      if (!task.projectId)
+        await this.db.put(owner, "tasks", { ...task, projectId: GENERAL_PROJECT_ID });
   }
   /** The orchestrator channel always exists: the fixed control-plane surface. */
   async ensureOrchestratorChannel(owner: string): Promise<Channel> {
@@ -918,7 +940,9 @@ export class AgentService {
     const input = createTaskSchema.parse(raw);
     if (input.goalId && !(await this.db.get(owner, "goals", input.goalId)))
       throw new AppError("Goal not found", 404);
-    if (input.projectId) await this.assertProjectWork(owner, input.projectId);
+    await this.ensureDefaultProject(owner);
+    const projectId = input.projectId ?? GENERAL_PROJECT_ID;
+    await this.assertProjectWork(owner, projectId);
     const channelId = input.channelId ?? ORCHESTRATOR_CHANNEL_ID;
     if (channelId !== ORCHESTRATOR_CHANNEL_ID && !(await this.getChannel(owner, channelId)))
       throw new AppError("Channel not found", 404);
@@ -959,7 +983,7 @@ export class AgentService {
       prompt: input.prompt ?? "",
       kind: input.kind,
       goalId: input.goalId,
-      projectId: input.projectId ?? null,
+      projectId,
       priority: input.priority,
       startAt: input.startAt ?? null,
       dueAt: input.dueAt ?? null,
@@ -1222,7 +1246,7 @@ export class AgentService {
       patch.goalId = input.goalId ?? undefined;
     }
     if (input.projectId !== undefined) {
-      if (input.projectId) await this.assertProjectWork(owner, input.projectId);
+      await this.assertProjectWork(owner, input.projectId);
       patch.projectId = input.projectId;
     }
     const startAt = input.startAt !== undefined ? input.startAt : (task.startAt ?? null);
@@ -1742,6 +1766,9 @@ export class AgentService {
     const project = await this.visibleProject(owner, id);
     if (!managesProject(scope.person, project))
       throw new AppError("Only a project admin can change this project", 403);
+    // Work that names no project goes here, so everyone has to be able to put it here.
+    if (id === GENERAL_PROJECT_ID && input.access && input.access !== "open")
+      throw new AppError("General stays open to everyone", 422);
     let members = project.members;
     if (input.members) {
       const seen = new Set<string>();
@@ -1766,8 +1793,9 @@ export class AgentService {
     });
     return projectFor(scope.person, saved);
   }
-  /** Delete a project; its tasks move to "No project". */
+  /** Delete a project; its tasks move to General. */
   async deleteProject(owner: string, id: string): Promise<{ deleted: string }> {
+    if (id === GENERAL_PROJECT_ID) throw new AppError("General cannot be deleted", 422);
     const project = await this.visibleProject(owner, id);
     if (!managesProject((await this.access.scope(owner)).person, project))
       throw new AppError("Only a project admin can delete this project", 403);
@@ -1776,7 +1804,7 @@ export class AgentService {
       if (task.projectId === id)
         await this.db.put(owner, "tasks", {
           ...task,
-          projectId: null,
+          projectId: GENERAL_PROJECT_ID,
           updatedAt: date(),
         });
     return { deleted: id };

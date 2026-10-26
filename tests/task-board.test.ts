@@ -210,8 +210,9 @@ test("projects group tasks and survive deletion", async () => {
     201,
   );
   assert.equal(issue.projectId, project.id);
+  // Work that names no project is in General, which is always there.
   const loose = await read<AgentTask>("/tasks", { title: "No project", kind: "manual" }, 201);
-  assert.equal(loose.projectId, null);
+  assert.equal(loose.projectId, "general");
   await read("/tasks", { title: "Bad project", kind: "manual", projectId: "nope" }, 404);
   const snapshot = await read<AgentWorkspace>("", undefined, 200, "GET");
   assert.ok(snapshot.projects.some((p) => p.id === project.id));
@@ -222,10 +223,16 @@ test("projects group tasks and survive deletion", async () => {
     "PATCH",
   );
   assert.equal(renamed.name, "Website v2");
-  const moved = await read<AgentTask>(`/tasks/${issue.id}`, { projectId: null }, 200, "PATCH");
-  assert.equal(moved.projectId, null);
+  const moved = await read<AgentTask>(`/tasks/${issue.id}`, { projectId: "general" }, 200, "PATCH");
+  assert.equal(moved.projectId, "general");
+  // A task is moved between projects, never out of them.
+  const out = await request(`/tasks/${issue.id}`, { projectId: null }, "PATCH");
+  assert.ok(out.status >= 400 && out.status < 500, String(out.status));
+  // General cannot be deleted, nor made less than open.
+  await read("/projects/general", undefined, 422, "DELETE");
+  await read("/projects/general", { access: "private" }, 422, "PATCH");
   await read(`/tasks/${issue.id}`, { projectId: "nope" }, 404, "PATCH");
-  // Deleting a project keeps its tasks, moved to "No project".
+  // Deleting a project keeps its tasks, moved to General.
   const doomed = await read<Project>("/projects", { name: "Doomed" }, 201);
   const member = await read<AgentTask>(
     "/tasks",
@@ -240,7 +247,7 @@ test("projects group tasks and survive deletion", async () => {
   );
   assert.equal(deleted.deleted, doomed.id);
   const after = await read<{ task: AgentTask }>(`/tasks/${member.id}`, undefined, 200, "GET");
-  assert.equal(after.task.projectId, null);
+  assert.equal(after.task.projectId, "general");
   await read(`/projects/${doomed.id}`, { name: "x" }, 404, "PATCH");
 });
 

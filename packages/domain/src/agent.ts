@@ -111,7 +111,7 @@ export interface AgentTask {
    * agent task; unassigning reverts it to a manual issue.
    */
   assignee?: "agent" | null;
-  /** Project grouping for the board. Unset tasks sit in "No project". */
+  /** The project it is in. Every task is in one: when none is named it is in General. */
   projectId?: string | null;
   /** Manual tasks are human work: no prompt execution, the worker never claims them. */
   priority: TaskPriority;
@@ -218,7 +218,9 @@ export interface ProjectMember {
   email: string;
   role: ProjectRole;
 }
-/** A project groups tasks on the board. Tasks without one sit in "No project". */
+/** The project a task is in when no other is named. It is always open, and cannot be deleted. */
+export const GENERAL_PROJECT_ID = "general";
+/** A project groups tasks on the board. Every task is in one. */
 export interface Project {
   id: string;
   name: string;
@@ -372,7 +374,8 @@ export const updateTaskSchema = z.object({
     .optional(),
   priority: taskPrioritySchema.optional(),
   goalId: z.string().nullable().optional(),
-  projectId: z.string().trim().min(1).max(80).nullable().optional(),
+  /** A task can be moved to another project, never out of projects. */
+  projectId: z.string().trim().min(1).max(80).optional(),
   startAt: isoDate.nullable().optional(),
   dueAt: isoDate.nullable().optional(),
   blockedBy: z.array(z.string().trim().min(1).max(80)).max(20).optional(),

@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import type { Project, ProjectAccess } from "../../../packages/domain/src/agent";
+import {
+  GENERAL_PROJECT_ID,
+  type Project,
+  type ProjectAccess,
+} from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AccessChoice, ProjectPeople } from "./project-access";
 import { accessLine } from "./project-text";
@@ -19,8 +23,8 @@ import {
 } from "./ui";
 import { useWorkspace } from "./workspace";
 
-/** null = All projects, "none" = No project, otherwise a project id. */
-export type ProjectSelection = string | null | "none";
+/** null = All projects, otherwise a project id. */
+export type ProjectSelection = string | null;
 
 /** Horizontal pill switcher for filtering the board by project. */
 export function ProjectSwitcher({
@@ -40,7 +44,7 @@ export function ProjectSwitcher({
   inline?: boolean;
 }) {
   const dense = useDense();
-  // The tabs are keyed by project id; "all" stands for no filter and "none" for no project.
+  // The tabs are keyed by project id; "all" stands for no filter.
   const options: SegmentedOption<string>[] = [
     { id: "all", label: "All projects" },
     ...projects.map((project) => ({
@@ -49,7 +53,6 @@ export function ProjectSwitcher({
       accessibilityLabel: `Project: ${project.name}`,
       onLongPress: () => onManage(project),
     })),
-    { id: "none", label: "No project" },
   ];
   const row = (
     <View style={[s.row, { gap: 8 }]}>
@@ -150,7 +153,7 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
 
 /**
  * A project's settings: its name, how open it is and who is in it, for those who run it; to everyone
- * else, who can see and work on it. Deleting keeps its tasks in "No project".
+ * else, who can see and work on it. Deleting keeps its tasks in General.
  */
 export function ProjectManage({
   project,
@@ -237,7 +240,7 @@ export function ProjectManage({
           </View>
         )}
         <ProjectPeople project={project} />
-        {canManage && (
+        {canManage && project.id !== GENERAL_PROJECT_ID && (
           <View style={{ gap: 8 }}>
             <Button
               danger
@@ -252,7 +255,7 @@ export function ProjectManage({
             >
               {armed ? "Tap again to confirm delete" : "Delete project"}
             </Button>
-            <Text style={s.small}>Deleting keeps its tasks — they move to No project.</Text>
+            <Text style={s.small}>Deleting keeps its tasks — they move to General.</Text>
           </View>
         )}
       </View>

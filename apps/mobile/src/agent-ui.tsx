@@ -320,9 +320,7 @@ export function AgentActivityScreen() {
   const projects = data?.projects ?? [];
   const allTasks = [...(data?.tasks || [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const projectTasks = allTasks.filter(
-    (task) =>
-      projectFilter === null ||
-      (projectFilter === "none" ? !task.projectId : task.projectId === projectFilter),
+    (task) => projectFilter === null || task.projectId === projectFilter,
   );
   const needsYouCount = projectTasks.filter((task) => needsYou(task.status)).length;
   const tasks = onlyNeeds ? projectTasks.filter((task) => needsYou(task.status)) : projectTasks;

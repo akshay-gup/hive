@@ -205,7 +205,7 @@ export function conversationTools(
     defineTool({
       name: "create_issue",
       description:
-        "Create a human task on the board (kanban/timeline). Use for to-dos the person does themselves — no worker runs it. Set priority, due date, labels, dependencies.",
+        "Create a human task on the board (kanban/timeline). Use for to-dos the person does themselves — no worker runs it. Set priority, due date, labels, dependencies. It goes in the General project unless you name another (projectId).",
       parameters: z.object({
         title: z.string().trim().min(1).max(160),
         notes: z.string().trim().max(12000).optional(),
@@ -270,7 +270,7 @@ export function conversationTools(
         blockedBy: z.array(z.string()).max(20).optional(),
         labels: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
         goalId: z.string().nullable().optional(),
-        projectId: z.string().nullable().optional(),
+        projectId: z.string().optional(),
       }),
       execute: async ({ taskId, ...patch }) => {
         await mayReach(taskId, true);
@@ -290,7 +290,7 @@ export function conversationTools(
     defineTool({
       name: "create_project",
       description:
-        "Create a project to group tasks on the board. Tasks without a project sit in 'No project'.",
+        "Create a project to group tasks on the board. Every task is in a project; ones that name none go in General.",
       parameters: z.object({
         name: z.string().trim().min(1).max(80),
         description: z.string().trim().max(500).optional(),
@@ -309,7 +309,7 @@ export function conversationTools(
     }),
     defineTool({
       name: "delete_project",
-      description: "Delete a project. Its tasks are kept and move to 'No project'.",
+      description: "Delete a project. Its tasks are kept and move to General.",
       parameters: z.object({ projectId: z.string().min(1) }),
       execute: async (args) => service.deleteProject(owner, args.projectId),
     }),

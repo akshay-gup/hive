@@ -1,6 +1,7 @@
 import {
   type Channel,
   type ChannelView,
+  GENERAL_PROJECT_ID,
   ORCHESTRATOR_CHANNEL_ID,
   type Project,
   type ProjectRole,
@@ -64,7 +65,7 @@ export function managesChannel(person: Person | null, channel: Channel): boolean
 }
 
 /** What a project says of who is in it and how open it is: all the rules below need. */
-type ProjectRules = Pick<Project, "access" | "members">;
+type ProjectRules = Pick<Project, "access" | "members"> & { id?: string };
 
 /** The part this person has in the project, if they were named in it. */
 export function projectRole(person: Person | null, project: ProjectRules): ProjectRole | null {
@@ -78,7 +79,8 @@ export function projectRole(person: Person | null, project: ProjectRules): Proje
  * the team. A workspace that keeps no roles shows everyone everything.
  */
 export function canViewProject(person: Person | null, project: ProjectRules): boolean {
-  if (!person || runs(person)) return true;
+  // General is where work goes that names no project, a guest's too: what is in it is shown by its channel.
+  if (!person || runs(person) || project.id === GENERAL_PROJECT_ID) return true;
   if (person.role === "guest" || (project.access ?? "open") === "private")
     return projectRole(person, project) !== null;
   return true;
@@ -89,7 +91,7 @@ export function canViewProject(person: Person | null, project: ProjectRules): bo
  * may, and in the others its admins and members; a viewer only looks.
  */
 export function canWorkInProject(person: Person | null, project: ProjectRules): boolean {
-  if (!person || runs(person)) return true;
+  if (!person || runs(person) || project.id === GENERAL_PROJECT_ID) return true;
   const role = projectRole(person, project);
   if (role === "admin" || role === "member") return true;
   return person.role !== "guest" && (project.access ?? "open") === "open";
