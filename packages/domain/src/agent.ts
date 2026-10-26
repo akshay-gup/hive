@@ -289,6 +289,8 @@ export interface Idea {
   status: "new" | "dismissed" | "accepted";
   taskId?: string;
   createdAt: string;
+  /** The channel the goal it comes from was made in, when only some of the team can open it: it stays there. */
+  channelId?: string;
 }
 export interface AgentMemory {
   id: string;

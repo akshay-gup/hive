@@ -847,7 +847,7 @@ export class AgentService {
         .filter((project) => canViewProject(scope.person, project))
         .map((project) => projectFor(scope.person, project)),
       monitors: monitors.filter((monitor) => !monitor.taskId || !hidden.has(monitor.taskId)),
-      ideas,
+      ideas: ideas.filter((idea) => !idea.channelId || scope.allows(idea.channelId)),
       memories: memories.filter((memory) => !memory.channelId || scope.allows(memory.channelId)),
       artifacts: artifacts.filter((artifact) => !artifact.taskId || !hidden.has(artifact.taskId)),
       notifications: notifications.filter(
@@ -931,8 +931,7 @@ export class AgentService {
   }
   async createTask(owner: string, raw: unknown, idempotencyKey?: string, held = false) {
     const input = createTaskSchema.parse(raw);
-    if (input.goalId && !(await this.db.get(owner, "goals", input.goalId)))
-      throw new AppError("Goal not found", 404);
+    if (input.goalId) await this.assertGoal(owner, input.goalId);
     await this.ensureDefaultProject(owner);
     // A guest is only in the projects they were named in, so there is no default for them.
     if (!input.projectId && (await this.access.scope(owner)).person?.role === "guest")
@@ -1237,8 +1236,7 @@ export class AgentService {
     }
     if (input.priority !== undefined) patch.priority = input.priority;
     if (input.goalId !== undefined) {
-      if (input.goalId && !(await this.db.get(owner, "goals", input.goalId)))
-        throw new AppError("Goal not found", 404);
+      if (input.goalId) await this.assertGoal(owner, input.goalId);
       patch.goalId = input.goalId ?? undefined;
     }
     if (input.projectId !== undefined) {
@@ -1303,9 +1301,14 @@ export class AgentService {
   private async checkBlockedBy(owner: string, id: string, blockedBy: string[]) {
     const seen = new Set(blockedBy);
     if (seen.has(id)) throw new AppError("A task cannot depend on itself", 422);
-    for (const depId of seen)
-      if (!(await this.db.get<AgentTask>(owner, "tasks", depId)))
+    // A task the person may not see is not there to depend on: naming it must not tell them it exists.
+    const scope = await this.access.scope(owner);
+    const projects = await this.projectsById(owner);
+    for (const depId of seen) {
+      const dep = await this.db.get<AgentTask>(owner, "tasks", depId);
+      if (!dep || !canSeeTask(scope, dep.projectId ? projects.get(dep.projectId) : null))
         throw new AppError(`Dependency not found: ${depId}`, 404);
+    }
     // Cycle check: the task itself must be unreachable from its dependencies.
     const stack = [...seen];
     const visited = new Set<string>();
@@ -1728,7 +1731,7 @@ export class AgentService {
             .forDirectory(directory)
             .session.delete({ sessionID: binding.opencodeSessionId, directory })
             .catch(() => undefined);
-    for (const kind of ["memories", "goals", "notifications"] as const)
+    for (const kind of ["memories", "goals", "ideas", "notifications"] as const)
       for (const item of await this.db.list<{ id: string; channelId?: string }>(SHARED_OWNER, kind))
         if (item.channelId === channelId) await this.db.remove(SHARED_OWNER, kind, item.id);
     await rm(directory, { recursive: true, force: true });
@@ -1749,6 +1752,20 @@ export class AgentService {
     const person = (await this.access.scope(owner)).person;
     if (!project || !canViewProject(person, project)) throw new AppError("Project not found", 404);
     return project;
+  }
+  /**
+   * Throws, as if it were not there, unless the person may see the goal: a guest is shown none, and one
+   * made in a private channel is for the people in it.
+   */
+  private async assertGoal(owner: string, id: string): Promise<void> {
+    const goal = await this.db.get<Goal>(owner, "goals", id);
+    const scope = await this.access.scope(owner);
+    if (
+      !goal ||
+      scope.person?.role === "guest" ||
+      (goal.channelId && !scope.allows(goal.channelId))
+    )
+      throw new AppError("Goal not found", 404);
   }
   /** Throws unless the person may put tasks in the project, or change what is in it. */
   async assertProjectWork(owner: string, projectId: string): Promise<void> {
@@ -2106,6 +2123,7 @@ export class AgentService {
           input: { goalId: goal.id },
           status: "new",
           createdAt: date(),
+          ...(goal.channelId ? { channelId: goal.channelId } : {}),
         } satisfies Idea);
       }
     await this.ensure(owner);
@@ -2114,7 +2132,8 @@ export class AgentService {
   }
   async decideIdea(owner: string, id: string, action: "accept" | "dismiss", prompt?: string) {
     let idea = await this.db.get<Idea>(owner, "ideas", id);
-    if (!idea) throw new AppError("Idea not found", 404);
+    if (!idea || (idea.channelId && !(await this.access.scope(owner)).allows(idea.channelId)))
+      throw new AppError("Idea not found", 404);
     if (idea.status === "dismissed" || (idea.status === "accepted" && action === "dismiss"))
       return idea;
     if (action === "dismiss")
