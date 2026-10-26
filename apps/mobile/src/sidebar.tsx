@@ -263,14 +263,18 @@ export function Sidebar({
   const guest = useGuest();
   // A guest has the conversations in their channels, and no other place in the workspace.
   const reachable = guest ? guestPlaces : places;
-  const { enabled, selection, select, mainId } = useMuseThread();
+  const { selection, select } = useMuseThread();
   const { data } = useAgentWorkspace();
   // Each workspace remembers how many channels it had, to hold room for them while they load.
   const channelsKey = `channels:${hosted?.workspace.id ?? "local"}`;
+  // The channel of the selected chat is the one highlighted in the list.
+  const activeChannelId = selection.id.startsWith("channel:")
+    ? selection.id.slice("channel:".length)
+    : null;
+
   const [channels, setChannels] = useState<ChannelView[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [find, setFind] = useState("");
   // Whether there is anyone but the person in the workspace to send a message to.
   const [hasOthers, setHasOthers] = useState(false);
@@ -330,35 +334,8 @@ export function Sidebar({
     return () => listener.remove();
   }, [load]);
 
-  const isMainActive = enabled ? selection.id === mainId : selection.id === "local";
-  const mainSelection = enabled ? { id: mainId, existing: true } : { id: "local", existing: false };
-  const delegateThreadId =
-    enabled && !selection.id.startsWith("channel:") ? selection.id : undefined;
-
-  // Highlight the channel of the selected chat: either the channel chat
-  // itself or the channel a forked thread belongs to.
-  useEffect(() => {
-    let active = true;
-    if (isMainActive) {
-      setActiveChannelId(null);
-      return;
-    }
-    if (selection.id.startsWith("channel:")) {
-      setActiveChannelId(selection.id.slice("channel:".length));
-      return;
-    }
-    void api
-      .request<{ channelId: string }>(`/api/agent/threads/${selection.id}/channel`)
-      .then((binding) => {
-        if (active) setActiveChannelId(binding.channelId);
-      })
-      .catch(() => {
-        if (active) setActiveChannelId(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [api, isMainActive, selection.id]);
+  const isMainActive = selection.id === "local";
+  const mainSelection = { id: "local", existing: false };
 
   function go(destination: Section) {
     navigate(destination);
@@ -403,7 +380,7 @@ export function Sidebar({
   const initial = personName.slice(0, 1).toUpperCase();
   const delegate = () => {
     onNavigate?.();
-    open({ type: "delegate", threadId: delegateThreadId });
+    open({ type: "delegate" });
   };
   const openComputer = () => {
     onNavigate?.();

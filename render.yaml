@@ -40,8 +40,6 @@ services:
         generateValue: true
       - key: OPENAI_API_KEY
         sync: false
-      - key: CPK_INTELLIGENCE_API_KEY
-        sync: false
       # Delete these two entries, and the hive-browser service below, to
       # deploy without browsing. The API boots either way.
       - key: BROWSER_WORKER_URL

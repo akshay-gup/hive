@@ -76,7 +76,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
   const me = hosted?.user.email.toLowerCase() ?? "";
   // Only an owner or admin can add someone who has not opened this workspace yet.
   const runs = useManagesAccess();
-  const { mainId, select, retry } = useMuseThread();
+  const { home } = useMuseThread();
   const [view, setView] = useState<ChannelPeopleView | null>(null);
   const [email, setEmail] = useState("");
   const [topic, setTopic] = useState<string | null>(null);
@@ -114,8 +114,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
       if ("left" in result) {
         // They can no longer open it: move them to somewhere they can.
         close();
-        if (mainId) select({ id: mainId, existing: true });
-        else retry();
+        home();
         return;
       }
       setView(result);
@@ -155,8 +154,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
           setDeleting(false);
           // It is gone for everyone: move to somewhere that is still there.
           close();
-          if (mainId) select({ id: mainId, existing: true });
-          else retry();
+          home();
         }}
       />
     );
@@ -170,8 +168,7 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
           setArchiving(false);
           // It has left everyone's list: move to somewhere that is still there.
           close();
-          if (mainId) select({ id: mainId, existing: true });
-          else retry();
+          home();
         }}
       />
     );

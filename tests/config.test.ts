@@ -2,34 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { browserWorkerUrl, shadowedEnvKeys } from "../apps/server/src/config.ts";
 
-test("the Intelligence key is optional in every API mode", async () => {
-  const { readConfig } = await import("../apps/server/src/config.ts");
-  const old = process.env.CPK_INTELLIGENCE_API_KEY;
-  try {
-    for (const key of [undefined, "", " \t\n"]) {
-      if (key === undefined) delete process.env.CPK_INTELLIGENCE_API_KEY;
-      else process.env.CPK_INTELLIGENCE_API_KEY = key;
-      process.env.WORKSPACE_MODE = "sample";
-      assert.equal(readConfig().intelligenceApiKey, undefined);
-    }
-    process.env.CPK_INTELLIGENCE_API_KEY = "test-project-key-never-sent";
-    assert.equal(readConfig().intelligenceApiKey, "test-project-key-never-sent");
-  } finally {
-    if (old === undefined) delete process.env.CPK_INTELLIGENCE_API_KEY;
-    else process.env.CPK_INTELLIGENCE_API_KEY = old;
-    delete process.env.WORKSPACE_MODE;
-  }
-});
-
 test("Jev mode is off by default and validates explicit modes", async () => {
   const { readConfig } = await import("../apps/server/src/config.ts");
   const old = {
     JEV_MODE: process.env.JEV_MODE,
     TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY,
-    CPK_INTELLIGENCE_API_KEY: process.env.CPK_INTELLIGENCE_API_KEY,
   };
   try {
-    process.env.CPK_INTELLIGENCE_API_KEY = "test-project-key-never-sent";
     delete process.env.JEV_MODE;
     assert.equal(readConfig().jevMode, "off");
     process.env.JEV_MODE = "sample";

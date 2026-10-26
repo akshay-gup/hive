@@ -643,8 +643,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   }
 
   // The main chat thread id originates on the client and is bound lazily:
-  // without CopilotKit Intelligence there is no hosted thread record, so the
-  // first run binds it to the orchestrator channel instead of failing. This
+  // the first run binds it to the orchestrator channel instead of failing. This
   // runs before the mention gate so plain chat also leaves a bound thread.
   // A guest has no main chat: their runs are in threads of the channels they were added to.
   // A run the chat service started has been checked there, and has its binding made already.

@@ -38,7 +38,6 @@ before(async () => {
     host: "127.0.0.1",
     publicUrl: "http://localhost:8787",
     dataDir: directory,
-    intelligenceApiKey: "test-project-key-never-sent",
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: ["http://localhost:8081"],
   };

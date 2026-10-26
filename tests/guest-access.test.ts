@@ -196,7 +196,6 @@ test("what a guest may open in a channel is that channel's conversation, files, 
   assert.equal((await call("gus", "GET", "/api/conversation")).status, 403);
   assert.equal((await call("gus", "GET", "/api/conversation?threadId=local-main")).status, 403);
   assert.equal((await call("gus", "GET", "/api/conversation?threadId=never-bound")).status, 403);
-  assert.equal((await call("gus", "GET", "/api/main-thread")).status, 403);
   // They can post in their channels' conversation, and not in another's.
   const message = { id: "m1", role: "user", content: "Hello" };
   assert.equal(
@@ -257,27 +256,22 @@ test("everything that belongs to the whole workspace is closed to a guest", asyn
   }
   // A member has the run of all of it, as before.
   assert.equal((await call("max", "GET", "/api/calendars")).status !== 403, true);
-  assert.equal((await call("max", "GET", "/api/main-thread")).status, 200);
 });
 
 test("a guest is shown who they are, and none of the team's mail, calendar or files", async () => {
   await setUp();
   const mine = await json(await call("gus", "GET", "/api/workspace"));
-  assert.deepEqual(
-    { ...mine, runtime: undefined },
-    {
-      mode: "live",
-      profile: { name: "Gus", email: "Gus@Example.com" },
-      mail: [],
-      events: [],
-      files: [],
-      browsers: [],
-      actions: [],
-      activity: [],
-      connections: [],
-      runtime: undefined,
-    },
-  );
+  assert.deepEqual(mine, {
+    mode: "live",
+    profile: { name: "Gus", email: "Gus@Example.com" },
+    mail: [],
+    events: [],
+    files: [],
+    browsers: [],
+    actions: [],
+    activity: [],
+    connections: [],
+  });
   assert.equal((await call("max", "GET", "/api/workspace")).status, 200);
 });
 

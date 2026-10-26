@@ -1403,10 +1403,6 @@ export function ConnectionsScreen({ query = "" }: { query?: string }) {
               value={w.mode === "sample" ? "Local · example data" : "Live workspace"}
             />
             <SettingsLine label="Assistant" value="OpenCode" />
-            <SettingsLine
-              label="Rich Threads"
-              value={w.runtime.richThreads ? "CopilotKit Intelligence" : "Not connected"}
-            />
             <Button
               small
               icon={ArrowDownToLine}

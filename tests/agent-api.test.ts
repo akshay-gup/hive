@@ -40,7 +40,6 @@ before(async () => {
     host: "127.0.0.1",
     publicUrl: "http://localhost:8787",
     dataDir: directory,
-    intelligenceApiKey: "test-project-key-never-sent",
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: ["http://localhost:8081"],
   };
@@ -75,22 +74,6 @@ test("agent API requires a session and reports the actual worker state", async (
   assert.equal(workspace.worker.running, false);
   assert.equal(workspace.identity.name, "Hive");
   assert.equal(workspace.identity.tone, "warm");
-});
-
-test("the main Rich Thread survives reopening and concurrent initialization", async () => {
-  assert.equal((await server.app.request("/api/main-thread")).status, 401);
-  const responses = await Promise.all(
-    Array.from({ length: 3 }, () => server.app.request("/api/main-thread", { headers: headers() })),
-  );
-  const threads = await Promise.all(responses.map((response) => response.json()));
-  assert.ok(threads.every((thread) => thread.threadId === threads[0].threadId));
-  assert.equal(threads[0].existing, true);
-  const reopened = await (
-    await server.app.request("/api/main-thread", { headers: headers() })
-  ).json();
-  assert.equal(reopened.threadId, threads[0].threadId);
-  assert.equal(reopened.existing, true);
-  assert.equal(await db.get("other-user", "conversation-settings", "main"), null);
 });
 
 test("task detail and controls are shared with everyone who is signed in", async () => {

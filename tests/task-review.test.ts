@@ -79,7 +79,6 @@ before(async () => {
     host: "127.0.0.1",
     publicUrl: "http://localhost:8787",
     dataDir: directory,
-    intelligenceApiKey: "test-project-key-never-sent",
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: ["http://localhost:8081"],
   };
@@ -749,7 +748,6 @@ test("a run reads the notes and files, and hands its answer in for review", asyn
     host: "127.0.0.1",
     publicUrl: "http://localhost:8787",
     dataDir: folder,
-    intelligenceApiKey: "test-project-key-never-sent",
     model: "openai/fixture",
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: [],

@@ -170,12 +170,10 @@ function WorkspaceShell({
   const {
     selection,
     visited,
-    mainId,
     loading: threadsLoading,
     error: threadsError,
     empty: noChannels,
     retry: retryThreads,
-    enabled: richThreads,
   } = useMuseThread();
   /** What the bar along the bottom of a phone holds: the places that have room in it. */
   const nav = (guest ? guestPlaces : places).filter((place) => place.bar);
@@ -271,11 +269,11 @@ function WorkspaceShell({
                     detail="You have not been added to a channel. Ask whoever invited you to add you to one."
                   />
                 )}
-                {richThreads ? (
+                {guest && (
                   <>
                     <ErrorNotice error={threadsError} />
                     {threadsError ? (
-                      <Button onPress={retryThreads}>Retry main chat</Button>
+                      <Button onPress={retryThreads}>Retry</Button>
                     ) : threadsLoading ? (
                       // Over the middle of the chat, out of the flow, so it moves nothing when it goes.
                       <View
@@ -293,73 +291,37 @@ function WorkspaceShell({
                         <ActivityIndicator color={colors.primary} />
                       </View>
                     ) : null}
-                    {!threadsLoading && !guest && selection.id !== mainId && (
-                      <Text style={[s.small, { textAlign: "center", marginBottom: 8 }]}>
-                        Side chat
-                      </Text>
-                    )}
-                    {visited.map((thread) => (
-                      <View
-                        key={thread.id}
-                        style={{ display: selection.id === thread.id ? "flex" : "none", flex: 1 }}
-                      >
-                        {thread.id.startsWith("channel:") ? (
-                          <ChannelChat
-                            channelId={thread.id.slice("channel:".length)}
-                            active={section === "chat" && selection.id === thread.id}
-                            header={channelHeader}
-                          />
-                        ) : (
-                          <ChatScreen
-                            thread={thread}
-                            active={section === "chat" && selection.id === thread.id}
-                            prompt={selection.id === thread.id ? prompt : undefined}
-                          />
-                        )}
-                      </View>
-                    ))}
                   </>
-                ) : (
-                  <>
-                    {visited
-                      .filter((thread) => thread.id !== "local")
-                      .map((thread) => (
-                        <View
-                          key={thread.id}
-                          style={{
-                            display: selection.id === thread.id ? "flex" : "none",
-                            flex: 1,
-                          }}
-                        >
-                          {thread.id.startsWith("channel:") ? (
-                            <ChannelChat
-                              channelId={thread.id.slice("channel:".length)}
-                              active={section === "chat" && selection.id === thread.id}
-                              header={channelHeader}
-                            />
-                          ) : (
-                            <ChatScreen
-                              thread={thread}
-                              active={section === "chat" && selection.id === thread.id}
-                              prompt={selection.id === thread.id ? prompt : undefined}
-                            />
-                          )}
-                        </View>
-                      ))}
-                    {!guest && (
-                      <View
-                        style={{
-                          display: selection.id === "local" ? "flex" : "none",
-                          flex: 1,
-                        }}
-                      >
-                        <ChatScreen
-                          prompt={selection.id === "local" ? prompt : undefined}
-                          active={section === "chat" && selection.id === "local"}
-                        />
-                      </View>
-                    )}
-                  </>
+                )}
+                {visited
+                  .filter((thread) => thread.id.startsWith("channel:"))
+                  .map((thread) => (
+                    <View
+                      key={thread.id}
+                      style={{
+                        display: selection.id === thread.id ? "flex" : "none",
+                        flex: 1,
+                      }}
+                    >
+                      <ChannelChat
+                        channelId={thread.id.slice("channel:".length)}
+                        active={section === "chat" && selection.id === thread.id}
+                        header={channelHeader}
+                      />
+                    </View>
+                  ))}
+                {!guest && (
+                  <View
+                    style={{
+                      display: selection.id === "local" ? "flex" : "none",
+                      flex: 1,
+                    }}
+                  >
+                    <ChatScreen
+                      prompt={selection.id === "local" ? prompt : undefined}
+                      active={section === "chat" && selection.id === "local"}
+                    />
+                  </View>
                 )}
               </View>
             </View>

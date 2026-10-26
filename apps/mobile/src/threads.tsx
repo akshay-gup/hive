@@ -13,84 +13,53 @@ import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/
 import { useGuest } from "./access";
 import { ChannelsSection } from "./channels";
 import type { Selection } from "./thread-ids";
-import { Button, ErrorNotice, LinkRow, Pending, Sheet, s } from "./ui";
+import { Button, ErrorNotice, LinkRow, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
-export { resolveThreadId } from "./thread-ids";
 export type { Selection };
 
-function newThreadId() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 15) | 64;
-  bytes[8] = (bytes[8] & 63) | 128;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 const ThreadContext = createContext<{
-  enabled: boolean;
   selection: Selection;
   visited: Selection[];
-  mainId: string;
   loading: boolean;
   error: string;
   /** A guest who was not added to any channel yet: there is nothing for them to open. */
   empty: boolean;
   retry: () => void;
   select: (selection: Selection) => void;
-  start: () => void;
+  /** Back to where a person starts: their own chat, or for a guest the first channel they were added to. */
+  home: () => void;
   claimPrompt: (id: number) => boolean;
 } | null>(null);
 export function ThreadsProvider({ children }: { children: ReactNode }) {
-  const { workspace, navigate, api } = useWorkspace();
+  const { navigate, api } = useWorkspace();
   const handledPrompt = useRef(0);
   const guest = useGuest();
-  const enabled = workspace.runtime.richThreads === true;
   const [selection, setSelection] = useState<Selection>({ id: "local", existing: false });
   const [visited, setVisited] = useState<Selection[]>([]);
-  const [mainId, setMainId] = useState("local");
-  const [loading, setLoading] = useState(enabled || guest);
+  const [loading, setLoading] = useState(guest);
   const [error, setError] = useState("");
   const [empty, setEmpty] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (!enabled && !guest) return;
+    if (!guest) return;
     let active = true;
     setLoading(true);
     setError("");
     setEmpty(false);
-    // No main chat to open: a guest starts in the first channel they were added to, whether or not
-    // the workspace keeps threads.
-    if (guest) {
-      void api
-        .request<Channel[]>("/api/agent/channels")
-        .then((channels) => {
-          if (!active) return;
-          const first = channels
-            .filter((c) => c.id !== ORCHESTRATOR_CHANNEL_ID && c.status !== "archived")
-            .sort((a, b) => a.name.localeCompare(b.name))[0];
-          if (first) {
-            const next = { id: `channel:${first.id}`, existing: true };
-            setMainId("");
-            setSelection(next);
-            setVisited([next]);
-          } else setEmpty(true);
-          setLoading(false);
-        })
-        .catch((e) => {
-          if (active) setError(e instanceof Error ? e.message : String(e));
-        });
-      return () => {
-        active = false;
-      };
-    }
+    // No main chat to open: a guest starts in the first channel they were added to.
     void api
-      .request<{ threadId: string; existing: boolean }>("/api/main-thread")
-      .then((main) => {
+      .request<Channel[]>("/api/agent/channels")
+      .then((channels) => {
         if (!active) return;
-        const next = { id: main.threadId, existing: main.existing };
-        setMainId(next.id);
-        setSelection(next);
-        setVisited([next]);
+        const first = channels
+          .filter((c) => c.id !== ORCHESTRATOR_CHANNEL_ID && c.status !== "archived")
+          .sort((a, b) => a.name.localeCompare(b.name))[0];
+        if (first) {
+          const next = { id: `channel:${first.id}`, existing: true };
+          setSelection(next);
+          setVisited([next]);
+        } else setEmpty(true);
         setLoading(false);
       })
       .catch((e) => {
@@ -99,7 +68,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [api, enabled, attempt, guest]);
+  }, [api, attempt, guest]);
   function select(next: Selection) {
     setSelection(next);
     setVisited((items) => (items.some((item) => item.id === next.id) ? items : [...items, next]));
@@ -113,8 +82,6 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
           handledPrompt.current = id;
           return true;
         },
-        enabled,
-        mainId,
         visited,
         loading,
         error,
@@ -122,7 +89,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
         retry: () => setAttempt((n) => n + 1),
         selection,
         select,
-        start: () => select({ id: newThreadId(), existing: false }),
+        home: () => (guest ? setAttempt((n) => n + 1) : select({ id: "local", existing: false })),
       }}
     >
       {children}
@@ -135,7 +102,7 @@ export function useMuseThread() {
   return context;
 }
 export function ThreadsSheet({ onClose }: { onClose: () => void }) {
-  const { enabled, mainId, loading, error: mainError, retry, select, selection } = useMuseThread();
+  const { select } = useMuseThread();
   const { workspace, open, navigate, refresh } = useWorkspace();
   const [error, setError] = useState("");
   async function mutate(action: () => Promise<void>) {
@@ -158,37 +125,18 @@ export function ThreadsSheet({ onClose }: { onClose: () => void }) {
       tall
     >
       <View style={{ gap: 14 }}>
-        {enabled && loading ? (
-          <>
-            <ErrorNotice error={mainError} />
-            {mainError ? <Button onPress={retry}>Retry main chat</Button> : <Pending height={68} />}
-          </>
-        ) : enabled ? (
-          <LinkRow
-            icon={Bot}
-            title="Orchestrator"
-            detail="Chat with the orchestrator"
-            onPress={() => {
-              select({ id: mainId, existing: true });
-              onClose();
-            }}
-          />
-        ) : (
-          <>
-            <LinkRow
-              icon={Bot}
-              title="Orchestrator"
-              detail="Saved in this workspace"
-              onPress={() => {
-                select({ id: "local", existing: false });
-                onClose();
-              }}
-            />
-            <Text style={s.muted}>
-              Your conversation is saved in this workspace. You can manage connections in Apps.
-            </Text>
-          </>
-        )}
+        <LinkRow
+          icon={Bot}
+          title="Orchestrator"
+          detail="Saved in this workspace"
+          onPress={() => {
+            select({ id: "local", existing: false });
+            onClose();
+          }}
+        />
+        <Text style={s.muted}>
+          Your conversation is saved in this workspace. You can manage connections in Apps.
+        </Text>
         <View style={{ marginTop: 12 }}>
           <ChannelsSection onClose={onClose} />
         </View>
@@ -199,9 +147,7 @@ export function ThreadsSheet({ onClose }: { onClose: () => void }) {
           detail="A plan, document, or spending summary"
           onPress={() => {
             onClose();
-            const threadId =
-              enabled && !selection.id.startsWith("channel:") ? selection.id : undefined;
-            open({ type: "delegate", threadId });
+            open({ type: "delegate" });
           }}
         />
         <LinkRow

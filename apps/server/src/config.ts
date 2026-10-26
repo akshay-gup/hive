@@ -81,7 +81,6 @@ export interface Config {
   opencodeServerPassword?: string;
   /** Mention token that summons the agent in chat (AGENT_MENTION, default `@hive`). */
   agentMention?: string;
-  intelligenceApiKey?: string;
   googleClientId?: string;
   googleClientSecret?: string;
   googleRedirectUri: string;
@@ -149,7 +148,6 @@ export function readConfig(): Config {
     opencodeServerUrl: process.env.OPENCODE_SERVER_URL?.trim() || undefined,
     opencodeServerPassword: process.env.OPENCODE_SERVER_PASSWORD?.trim() || undefined,
     agentMention: normalizeMention(process.env.AGENT_MENTION),
-    intelligenceApiKey: process.env.CPK_INTELLIGENCE_API_KEY?.trim() || undefined,
     googleClientId: process.env.GOOGLE_CLIENT_ID,
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
     googleRedirectUri: `${publicUrl}/api/google/callback`,

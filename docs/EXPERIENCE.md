@@ -4,7 +4,7 @@ Hive keeps conversation, ongoing work, and user control together in a shared nat
 
 ## Conversation and work
 
-- One main conversation is the default. With CopilotKit Rich Threads enabled, its identifier is saved in the workspace; side chats have separate conversation context.
+- One main conversation is the default; each channel has its own conversation.
 - The composer stays available during replies. Its send arrow changes to a stop square in the same position inside the input pill, then returns when the run ends. Stopping preserves the current draft.
 - Follow-ups appear in a visible queue and run in order. Stopping a reply pauses that queue; it does not cancel delegated tasks. A new submission can continue immediately when no follow-ups are held. An existing paused queue resumes through **Send queued messages**.
 - Open chats and their drafts remain mounted while navigating. Queued messages are held in the open app, not a server inbox; keep the app open until they are sent. Delegated tasks are durable server work.
@@ -25,4 +25,4 @@ The look is Graphite: quiet dark glass. Panels are faint white over a neutral ch
 
 ## Boundaries
 
-The browser worker provides persistent Chromium and documents for public web access. Live Rich Threads, model reasoning and Google accounts require credentials.
+The browser worker provides persistent Chromium and documents for public web access. Model reasoning and Google accounts require credentials.

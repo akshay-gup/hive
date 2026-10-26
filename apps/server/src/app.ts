@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { MessageSchema } from "@ag-ui/core";
-import { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -103,12 +102,7 @@ export async function createApp(
     options.threads ?? new LocalDiskThreadStore(config.dataDir),
     createJevService(db, config, options.jevAdapter),
   );
-  // CopilotKit Intelligence is optional: without a key the runtime runs in
-  // local-only mode and thread state lives in the local stores.
-  const intelligence = config.intelligenceApiKey
-    ? new CopilotKitIntelligence({ apiKey: config.intelligenceApiKey })
-    : undefined;
-  const runtime = makeRuntime(config, auth, intelligence);
+  const runtime = makeRuntime(config);
   const app = new Hono<{ Variables: { owner: string } }>();
   const origins = new Set([...config.allowedOrigins, new URL(config.publicUrl).origin]);
   // A channel file's link is its own credential, and keeps its token in the path so the files a page
@@ -514,17 +508,6 @@ export async function createApp(
       }),
       201,
     );
-  });
-  app.get("/api/main-thread", async (c) => {
-    const owner = c.get("owner");
-    await db.insertIfAbsent(owner, "conversation-settings", {
-      id: "main",
-      threadId: randomUUID(),
-      existing: false,
-    });
-    const main = await db.get<{ threadId: string }>(owner, "conversation-settings", "main");
-    if (!main) throw new AppError("Main conversation could not be loaded", 503);
-    return c.json({ threadId: main.threadId, existing: true });
   });
   app.get("/api/conversation", async (c) => {
     const id = conversationKey(c.req.query("threadId"));

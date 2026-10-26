@@ -23,7 +23,7 @@ Clone this template and customize it however you want.
 
 </div>
 
-> **Alpha, for self-hosting and building on.** The agent needs a running `opencode serve` and a model, and live Google accounts and CopilotKit Rich Threads require their own configuration. A hosted workspace has channels with people in them and guests; beyond that everyone who can sign in has full access ([Who sees what](#who-sees-what)). See [what is verified](docs/VERIFICATION.md) and the [roadmap](ROADMAP.md).
+> **Alpha, for self-hosting and building on.** The agent needs a running `opencode serve` and a model, and live Google accounts require their own configuration. A hosted workspace has channels with people in them and guests; beyond that everyone who can sign in has full access ([Who sees what](#who-sees-what)). See [what is verified](docs/VERIFICATION.md) and the [roadmap](ROADMAP.md).
 
 ## Demo
 
@@ -57,7 +57,6 @@ What the agent does is the team's, not one person's. Everyone who signs in sees 
 | **Finance** | Import transaction CSV to create a spending summary with categories, transactions, and a savings-goal action. |
 | **Gmail & Calendar** | Google OAuth adapters, complete mail threads, drafts/attachments, calendar discovery, and reviewed event creation/update/deletion. Live credentials required. |
 | **Personality & memory** | The agent's name, tone, and avatar, and what it remembers (editable and forgettable), the same for everyone on the team. Background-update preferences and durable in-app notifications. |
-| **Rich Threads** | Local thread persistence on disk; optional CopilotKit Intelligence sync for thread listing, rename, archive, and replay. |
 
 The [feature inventory](docs/FEATURES.md) describes implemented capabilities and planned extensions. Health/bank/social connectors, device push, voice, generated executable tools, and automatic reservations/payments are on the [roadmap](ROADMAP.md).
 
@@ -86,7 +85,7 @@ Details and open questions live in [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 
-**Requirements:** Node 22 or newer, pnpm 11.19.0, and [OpenCode](https://opencode.ai) running as `opencode serve`: the API checks for it when it starts and stops if it cannot reach it, and the agent runs on the model you name in `MODEL`. The local sample workspace needs no Google account, and a CopilotKit Intelligence project key is optional.
+**Requirements:** Node 22 or newer, pnpm 11.19.0, and [OpenCode](https://opencode.ai) running as `opencode serve`: the API checks for it when it starts and stops if it cannot reach it, and the agent runs on the model you name in `MODEL`. The local sample workspace needs no Google account.
 
 ```sh
 git clone https://github.com/akshay-gup/openmuse.git hive
@@ -143,7 +142,6 @@ Key variables for the VM (see the deploy doc for the full table):
 | `PUBLIC_API_URL` | The public https URL, used for the Google OAuth callback and CORS |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | The Google OAuth client: how people sign in, and the Gmail/Calendar connection (live mode) |
 | `TOKEN_ENCRYPTION_KEY` | 32 random bytes, base64: encrypts Google credentials at rest (live mode) |
-| `CPK_INTELLIGENCE_API_KEY` | Optional: enables hosted CopilotKit Rich Threads; unset = fully local thread storage |
 
 ## Configure the agent and Google
 
@@ -211,8 +209,6 @@ The workspace has **one Google connection** (Gmail, Calendar, Drive), so the mai
 
 **In a hosted workspace, channels have people in them.** A channel is public (anyone in the workspace but a guest finds it and joins) or private (found only by the people in it, and no one else is told it exists), a channel has managers, and a guest can open only the channels they were added to, none of the rest of what is described here (see [hosted](docs/hosted.md#who-can-do-what)). Otherwise everyone who signs in has the same access, and a self-hosted Hive keeps no member list of its own: whoever your Google OAuth client lets through is a member, and nobody can be removed from inside Hive. Any member can connect or disconnect the Google account, approve or decline what is sent from it, mark tasks done, change the agent's name, tone and memories, and set permission rules. Which actions are owner-only is on the [roadmap](#roadmap).
 
-Shared thread history applies to the default local thread storage. Hosted Rich Threads (`CPK_INTELLIGENCE_API_KEY`) identifies each person to CopilotKit separately, so it keeps their threads apart.
-
 The kinds shared this way are listed in `SHARED_KINDS` in `apps/server/src/db.ts`, and a test fails if a new kind of record is added without placing it.
 
 ### Application storage
@@ -222,12 +218,6 @@ By default, embedded PGlite, documents, files attached to tasks (`task-files/`) 
 For a separate task worker, configure the same `DATABASE_URL`, secrets and shared `DATA_DIR` for both processes, then set `TASK_WORKER_ENABLED=false` on the API and run `pnpm dev:worker`. PGlite cannot be opened by separate processes. Production commands are `pnpm build:server`, `pnpm start` and `pnpm start:worker`. Run one API instance; task workers coordinate through SQL leases.
 
 No hidden retry occurs after an uncertain external write. Review its provider outcome before creating a replacement. Pausing/cancelling prevents subsequent task steps; an already approved in-flight provider request may finish.
-
-## CopilotKit Rich Threads (optional)
-
-`CPK_INTELLIGENCE_API_KEY` is optional. When set (via `npx copilotkit@latest login` and `npx copilotkit@latest project select`), thread listing, rename, and archive sync through CopilotKit Intelligence. When unset, the server runs fully local: threads persist on disk under `DATA_DIR`, and the client falls back to local conversation history.
-
-Intelligence is a separate service and is not included in this repository's MIT license. No project key is shipped. [Configuration and validation boundaries](docs/RICH-THREADS.md).
 
 ## Architecture
 
@@ -241,7 +231,6 @@ flowchart TD
   API --> Tasks[Durable task worker]
   Tasks --> OpenCode
   API --> Threads[Thread storage on local disk under DATA_DIR]
-  API -. optional .-> Intelligence[CopilotKit Intelligence for Rich Threads]
   API --> Store[(PGlite or PostgreSQL)]
   Tasks --> Store
   Tasks --> Review[Stored action review]

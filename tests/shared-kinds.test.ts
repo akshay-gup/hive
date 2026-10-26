@@ -10,11 +10,13 @@ import { SHARED_KINDS } from "../apps/server/src/db.ts";
  * here, so a new kind can't quietly end up per person.
  */
 const KEPT_PER_PERSON = new Set([
-  // The orchestrator and its chat, and the id of each person's main thread.
-  "conversation-settings",
+  // The orchestrator and its chat.
   "channels",
   "conversations",
   "conversation-authors",
+  // Each person's own notification settings, and what they have read.
+  "notification-prefs",
+  "reads",
   // Choice panels live with their conversation, as its transcript does: the callers pass the
   // conversation's home, so a channel's threads keep theirs in the shared workspace and only the
   // orchestrator chat keeps its own.
@@ -40,7 +42,7 @@ test("every kind of record kept for a person is shared, or deliberately kept per
   for (const file of sources(root)) {
     for (const [, owner, kind] of readFileSync(file, "utf8").matchAll(call)) {
       // Calls that name the workspace or the system outright already say where they live.
-      if (/^"(?:shared|system)"$/.test(owner.trim())) continue;
+      if (/^(?:"(?:shared|system)"|SHARED_OWNER)$/.test(owner.trim())) continue;
       if (!SHARED_KINDS.has(kind) && !KEPT_PER_PERSON.has(kind)) unplaced.add(kind);
     }
   }

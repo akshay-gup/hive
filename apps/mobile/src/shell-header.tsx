@@ -37,7 +37,7 @@ const titles: Partial<Record<Section, { title: string; subtitle: string }>> = {
 export function ShellHeader({ onMenu }: { onMenu: () => void }) {
   const { workspace, section, navigate, open } = useWorkspace();
   const { data } = useAgentWorkspace();
-  const { selection, enabled: richThreads } = useMuseThread();
+  const { selection } = useMuseThread();
   const { width } = useWindowDimensions();
   const desktop = width >= 900;
   const channelChat = section === "chat" && selection.id.startsWith("channel:");
@@ -133,7 +133,7 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
         )}
       </View>
       {desktop && section === "chat" && !channelChat && <ComputerEntry />}
-      {section === "chat" && !channelChat && !richThreads && (
+      {section === "chat" && !channelChat && (
         <IconButton
           icon={FolderOpen}
           label="Files in this chat"

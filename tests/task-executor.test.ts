@@ -24,7 +24,6 @@ async function executor(t: TestContext, name: string, adjust: Partial<Config> = 
     host: "127.0.0.1",
     publicUrl: "http://localhost:8787",
     dataDir: directory,
-    intelligenceApiKey: "test-project-key-never-sent",
     model: "openai/fixture",
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: [],

@@ -2,14 +2,12 @@ import "./config.ts";
 import { HttpAgent } from "@ag-ui/client";
 import {
   type AgentsFactory,
-  type CopilotKitIntelligence,
   CopilotRuntime,
   createCopilotHonoHandler,
 } from "@copilotkit/runtime/v2";
-import type { Auth } from "./auth.ts";
 import type { Config } from "./config.ts";
 
-export function makeRuntime(config: Config, auth: Auth, intelligence?: CopilotKitIntelligence) {
+export function makeRuntime(config: Config) {
   // The agent is OpenCode, reached through the AG-UI shim in this process. The caller's auth is
   // forwarded so the shim route resolves the owner the same way this request did.
   const agents: AgentsFactory = async ({ request }) => {
@@ -21,19 +19,6 @@ export function makeRuntime(config: Config, auth: Auth, intelligence?: CopilotKi
       }),
     };
   };
-  // Without an Intelligence key the runtime runs in SSE mode: no hosted thread
-  // persistence, no identifyUser (auth is enforced by the Hono middleware and
-  // the agents factory resolves the owner from the request headers).
-  const runtime = intelligence
-    ? new CopilotRuntime({
-        agents,
-        intelligence,
-        identifyUser: async (request) => ({
-          id: await auth.owner(request.headers.get("authorization") ?? undefined),
-          name: "Hive user",
-        }),
-        generateThreadNames: false,
-      })
-    : new CopilotRuntime({ agents });
+  const runtime = new CopilotRuntime({ agents });
   return createCopilotHonoHandler({ runtime, basePath: "/api/copilotkit" });
 }

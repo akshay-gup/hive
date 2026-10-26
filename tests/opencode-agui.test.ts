@@ -563,7 +563,7 @@ describe("opencodeShimRoutes", () => {
   });
 
   it("lazily binds an unbound run thread to the orchestrator channel", async () => {
-    // Regression: without CopilotKit Intelligence the client runs as
+    // Regression: the client runs the person's own chat as
     // thread "local-main", which has no channel binding. The run must bind
     // it instead of failing with "Thread local-main not found".
     const bound: Array<{ threadId: string; channelId: string; name?: string }> = [];

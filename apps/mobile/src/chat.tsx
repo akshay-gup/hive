@@ -39,7 +39,6 @@ import type { ChannelView } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AssistantResponse } from "./assistant-response";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
-import { ChannelThreadBanner } from "./channel-thread";
 import { looksLikeLostConnection } from "./connection-lost";
 import { ConversationQueue, type QueuedMessage } from "./conversation-queue";
 import { runConversationTurn } from "./conversation-run";
@@ -56,7 +55,8 @@ import { BrowserRunContext } from "./run-context";
 import { loadRunDurations, saveRunDurations } from "./run-durations";
 import { mergeItems, type ProgressItem, progressItems, showsRunningStep } from "./run-progress";
 import { TaskThreadCard } from "./thread-artifacts";
-import { resolveThreadId, type Selection, useMuseThread } from "./threads";
+import { MAIN_THREAD_ID } from "./thread-ids";
+import { useMuseThread } from "./threads";
 import {
   Button,
   Card,
@@ -328,25 +328,17 @@ function ServerToolCard({
 }
 export function ChatScreen({
   prompt,
-  thread,
   active = true,
 }: {
   prompt?: { id: number; text: string; messageId?: string };
-  thread?: Selection;
   active?: boolean;
 }) {
   const { api, workspace: w, refresh, navigate } = useWorkspace();
   const { refresh: refreshAgent } = useAgentWorkspace();
-  const { enabled: richThreads, mainId, claimPrompt } = useMuseThread();
-  const selection = thread || { id: "local", existing: false };
-  const threadId = resolveThreadId(richThreads, selection);
+  const { claimPrompt } = useMuseThread();
+  const threadId = MAIN_THREAD_ID;
   const agentId = `hive-${threadId}`;
-  // Keyless persistence: the main chat keeps the legacy /api/conversation
-  // record; channel threads persist under their own thread id.
-  const conversationPath =
-    threadId === "local-main"
-      ? "/api/conversation"
-      : `/api/conversation?threadId=${encodeURIComponent(threadId)}`;
+  const conversationPath = "/api/conversation";
   const { agent, isReady } = useAgent({ agentId, runtimeAgentId: "default", threadId });
   const { copilotkit } = useCopilotKit();
   const renderToolCall = useRenderToolCall();
@@ -384,24 +376,10 @@ export function ChatScreen({
     let active = true;
     setHistoryError("");
     setLoaded(false);
-    const replay = agent.subscribe({
-      onMessagesChanged: ({ messages }) => {
-        if (active && richThreads && messages.length) setLoaded(true);
-      },
-    });
     async function hydrate() {
       try {
-        if (richThreads) {
-          if (selection.existing)
-            await runConversationTurn(
-              agentId,
-              () => copilotkit.connectAgent({ agent }),
-              (onError) => copilotkit.subscribe({ onError }),
-            );
-        } else {
-          const { messages } = await api.request<{ messages: Message[] }>(conversationPath);
-          if (active) agent.setMessages(messages);
-        }
+        const { messages } = await api.request<{ messages: Message[] }>(conversationPath);
+        if (active) agent.setMessages(messages);
         if (active) setLoaded(true);
       } catch (e) {
         if (active) {
@@ -415,24 +393,12 @@ export function ChatScreen({
     void hydrate();
     return () => {
       active = false;
-      replay.unsubscribe();
-      if (richThreads) void agent.detachActiveRun().catch(() => {});
     };
-  }, [
-    agent,
-    agentId,
-    api,
-    conversationPath,
-    copilotkit,
-    isReady,
-    historyAttempt,
-    richThreads,
-    selection.existing,
-  ]);
+  }, [agent, api, conversationPath, isReady, historyAttempt]);
   const saveHistory = useCallback(async () => {
-    if (!richThreads) await api.request(conversationPath, { messages: agent.messages }, "PUT");
+    await api.request(conversationPath, { messages: agent.messages }, "PUT");
     setSaveError("");
-  }, [agent, api, conversationPath, richThreads]);
+  }, [agent, api, conversationPath]);
   const followLiveRef = useRef<() => Promise<void>>(async () => {});
   const run = useCallback(
     async (message?: QueuedMessage) => {
@@ -503,7 +469,7 @@ export function ChatScreen({
    */
   const following = useRef(false);
   const followLive = useCallback(async () => {
-    if (richThreads || following.current || runLock.current) return;
+    if (following.current || runLock.current) return;
     following.current = true;
     let claimed = false;
     const ask = () =>
@@ -528,7 +494,7 @@ export function ChatScreen({
       following.current = false;
       if (claimed) setBusy(false);
     }
-  }, [agent, api, conversationPath, refresh, refreshAgent, richThreads, threadId]);
+  }, [agent, api, conversationPath, refresh, refreshAgent, threadId]);
   followLiveRef.current = followLive;
   useEffect(() => {
     if (loaded) void followLive();
@@ -768,9 +734,6 @@ export function ChatScreen({
                   Retry loading conversation
                 </Button>
               </>
-            )}
-            {(richThreads || selection.id !== "local") && (
-              <ChannelThreadBanner threadId={threadId} mainId={mainId} />
             )}
             {!visible.length ? (
               <View

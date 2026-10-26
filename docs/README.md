@@ -13,7 +13,6 @@ The demos follow a request from chat to the agent's inline browser, then show ho
 - [Hosted workspaces: a service for many teams](hosted.md)
 - [Native iOS / Android / web setup](../apps/mobile/README.md)
 - [Browser worker, API, persistence, and network boundary](../apps/worker/README.md)
-- [CopilotKit Rich Threads](RICH-THREADS.md)
 - [Interaction design and conversation behavior](EXPERIENCE.md)
 - [Feature inventory](FEATURES.md)
 - [Verification and limitations](VERIFICATION.md)

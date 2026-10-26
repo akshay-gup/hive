@@ -187,9 +187,6 @@ export interface Workspace {
   actions: ActionProposal[];
   activity: ActivityEntry[];
   connections: Connection[];
-  runtime: {
-    richThreads?: boolean;
-  };
 }
 
 export type { ComputerCommand, ComputerDirectory, ComputerSnapshot } from "./computer.ts";

@@ -299,7 +299,6 @@ export class WorkspaceService {
       actions: [],
       activity: [],
       connections: [],
-      runtime: { richThreads: Boolean(this.config.intelligenceApiKey) },
     };
   }
   async snapshot(owner: string, query?: string): Promise<Workspace> {
@@ -377,9 +376,6 @@ export class WorkspaceService {
           capabilities: ["Persistent sessions", "PDF downloads"],
         },
       ],
-      runtime: {
-        richThreads: Boolean(this.config.intelligenceApiKey),
-      },
     };
   }
   async prepare(owner: string, input: ProposalInput, connectionId?: string) {
