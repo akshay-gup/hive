@@ -334,8 +334,9 @@ export function Button({
  * A touch has no hover and a screen reader has the label, so this is only for the pointer. Spread
  * `props` on the Pressable and render `tip` inside it. `align` is which edge of the button the
  * name lines up with, so a button at the edge of its panel has its name run inward, not off it.
+ * On a touch screen a tap passes for a hover and the name would stay on, so there it is not shown.
  */
-export function useHoverTip(label: string, align: "center" | "end" = "end") {
+export function useHoverTip(label: string, align: "start" | "center" | "end" = "end") {
   const [shown, setShown] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -345,6 +346,7 @@ export function useHoverTip(label: string, align: "center" | "end" = "end") {
   };
   const props = {
     onHoverIn: () => {
+      if (typeof window !== "undefined" && window.matchMedia?.("(hover: none)").matches) return;
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setShown(true), 450);
     },
@@ -360,9 +362,9 @@ export function useHoverTip(label: string, align: "center" | "end" = "end") {
         top: "100%",
         marginTop: 6,
         // Room for a name wider than the button, which runs one way from its edge.
-        left: align === "end" ? -180 : -90,
-        right: align === "end" ? 0 : -90,
-        alignItems: align === "end" ? "flex-end" : "center",
+        left: align === "end" ? -180 : align === "start" ? 0 : -90,
+        right: align === "start" ? -180 : align === "end" ? 0 : -90,
+        alignItems: align === "end" ? "flex-end" : align === "start" ? "flex-start" : "center",
         zIndex: 20,
       }}
     >
@@ -394,12 +396,15 @@ export function IconButton({
   icon: Icon,
   label,
   onPress,
+  tipAlign,
 }: {
   icon: LucideIcon;
   label: string;
   onPress: () => void;
+  /** Which edge of the button its name (shown on hover) lines up with; the right one unless it says. */
+  tipAlign?: "start" | "center" | "end";
 }) {
-  const { props, tip } = useHoverTip(label);
+  const { props, tip } = useHoverTip(label, tipAlign);
   // A pointer is exact, so on a wide window the button is the size of its icon plus a little.
   const dense = useDense();
   const size = dense ? 32 : 44;

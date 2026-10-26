@@ -82,7 +82,14 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
             }),
       }}
     >
-      {!desktop && <IconButton icon={Menu} label="Open workspace navigation" onPress={onMenu} />}
+      {!desktop && (
+        <IconButton
+          icon={Menu}
+          label="Open workspace navigation"
+          tipAlign="start"
+          onPress={onMenu}
+        />
+      )}
       <View style={{ flex: 1, minWidth: 0 }}>
         {channelChat ? (
           <ChannelChatBanner channelId={selection.id.slice("channel:".length)} />
