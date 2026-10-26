@@ -3,12 +3,12 @@ import { useState } from "react";
 import { Platform, Pressable, Share, Text, TextInput, View } from "react-native";
 import type { ChatReaction } from "../../../packages/domain/src/chat";
 import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
-import { authorTint } from "./channel-message";
 import { agentView } from "./chat-agent-extra";
 import { ChatAgentBody } from "./chat-agent-message";
 import type { FeedMessage } from "./chat-feed";
 import { ChatFiles } from "./chat-files";
 import { MentionText } from "./mention-ui";
+import { authorTint } from "./theme";
 import {
   Button,
   colors,

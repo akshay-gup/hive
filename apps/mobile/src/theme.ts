@@ -184,6 +184,13 @@ export const avatarTints = [
   "rgba(100,150,155,0.16)",
 ] as const;
 
+/** A stable tint per person, so a busy channel is easier to scan than a wall of identical tiles. */
+export function authorTint(name: string): string {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return avatarTints[hash % avatarTints.length];
+}
+
 /** Background discs behind the bee, one per avatar the person can choose. */
 export const mascotTints = {
   sky: "rgba(110,145,190,0.22)",

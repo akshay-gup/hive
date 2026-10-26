@@ -4,8 +4,8 @@ import { Pressable, Text, View } from "react-native";
 import type { Project } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
-import { authorTint } from "./channel-message";
 import { ProjectCreate, ProjectManage, type ProjectSelection } from "./task-project";
+import { authorTint } from "./theme";
 import { colors, fontSize, radius, s, useDense, type WebPressState } from "./ui";
 
 interface ActivityProjects {

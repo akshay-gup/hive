@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import type { TaskPriority } from "../../../packages/domain/src/agent";
-import { authorTint } from "./channel-message";
+import { authorTint } from "./theme";
 import { colors } from "./ui";
 
 const priorityLevel: Record<TaskPriority, number> = { low: 1, medium: 2, high: 3, urgent: 3 };

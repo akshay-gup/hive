@@ -1,9 +1,8 @@
 import { BellOff, Check, Settings, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import type { AgentNotification } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
-import { authorTint } from "./channel-message";
 import {
   groupByDay,
   type NoticeTab,
@@ -13,6 +12,7 @@ import {
   unreadCounts,
 } from "./notice-text";
 import { NotificationSettingsSheet } from "./notification-settings";
+import { authorTint } from "./theme";
 import { useMuseThread } from "./threads";
 import {
   Button,

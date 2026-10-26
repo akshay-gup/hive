@@ -165,7 +165,7 @@ function WorkspaceShell({
   error: string;
   prompt?: { id: number; text: string };
 }) {
-  const { api, section, navigate } = useWorkspace();
+  const { section, navigate } = useWorkspace();
   const guest = useGuest();
   const {
     selection,
@@ -303,7 +303,7 @@ function WorkspaceShell({
                         key={thread.id}
                         style={{ display: selection.id === thread.id ? "flex" : "none", flex: 1 }}
                       >
-                        {api.chat && thread.id.startsWith("channel:") ? (
+                        {thread.id.startsWith("channel:") ? (
                           <ChannelChat
                             channelId={thread.id.slice("channel:".length)}
                             active={section === "chat" && selection.id === thread.id}
@@ -314,7 +314,6 @@ function WorkspaceShell({
                             thread={thread}
                             active={section === "chat" && selection.id === thread.id}
                             prompt={selection.id === thread.id ? prompt : undefined}
-                            header={thread.id.startsWith("channel:") ? channelHeader : undefined}
                           />
                         )}
                       </View>
@@ -332,7 +331,7 @@ function WorkspaceShell({
                             flex: 1,
                           }}
                         >
-                          {api.chat && thread.id.startsWith("channel:") ? (
+                          {thread.id.startsWith("channel:") ? (
                             <ChannelChat
                               channelId={thread.id.slice("channel:".length)}
                               active={section === "chat" && selection.id === thread.id}
@@ -343,7 +342,6 @@ function WorkspaceShell({
                               thread={thread}
                               active={section === "chat" && selection.id === thread.id}
                               prompt={selection.id === thread.id ? prompt : undefined}
-                              header={thread.id.startsWith("channel:") ? channelHeader : undefined}
                             />
                           )}
                         </View>
