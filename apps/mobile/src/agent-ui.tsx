@@ -14,6 +14,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Settings,
   Target,
   X,
 } from "lucide-react-native";
@@ -37,6 +38,7 @@ import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
 import { useLineMaxWidth } from "./line-width";
 import { PermissionsSettings } from "./opencode-permissions";
+import { ProjectPeopleStack } from "./project-header";
 import { canChangeTask } from "./project-text";
 import { ActivityScreen, ConnectionsScreen } from "./screens";
 import { useServerFeature } from "./server-features";
@@ -68,6 +70,7 @@ import {
   financeArt,
   fontSize,
   HaloDot,
+  IconButton,
   LinkRow,
   Mascot,
   Pending,
@@ -313,7 +316,11 @@ export function ChatWork() {
 export function AgentActivityScreen() {
   const { data, refresh } = useAgentWorkspace();
   const { api } = useWorkspace();
-  const { selected: projectFilter } = useActivityProjects();
+  const { selected: projectFilter, manage } = useActivityProjects();
+  const openProject =
+    typeof projectFilter === "string"
+      ? (data?.projects ?? []).find((project) => project.id === projectFilter)
+      : undefined;
   const [onlyNeeds, setOnlyNeeds] = useState(false);
   const [view, setView] = useState<"list" | "board" | "timeline" | "activity">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -363,6 +370,17 @@ export function AgentActivityScreen() {
       </Text>
     </Pressable>
   );
+  // The project's own controls, on its page: who is in it, adding people, its settings.
+  const projectTools = openProject && (
+    <View style={[s.row, { gap: 4 }]}>
+      {!narrow && <ProjectPeopleStack project={openProject} onOpen={() => manage(openProject)} />}
+      <IconButton
+        icon={Settings}
+        label={`Settings and people of ${openProject.name}`}
+        onPress={() => manage(openProject)}
+      />
+    </View>
+  );
   const newIssue = (
     <Button
       small
@@ -385,6 +403,7 @@ export function AgentActivityScreen() {
         <View style={[s.row, { gap: 12, flex: 1 }]}>
           {needsChip}
           <View style={{ flex: 1 }} />
+          {projectTools}
           {newIssue}
         </View>
       </View>
