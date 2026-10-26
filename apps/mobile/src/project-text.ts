@@ -37,6 +37,18 @@ export const accessLine = (access: ProjectAccess | undefined): string =>
 export const canWorkIn = (project: { you?: { canWork: boolean } }): boolean =>
   project.you?.canWork !== false;
 
+/**
+ * Whether the person may change a task, as its project lets them: not when it is in a project they can
+ * only look at. A task the app has no project for is theirs, as before.
+ */
+export function canChangeTask(
+  task: { projectId?: string | null },
+  projects: { id: string; you?: { canWork: boolean } }[],
+): boolean {
+  const project = task.projectId ? projects.find((item) => item.id === task.projectId) : undefined;
+  return !project || canWorkIn(project);
+}
+
 /** Whether what was typed is the project's name: the proof that the person means this project. */
 export const nameMatches = (typed: string, name: string): boolean =>
   typed.trim().toLowerCase() === name.trim().toLowerCase();

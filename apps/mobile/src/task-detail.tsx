@@ -10,7 +10,7 @@ import {
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import DateOnlyField from "./DateOnlyField";
-import { canWorkIn } from "./project-text";
+import { canChangeTask, canWorkIn } from "./project-text";
 import { TaskAttention } from "./task-attention";
 import { priorityColors } from "./task-board";
 import { TaskBrief } from "./task-brief";
@@ -73,6 +73,8 @@ export function TaskDetail({
   const [armed, setArmed] = useState(false);
 
   const manual = task.kind === "manual";
+  // In a project the person may only look at, the task is shown and not changed.
+  const locked = !canChangeTask(task, projects);
   // Issues have a description; agent tasks have the instructions they were given.
   const hasDescription = manual || task.kind === "agent" || task.kind === "plan";
   const channelName = task.channelId && task.channelId !== "orchestrator" ? task.channelId : null;
@@ -150,7 +152,12 @@ export function TaskDetail({
     >
       <View style={{ gap: 20 }}>
         <ErrorNotice error={error} />
-        {!manual && <TaskAttention task={task} onBeforeOpen={onClose} />}
+        {locked && (
+          <Text style={s.muted}>
+            You can look at this task but not change it: its project is view-only for you.
+          </Text>
+        )}
+        {!manual && !locked && <TaskAttention task={task} onBeforeOpen={onClose} />}
         {hasDescription && !!task.prompt.trim() && (
           <View style={{ gap: 6 }}>
             <Text style={s.label}>{manual ? "Description" : "Instructions"}</Text>
@@ -160,155 +167,174 @@ export function TaskDetail({
           </View>
         )}
         {(!manual || task.attempts > 0) && <TaskRunView task={task} />}
-        <TaskBrief task={task} />
-
-        <View style={{ gap: 6 }}>
-          <Text style={s.label}>Status</Text>
-          <Segmented
-            label="Move to"
-            value={task.status}
-            disabled={busy}
-            onChange={(status) => void patch({ status })}
-            options={transitions.map((status) => ({ id: status, label: statusLabel(status) }))}
-          />
-          {!manual && (
+        <TaskBrief task={task} readOnly={locked} />
+        {locked ? (
+          <View style={{ gap: 4 }}>
             <Text style={s.small}>
-              Worker tasks can only be queued, paused, or cancelled by hand.
+              {[
+                `Priority: ${task.priority}`,
+                task.startAt ? `Start ${task.startAt}` : "",
+                task.dueAt ? `Due ${task.dueAt}` : "",
+                task.labels.length ? task.labels.join(", ") : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </Text>
-          )}
-        </View>
+          </View>
+        ) : (
+          <>
+            <View style={{ gap: 6 }}>
+              <Text style={s.label}>Status</Text>
+              <Segmented
+                label="Move to"
+                value={task.status}
+                disabled={busy}
+                onChange={(status) => void patch({ status })}
+                options={transitions.map((status) => ({ id: status, label: statusLabel(status) }))}
+              />
+              {!manual && (
+                <Text style={s.small}>
+                  Worker tasks can only be queued, paused, or cancelled by hand.
+                </Text>
+              )}
+            </View>
 
-        <View style={{ gap: 6 }}>
-          <Text style={s.label}>Priority</Text>
-          <Segmented<TaskPriority>
-            label="Priority"
-            value={task.priority}
-            disabled={busy}
-            onChange={(priority) => void patch({ priority })}
-            options={taskPriorities.map((priority) => ({
-              id: priority,
-              label: priority[0].toUpperCase() + priority.slice(1),
-              dot: priorityColors[priority],
-            }))}
-          />
-        </View>
+            <View style={{ gap: 6 }}>
+              <Text style={s.label}>Priority</Text>
+              <Segmented<TaskPriority>
+                label="Priority"
+                value={task.priority}
+                disabled={busy}
+                onChange={(priority) => void patch({ priority })}
+                options={taskPriorities.map((priority) => ({
+                  id: priority,
+                  label: priority[0].toUpperCase() + priority.slice(1),
+                  dot: priorityColors[priority],
+                }))}
+              />
+            </View>
 
-        <View style={{ gap: 6 }}>
-          <Text style={s.label}>Assignee</Text>
-          <Segmented<"none" | "agent">
-            label="Assignee"
-            value={handing || task.assignee === "agent" ? "agent" : "none"}
-            disabled={busy}
-            onChange={(assignee) => {
-              if (assignee === "agent") {
-                // Handing a ticket over is a step of its own: say what the agent needs first.
-                if (task.assignee !== "agent") setHanding(true);
-                return;
-              }
-              setHanding(false);
-              if (task.assignee === "agent") void patch({ assignee: null });
-            }}
-            options={[
-              { id: "none", label: "Unassigned" },
-              { id: "agent", label: "Agent" },
-            ]}
-          />
-          {manual && !task.assignee && !handing && (
-            <Text style={s.small}>Assign to the agent to have it run this issue.</Text>
-          )}
-          {task.assignee === "agent" && (
-            <Text style={s.small}>
-              The agent runs this ticket and hands it back to you to check. Only you mark it done.
-            </Text>
-          )}
-          {handing && (
-            <Card style={{ backgroundColor: colors.primarySoft, gap: 12 }}>
-              <Text style={s.heading}>Hand this to the agent</Text>
-              <Text style={s.muted}>
-                It reads the description, notes and files above, and starts as soon as you confirm.
-                When it finishes it comes back to you to check, and you decide whether it is done.
-              </Text>
-              {channelName && (
-                <CheckRow
-                  label={`Include the recent discussion in #${channelName}`}
-                  checked={includeDiscussion}
-                  onPress={() => setIncludeDiscussion(!includeDiscussion)}
+            <View style={{ gap: 6 }}>
+              <Text style={s.label}>Assignee</Text>
+              <Segmented<"none" | "agent">
+                label="Assignee"
+                value={handing || task.assignee === "agent" ? "agent" : "none"}
+                disabled={busy}
+                onChange={(assignee) => {
+                  if (assignee === "agent") {
+                    // Handing a ticket over is a step of its own: say what the agent needs first.
+                    if (task.assignee !== "agent") setHanding(true);
+                    return;
+                  }
+                  setHanding(false);
+                  if (task.assignee === "agent") void patch({ assignee: null });
+                }}
+                options={[
+                  { id: "none", label: "Unassigned" },
+                  { id: "agent", label: "Agent" },
+                ]}
+              />
+              {manual && !task.assignee && !handing && (
+                <Text style={s.small}>Assign to the agent to have it run this issue.</Text>
+              )}
+              {task.assignee === "agent" && (
+                <Text style={s.small}>
+                  The agent runs this ticket and hands it back to you to check. Only you mark it
+                  done.
+                </Text>
+              )}
+              {handing && (
+                <Card style={{ backgroundColor: colors.primarySoft, gap: 12 }}>
+                  <Text style={s.heading}>Hand this to the agent</Text>
+                  <Text style={s.muted}>
+                    It reads the description, notes and files above, and starts as soon as you
+                    confirm. When it finishes it comes back to you to check, and you decide whether
+                    it is done.
+                  </Text>
+                  {channelName && (
+                    <CheckRow
+                      label={`Include the recent discussion in #${channelName}`}
+                      checked={includeDiscussion}
+                      onPress={() => setIncludeDiscussion(!includeDiscussion)}
+                    />
+                  )}
+                  <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+                    <Button
+                      primary
+                      busy={busy}
+                      onPress={() => {
+                        void patch({
+                          assignee: "agent",
+                          ...(channelName ? { channelContext: includeDiscussion } : {}),
+                        }).then((saved) => saved && setHanding(false));
+                      }}
+                    >
+                      Hand to agent
+                    </Button>
+                    <Button disabled={busy} onPress={() => setHanding(false)}>
+                      Cancel
+                    </Button>
+                  </View>
+                </Card>
+              )}
+            </View>
+
+            <View style={{ gap: 6 }}>
+              <Text style={s.label}>Project</Text>
+              <Segmented<string>
+                label="Project"
+                value={task.projectId ?? GENERAL_PROJECT_ID}
+                disabled={busy}
+                onChange={(projectId) => void patch({ projectId })}
+                options={[
+                  // Only where the person may put work, and the one the task is in.
+                  ...projects
+                    .filter((project) => canWorkIn(project) || project.id === task.projectId)
+                    .map((project) => ({ id: project.id, label: project.name })),
+                ]}
+              />
+            </View>
+
+            <View style={{ height: 1, backgroundColor: colors.line }} />
+
+            <View style={{ gap: 4 }}>
+              <Text style={s.label}>Details</Text>
+              <Text style={s.small}>Changes here are saved with the button below.</Text>
+            </View>
+            <View>
+              <Field label="Title" value={title} onChangeText={setTitle} />
+              {hasDescription && (
+                <Field
+                  label={manual ? "Description" : "Instructions"}
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                  placeholder={
+                    manual ? "What is this about, and what does done look like?" : undefined
+                  }
+                  style={{ minHeight: 96 }}
                 />
               )}
-              <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-                <Button
-                  primary
-                  busy={busy}
-                  onPress={() => {
-                    void patch({
-                      assignee: "agent",
-                      ...(channelName ? { channelContext: includeDiscussion } : {}),
-                    }).then((saved) => saved && setHanding(false));
-                  }}
-                >
-                  Hand to agent
-                </Button>
-                <Button disabled={busy} onPress={() => setHanding(false)}>
-                  Cancel
-                </Button>
+              <View style={[s.row, { gap: 10, alignItems: "flex-start" }]}>
+                <View style={{ flex: 1 }}>
+                  <DateOnlyField label="Start date" value={startAt} onChange={setStartAt} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <DateOnlyField label="Due date" value={dueAt} onChange={setDueAt} />
+                </View>
               </View>
-            </Card>
-          )}
-        </View>
-
-        <View style={{ gap: 6 }}>
-          <Text style={s.label}>Project</Text>
-          <Segmented<string>
-            label="Project"
-            value={task.projectId ?? GENERAL_PROJECT_ID}
-            disabled={busy}
-            onChange={(projectId) => void patch({ projectId })}
-            options={[
-              // Only where the person may put work, and the one the task is in.
-              ...projects
-                .filter((project) => canWorkIn(project) || project.id === task.projectId)
-                .map((project) => ({ id: project.id, label: project.name })),
-            ]}
-          />
-        </View>
-
-        <View style={{ height: 1, backgroundColor: colors.line }} />
-
-        <View style={{ gap: 4 }}>
-          <Text style={s.label}>Details</Text>
-          <Text style={s.small}>Changes here are saved with the button below.</Text>
-        </View>
-        <View>
-          <Field label="Title" value={title} onChangeText={setTitle} />
-          {hasDescription && (
-            <Field
-              label={manual ? "Description" : "Instructions"}
-              value={description}
-              onChangeText={setDescription}
-              multiline
-              placeholder={manual ? "What is this about, and what does done look like?" : undefined}
-              style={{ minHeight: 96 }}
-            />
-          )}
-          <View style={[s.row, { gap: 10, alignItems: "flex-start" }]}>
-            <View style={{ flex: 1 }}>
-              <DateOnlyField label="Start date" value={startAt} onChange={setStartAt} />
+              <Field
+                label="Labels (comma-separated)"
+                value={labels}
+                onChangeText={setLabels}
+                placeholder="errands, trip"
+              />
+              <Button primary disabled={busy} onPress={saveFields}>
+                Save details
+              </Button>
             </View>
-            <View style={{ flex: 1 }}>
-              <DateOnlyField label="Due date" value={dueAt} onChange={setDueAt} />
-            </View>
-          </View>
-          <Field
-            label="Labels (comma-separated)"
-            value={labels}
-            onChangeText={setLabels}
-            placeholder="errands, trip"
-          />
-          <Button primary disabled={busy} onPress={saveFields}>
-            Save details
-          </Button>
-        </View>
-
+          </>
+        )}
         {!!blockers.length && (
           <View style={{ gap: 8 }}>
             <Text style={s.label}>Blocked by</Text>
@@ -319,19 +345,21 @@ export function TaskDetail({
             ))}
           </View>
         )}
-        <Button
-          danger
-          disabled={busy}
-          onPress={() => {
-            if (armed) void remove();
-            else {
-              setArmed(true);
-              setTimeout(() => setArmed(false), 4000);
-            }
-          }}
-        >
-          {armed ? "Press again to confirm delete" : "Delete"}
-        </Button>
+        {!locked && (
+          <Button
+            danger
+            disabled={busy}
+            onPress={() => {
+              if (armed) void remove();
+              else {
+                setArmed(true);
+                setTimeout(() => setArmed(false), 4000);
+              }
+            }}
+          >
+            {armed ? "Press again to confirm delete" : "Delete"}
+          </Button>
+        )}
       </View>
     </Sheet>
   );

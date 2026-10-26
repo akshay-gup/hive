@@ -37,6 +37,7 @@ import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
 import { useLineMaxWidth } from "./line-width";
 import { PermissionsSettings } from "./opencode-permissions";
+import { canChangeTask } from "./project-text";
 import { ActivityScreen, ConnectionsScreen } from "./screens";
 import { useServerFeature } from "./server-features";
 import { TaskAttention } from "./task-attention";
@@ -412,6 +413,7 @@ export function AgentActivityScreen() {
       {view === "board" && (
         <TaskBoard
           tasks={tasks}
+          canControl={(task) => canChangeTask(task, projects)}
           onSelect={(task) => setSelectedId(task.id)}
           onControl={async (taskId, action) => {
             await api.request(`/api/agent/tasks/${taskId}/control`, { action }, "POST");
@@ -487,8 +489,8 @@ export function EvidenceList({ items }: { items: Evidence[] }) {
 export function TaskDetail({ taskId }: { taskId: string }) {
   const { api, close, open } = useWorkspace();
   const { data, mutate } = useAgentWorkspace();
-  // A guest looks at what the agent is doing, and does not steer it.
-  const guest = useGuest();
+  // A guest looks at what the agent is doing, and does not steer it; nor does someone who may only look at its project.
+  const guestRole = useGuest();
   const [detail, setDetail] = useState<{
     task: AgentTask;
     events: RunEvent[];
@@ -499,6 +501,7 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const task = data?.tasks.find((item) => item.id === taskId) || detail?.task;
+  const guest = guestRole || (!!task && !canChangeTask(task, data?.projects ?? []));
   useEffect(() => {
     let active = true;
     void api

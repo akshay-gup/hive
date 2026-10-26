@@ -76,7 +76,8 @@ function NoteRow({
 }: {
   note: TaskNote;
   agentTask: boolean;
-  onRemove: () => void;
+  /** Absent when the person may only look. */
+  onRemove?: () => void;
 }) {
   return (
     <View
@@ -109,7 +110,7 @@ function NoteRow({
       <Text selectable style={s.text}>
         {note.text}
       </Text>
-      {note.mine && !note.delivered && (
+      {note.mine && !note.delivered && onRemove && (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Remove this note"
@@ -123,7 +124,7 @@ function NoteRow({
   );
 }
 
-function FileRow({ file, onRemove }: { file: TaskAttachment; onRemove: () => void }) {
+function FileRow({ file, onRemove }: { file: TaskAttachment; onRemove?: () => void }) {
   const Icon = file.mimeType.startsWith("image/") ? ImageIcon : FileText;
   return (
     <View
@@ -155,7 +156,7 @@ function FileRow({ file, onRemove }: { file: TaskAttachment; onRemove: () => voi
           {ago(file.addedAt)}
         </Text>
       </Pressable>
-      {file.mine && (
+      {file.mine && onRemove && (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Remove ${file.name}`}
@@ -173,7 +174,7 @@ function FileRow({ file, onRemove }: { file: TaskAttachment; onRemove: () => voi
  * What the agent is told besides the task itself: the team's notes, in order, and the files it
  * should read. Every run reads all of it, and a note added while the agent works reaches it then.
  */
-export function TaskBrief({ task }: { task: AgentTask }) {
+export function TaskBrief({ task, readOnly }: { task: AgentTask; readOnly?: boolean }) {
   const { api } = useWorkspace();
   const { refresh, mutate } = useAgentWorkspace();
   const [text, setText] = useState("");
@@ -223,35 +224,49 @@ export function TaskBrief({ task }: { task: AgentTask }) {
           key={note.id}
           note={note}
           agentTask={agentTask}
-          onRemove={() => void removeNote(note)}
+          onRemove={readOnly ? undefined : () => void removeNote(note)}
         />
       ))}
       {files.map((file) => (
-        <FileRow key={file.id} file={file} onRemove={() => void removeFile(file)} />
+        <FileRow
+          key={file.id}
+          file={file}
+          onRemove={readOnly ? undefined : () => void removeFile(file)}
+        />
       ))}
       <ErrorNotice error={error} />
-      <Field
-        label="Add a note"
-        value={text}
-        onChangeText={setText}
-        multiline
-        maxLength={taskBriefLimits.noteChars}
-        placeholder="Anything the agent should know or do differently…"
-        style={{ minHeight: 76 }}
-      />
-      <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
-        <Button primary small busy={busy} disabled={!text.trim()} onPress={() => void addNote()}>
-          Add note
-        </Button>
-        <Button
-          small
-          icon={Paperclip}
-          disabled={busy || files.length >= taskBriefLimits.attachments}
-          onPress={() => void run(() => attachFile(api, task.id))}
-        >
-          Attach a file
-        </Button>
-      </View>
+      {!readOnly && (
+        <>
+          <Field
+            label="Add a note"
+            value={text}
+            onChangeText={setText}
+            multiline
+            maxLength={taskBriefLimits.noteChars}
+            placeholder="Anything the agent should know or do differently…"
+            style={{ minHeight: 76 }}
+          />
+          <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+            <Button
+              primary
+              small
+              busy={busy}
+              disabled={!text.trim()}
+              onPress={() => void addNote()}
+            >
+              Add note
+            </Button>
+            <Button
+              small
+              icon={Paperclip}
+              disabled={busy || files.length >= taskBriefLimits.attachments}
+              onPress={() => void run(() => attachFile(api, task.id))}
+            >
+              Attach a file
+            </Button>
+          </View>
+        </>
+      )}
     </View>
   );
 }

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   accessChoices,
   accessLine,
+  canChangeTask,
   canWorkIn,
   destinations,
   nameMatches,
@@ -53,4 +54,15 @@ test("a project is deleted by typing its name, whatever the case and the spaces 
   assert.equal(nameMatches("  reorg ", "Reorg"), true);
   assert.equal(nameMatches("Reor", "Reorg"), false);
   assert.equal(nameMatches("", "Reorg"), false);
+});
+
+test("a task is the person's to change unless its project lets them only look", () => {
+  const projects = [
+    { id: "open", you: { canWork: true } },
+    { id: "view", you: { canWork: false } },
+  ];
+  assert.equal(canChangeTask({ projectId: "open" }, projects), true);
+  assert.equal(canChangeTask({ projectId: "view" }, projects), false);
+  assert.equal(canChangeTask({ projectId: null }, projects), true);
+  assert.equal(canChangeTask({ projectId: "unknown" }, projects), true);
 });

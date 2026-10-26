@@ -362,10 +362,13 @@ export function TaskBoard({
   tasks,
   onSelect,
   onControl,
+  canControl,
 }: {
   tasks: AgentTask[];
   onSelect: (task: AgentTask) => void;
   onControl?: (taskId: string, action: "pause" | "resume" | "retry") => Promise<void>;
+  /** Whether the person may pause, resume or retry this task: not where its project lets them only look. */
+  canControl?: (task: AgentTask) => boolean;
 }) {
   const [width, setWidth] = useState(0);
   const [watch] = useState(watchRuns);
@@ -438,7 +441,7 @@ export function TaskBoard({
                   key={task.id}
                   task={task}
                   onPress={() => onSelect(task)}
-                  onControl={onControl}
+                  onControl={canControl?.(task) === false ? undefined : onControl}
                   seenRunning={seen.get(task.id)}
                 />
               ))}
