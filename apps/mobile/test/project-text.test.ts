@@ -3,9 +3,12 @@ import { test } from "node:test";
 import {
   accessChoices,
   accessLine,
+  accessWord,
   canChangeTask,
   canWorkIn,
   destinations,
+  initialsOf,
+  markRow,
   nameMatches,
   roleChoices,
 } from "../src/project-text.ts";
@@ -65,4 +68,19 @@ test("a task is the person's to change unless its project lets them only look", 
   assert.equal(canChangeTask({ projectId: "view" }, projects), false);
   assert.equal(canChangeTask({ projectId: null }, projects), true);
   assert.equal(canChangeTask({ projectId: "unknown" }, projects), true);
+});
+
+test("a person's mark is the first letters of their name, or of their address when they have none", () => {
+  assert.equal(initialsOf("Max Member", "max@example.com"), "MM");
+  assert.equal(initialsOf("Ada Lovelace King", "ada@example.com"), "AK");
+  assert.equal(initialsOf("Olive", "olive@example.com"), "OL");
+  assert.equal(initialsOf("", "gus@example.com"), "GU");
+  assert.equal(initialsOf("", ""), "?");
+});
+
+test("a row of marks shows the first few and counts the rest", () => {
+  assert.deepEqual(markRow([1, 2, 3]), { shown: [1, 2, 3], more: 0 });
+  assert.deepEqual(markRow([1, 2, 3, 4, 5, 6, 7]), { shown: [1, 2, 3, 4, 5], more: 2 });
+  assert.equal(accessWord("limited"), "Limited");
+  assert.equal(accessWord(undefined), "Open");
 });

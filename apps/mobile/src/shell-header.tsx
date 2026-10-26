@@ -6,6 +6,7 @@ import { useActivityProjects, useActivityTitle } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
 import { ChannelChatBanner } from "./chat";
 import { ComputerEntry } from "./computer";
+import { ProjectPeopleStack } from "./project-header";
 import { useMuseThread } from "./threads";
 import { colors, fontSize, GlassBar, IconButton, layout, Mascot, s } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -145,6 +146,9 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
           label="Files in this chat"
           onPress={() => open({ type: "channelFiles", channelId: ORCHESTRATOR_CHANNEL_ID })}
         />
+      )}
+      {desktop && selectedProject && (
+        <ProjectPeopleStack project={selectedProject} onOpen={() => manage(selectedProject)} />
       )}
       {selectedProject && (
         <IconButton

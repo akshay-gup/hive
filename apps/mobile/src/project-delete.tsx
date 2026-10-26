@@ -1,18 +1,11 @@
 import { Check, ChevronDown } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import {
-  GENERAL_PROJECT_ID,
-  type Project,
-  type ProjectAccess,
-} from "../../../packages/domain/src/agent";
+import { GENERAL_PROJECT_ID, type Project } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
-import { accessChoices, destinations, nameMatches } from "./project-text";
+import { accessWord, destinations, nameMatches } from "./project-text";
 import { Button, colors, ErrorNotice, Field, SearchField, Segmented, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
-
-const word = (access: ProjectAccess | undefined) =>
-  accessChoices.find((choice) => choice.id === (access ?? "open"))?.title ?? "";
 
 /** Past this many projects, the list can be searched. */
 const SEARCHABLE = 6;
@@ -106,7 +99,7 @@ function ProjectPicker({
                 {project.id === value ? (
                   <Check size={16} color={colors.primary} />
                 ) : (
-                  <Text style={s.small}>{word(project.access)}</Text>
+                  <Text style={s.small}>{accessWord(project.access)}</Text>
                 )}
               </Pressable>
             ))}

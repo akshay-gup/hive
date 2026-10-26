@@ -1,9 +1,18 @@
 import { Eye, ListChecks, Lock, Plus } from "lucide-react-native";
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Project } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
+import { accessWord } from "./project-text";
 import { ProjectCreate, ProjectManage, type ProjectSelection } from "./task-project";
 import { authorTint } from "./theme";
 import { colors, fontSize, radius, s, useDense, type WebPressState } from "./ui";
@@ -36,6 +45,11 @@ export function ActivityProjectsProvider({ children }: { children: ReactNode }) 
   const [managingId, setManagingId] = useState<string | null>(null);
   const projects = data?.projects ?? [];
   const managing = managingId ? projects.find((project) => project.id === managingId) : undefined;
+  // A project that was deleted is no longer one to be on.
+  useEffect(() => {
+    if (data && typeof selected === "string" && !data.projects.some((p) => p.id === selected))
+      setSelected(null);
+  }, [data, selected]);
   const newProject = useCallback(() => setCreating(true), []);
   const manage = useCallback((project: Project) => setManagingId(project.id), []);
   const value = useMemo(
@@ -50,11 +64,7 @@ export function ActivityProjectsProvider({ children }: { children: ReactNode }) 
         <ProjectManage
           project={managing}
           taskCount={(data?.tasks ?? []).filter((task) => task.projectId === managing.id).length}
-          onClose={() => {
-            setManagingId(null);
-            // A project that was deleted is no longer one to be on.
-            if (selected === managing.id) setSelected(null);
-          }}
+          onClose={() => setManagingId(null)}
         />
       )}
     </Context.Provider>
@@ -73,7 +83,9 @@ export function useActivityTitle(): { title: string; subtitle: string } {
   const counts = `${mine.length} ${mine.length === 1 ? "task" : "tasks"}${waiting ? ` · ${waiting} need you` : ""}`;
   return {
     title: project ? project.name : "All work",
-    subtitle: [project?.description, counts].filter(Boolean).join(" · "),
+    subtitle: [project ? accessWord(project.access) : "", project?.description, counts]
+      .filter(Boolean)
+      .join(" · "),
   };
 }
 

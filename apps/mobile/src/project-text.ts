@@ -74,3 +74,20 @@ export function destinations<T extends { id: string; name: string; you?: { canWo
         a.name.localeCompare(b.name),
     );
 }
+
+/** The letters in a person's mark: the first of their first and last names, or the start of the address. */
+export function initialsOf(name: string, email: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+  const base = words[0] ?? email.split("@")[0] ?? "";
+  return base.slice(0, 2).toUpperCase() || "?";
+}
+
+/** Who to draw in a row of marks, and how many more there are. */
+export function markRow<T>(people: T[], most = 5): { shown: T[]; more: number } {
+  return { shown: people.slice(0, most), more: Math.max(0, people.length - most) };
+}
+
+/** How open a project is, in one word. */
+export const accessWord = (access: ProjectAccess | undefined): string =>
+  accessChoices.find((choice) => choice.id === (access ?? "open"))?.title ?? "";
