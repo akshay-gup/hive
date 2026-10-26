@@ -1,4 +1,8 @@
-import type { ProjectAccess, ProjectRole } from "../../../packages/domain/src/agent";
+import {
+  GENERAL_PROJECT_ID,
+  type ProjectAccess,
+  type ProjectRole,
+} from "../../../packages/domain/src/agent";
 
 /** What each way a project can be open means, in the words the person chooses by. */
 export const accessChoices: { id: ProjectAccess; title: string; detail: string }[] = [
@@ -32,3 +36,25 @@ export const accessLine = (access: ProjectAccess | undefined): string =>
 /** Whether the person may put tasks in a project. A project the server did not describe is open to them. */
 export const canWorkIn = (project: { you?: { canWork: boolean } }): boolean =>
   project.you?.canWork !== false;
+
+/**
+ * Where a deleted project's tasks can go: any other project work may be put in, General first and then
+ * by name, narrowed by what was typed.
+ */
+export function destinations<T extends { id: string; name: string; you?: { canWork: boolean } }>(
+  projects: T[],
+  deleted: string,
+  query = "",
+): T[] {
+  const wanted = query.trim().toLowerCase();
+  return projects
+    .filter(
+      (project) =>
+        project.id !== deleted && canWorkIn(project) && project.name.toLowerCase().includes(wanted),
+    )
+    .sort(
+      (a, b) =>
+        Number(b.id === GENERAL_PROJECT_ID) - Number(a.id === GENERAL_PROJECT_ID) ||
+        a.name.localeCompare(b.name),
+    );
+}
