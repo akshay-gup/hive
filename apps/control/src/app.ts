@@ -349,6 +349,8 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
     return c.json({
       account: { id: account.id, email: account.email, name: account.name },
       workspaces: await workspaces.list(account),
+      // How many workspaces one person may be in, made or joined, so the app offers no more.
+      maxWorkspaces: config.maxWorkspacesPerAccount,
     });
   });
   // Deleting the account: out of every workspace first (an owner must delete theirs, which is a 409

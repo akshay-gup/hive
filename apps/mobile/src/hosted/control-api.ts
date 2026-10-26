@@ -156,7 +156,12 @@ export class ControlApi {
     }
   }
   me() {
-    return this.call<{ account: ControlAccount; workspaces: WorkspaceSummary[] }>("GET", "/v1/me");
+    return this.call<{
+      account: ControlAccount;
+      workspaces: WorkspaceSummary[];
+      /** Absent from a control plane that has not taken up the update: then there is no limit to say. */
+      maxWorkspaces?: number;
+    }>("GET", "/v1/me");
   }
 
   // Workspaces

@@ -109,6 +109,8 @@ test("people sign in without Google only on a sample control plane", async () =>
   const me = await (await ada.get("/v1/me")).json();
   assert.equal(me.account.id, ada.account.id);
   assert.deepEqual(me.workspaces, []);
+  // The app is told how many workspaces a person may be in, so it offers no more.
+  assert.equal(me.maxWorkspaces, 3);
 
   const live = createControlApp(db, config({ mode: "live" }), { provisioner, keys });
   const refused = await live.app.request("/v1/auth/dev", {

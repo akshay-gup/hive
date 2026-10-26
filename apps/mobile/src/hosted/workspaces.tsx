@@ -40,9 +40,12 @@ export function WorkspacesScreen({
   onAccount,
   onRemove,
   notice,
+  maxWorkspaces,
 }: {
   account: ControlAccount;
   workspaces: WorkspaceSummary[];
+  /** How many workspaces one person may be in. Without it, no limit is known and none is shown. */
+  maxWorkspaces?: number;
   error: string;
   busy: boolean;
   onOpen: (workspace: WorkspaceSummary) => void;
@@ -63,7 +66,9 @@ export function WorkspacesScreen({
   const [link, setLink] = useState("");
   const [linkError, setLinkError] = useState("");
   const empty = workspaces.length === 0;
-  const showCreate = creating || empty;
+  // Made or joined, a person is in as many as they are allowed: then there is nothing to add.
+  const full = maxWorkspaces !== undefined && workspaces.length >= maxWorkspaces;
+  const showCreate = !full && (creating || empty);
   const submit = () => {
     if (name.trim()) onCreate(name.trim());
   };
@@ -166,11 +171,17 @@ export function WorkspacesScreen({
               )}
             </View>
           </Card>
+        ) : full ? (
+          <Text style={[s.small, { textAlign: "center" }]}>
+            {maxWorkspaces === 1
+              ? "You can be in one workspace. Leave or delete yours to make or join another."
+              : `You can be in up to ${maxWorkspaces} workspaces.`}
+          </Text>
         ) : (
           <CreateTile icon={Plus} label="Create a workspace" onPress={() => setCreating(true)} />
         )}
       </View>
-      {joining ? (
+      {full ? null : joining ? (
         <Card style={{ width: "100%", gap: 4 }}>
           <Field
             label="Invitation link"

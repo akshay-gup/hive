@@ -50,6 +50,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
   const [phase, setPhase] = useState<Phase>({ name: "boot" });
   const [account, setAccount] = useState<ControlAccount | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [maxWorkspaces, setMaxWorkspaces] = useState<number | undefined>();
   const [options, setOptions] = useState<SignInOptions | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -92,6 +93,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
     const me = await control.me();
     setAccount(me.account);
     setWorkspaces(me.workspaces);
+    setMaxWorkspaces(me.maxWorkspaces);
     return me;
   }, [control]);
 
@@ -450,6 +452,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
             <WorkspacesScreen
               account={account}
               workspaces={workspaces}
+              maxWorkspaces={maxWorkspaces}
               error={error}
               busy={busy}
               onOpen={(workspace) => void open(workspace)}
