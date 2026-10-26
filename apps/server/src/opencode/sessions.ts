@@ -43,6 +43,7 @@ async function bringRulesUpToDate(
   const desired = buildSessionRuleset(
     (await ctx.userRules?.(binding)) ?? [],
     (await ctx.permissionMode?.(binding)) ?? "ask",
+    ctx.protect?.() ?? [],
   );
   const have = current ?? [];
   const tail = have.slice(Math.max(0, have.length - desired.length));
@@ -73,6 +74,8 @@ export interface SessionContext {
    * "auto", mirroring the TUI's auto-approve toggle). Defaults to "ask".
    */
   permissionMode?: (binding: ChannelThread) => PermissionMode | Promise<PermissionMode>;
+  /** What the agent is to be refused whatever the mode: the machine's own data, when the owner has asked for that. */
+  protect?: () => PermissionRuleset;
 }
 
 /** The session's working directory: the channel's workspace dir. */
@@ -110,7 +113,7 @@ export async function rotateThreadSession(
   const created = await client.session.create({
     title: binding.name,
     directory,
-    permission: buildSessionRuleset(userRules, mode),
+    permission: buildSessionRuleset(userRules, mode, ctx.protect?.() ?? []),
   });
   if (created.error || !created.data) {
     throw new AppError(

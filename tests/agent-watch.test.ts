@@ -156,3 +156,20 @@ test("results are held back only while refusing is on and the kernel watch is al
   alive = false;
   assert.equal(watch.holdMs(), 0, "nothing to wait for when no kernel flag can come");
 });
+
+test("what OpenCode is told never to open is the machine's data, and only in the stricter mode", () => {
+  const { watch } = watching();
+  assert.deepEqual(watch.denyRules(), []);
+  watch.setMode("enforce");
+  const rules = watch.denyRules();
+  assert.deepEqual(
+    rules.map((rule) => [rule.permission, rule.pattern, rule.action]),
+    [
+      ["external_directory", "/data/hive/*", "deny"],
+      ["external_directory", "/etc/hive/*", "deny"],
+      ["external_directory", "/var/lib/hive/*", "deny"],
+    ],
+  );
+  watch.setMode("audit");
+  assert.deepEqual(watch.denyRules(), []);
+});

@@ -18,6 +18,7 @@ import {
   rotateThreadSession,
   type SessionContext,
   sessionDirectory,
+  taskSessionRuleset,
 } from "../apps/server/src/opencode/index.ts";
 import type { ChannelThread } from "../packages/domain/src/agent.ts";
 
@@ -97,7 +98,8 @@ test("default ruleset is ask-everything with native denies preserved", () => {
   const rules = defaultSessionRuleset();
   assert.deepEqual(rules[0], { permission: "*", pattern: "*", action: "ask" });
   const denies = rules.filter((r) => r.action === "deny").map((r) => r.permission);
-  assert.deepEqual(denies, ["question", "plan_enter", "plan_exit"]);
+  // `question` is left on: a chat has a person to answer it (see permissions.ts).
+  assert.deepEqual(denies, ["plan_enter", "plan_exit"]);
 });
 
 test("user rules are appended last so they win via findLast", () => {
@@ -131,6 +133,7 @@ function stubContext(
   calls: FakeSessionCalls,
   userRules?: SessionContext["userRules"],
   permissionMode?: SessionContext["permissionMode"],
+  protect?: SessionContext["protect"],
 ): SessionContext {
   const client = {
     session: {
@@ -161,7 +164,14 @@ function stubContext(
     },
   };
   const pool = { forDirectory: () => client } as unknown as OpencodeClientPool;
-  return { threads: new MemoryThreadStore(), clients: pool, config, userRules, permissionMode };
+  return {
+    threads: new MemoryThreadStore(),
+    clients: pool,
+    config,
+    userRules,
+    permissionMode,
+    protect,
+  };
 }
 
 const binding: ChannelThread = {
@@ -267,4 +277,47 @@ test("a server that will not take a thread's new rules does not stop the thread 
   await ctx.threads.write("owner", { ...binding, opencodeSessionId: "ses_live" });
   const ref = await ensureThreadSession(ctx, "owner", "thread-1");
   assert.equal(ref.sessionId, "ses_live");
+});
+
+test("what the agent is to be refused is the last of a session's rules, and reaches a session that already has its own", async () => {
+  const deny: PermissionRuleset = [
+    { permission: "external_directory", pattern: "/data/hive/*", action: "deny" },
+  ];
+  const updates: { sessionID: string; permission: unknown[] }[] = [];
+  const calls: FakeSessionCalls = { creates: [], gets: [], sessions: new Map(), updates };
+  let protect: PermissionRuleset = [];
+  const ctx = stubContext(
+    calls,
+    undefined,
+    () => "auto",
+    () => protect,
+  );
+  await ctx.threads.write("owner", binding);
+  const first = await rotateThreadSession(ctx, "owner", "thread-1");
+  const session = calls.sessions.get(first.sessionId);
+  assert.ok(session);
+  session.permission = buildSessionRuleset([], "auto", protect);
+  await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(updates.length, 0, "nothing to refuse, nothing said");
+
+  // The owner turns refusing on: the next run is under it, in auto mode too, and it is the last rule.
+  protect = deny;
+  await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0]?.permission.at(-1), deny[0]);
+  await ensureThreadSession(ctx, "owner", "thread-1");
+  assert.equal(updates.length, 1, "told once");
+
+  // A session made after is made with it.
+  await rotateThreadSession(ctx, "owner", "thread-1");
+  const made = calls.creates.at(-1) as { permission: unknown[] };
+  assert.deepEqual(made.permission.at(-1), deny[0]);
+});
+
+test("a task's session can be made with what the agent is to be refused as well", () => {
+  const deny: PermissionRuleset = [
+    { permission: "external_directory", pattern: "/data/hive/*", action: "deny" },
+  ];
+  assert.deepEqual(taskSessionRuleset(deny).at(-1), deny[0]);
+  assert.deepEqual(taskSessionRuleset(), taskSessionRuleset([]));
 });

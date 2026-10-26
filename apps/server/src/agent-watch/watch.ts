@@ -1,6 +1,8 @@
+import { resolve } from "node:path";
 import type { WatchFinding, WatchMode } from "../../../../packages/domain/src/agent-watch.ts";
 import type { OpenCodeEvent } from "../opencode/events.ts";
-import { classify, classifyAsk, type WatchSetup } from "./classify.ts";
+import type { PermissionRuleset } from "../opencode/permissions.ts";
+import { classify, classifyAsk, realOrSelf, type WatchSetup } from "./classify.ts";
 
 /** What one run is, as far as the watch needs to know. */
 export interface WatchRun {
@@ -62,6 +64,22 @@ export class AgentWatch {
 
   setKernel(kernel: { alive: () => boolean } | null) {
     this.kernel = kernel;
+  }
+
+  /**
+   * What OpenCode is told never to let the agent open, in the stricter mode: the machine's data folder, the machine's
+   * settings and the updater's folder. A folder the run works in is not "outside" for OpenCode, so the run's own
+   * folder is untouched. It is a rule OpenCode applies in every mode, ask or auto, for chats and tasks alike.
+   */
+  denyRules(): PermissionRuleset {
+    if (this.mode !== "enforce") return [];
+    const base = realOrSelf(resolve(this.deps.dataDir));
+    const roots = [...new Set([resolve(this.deps.dataDir), base, "/etc/hive", "/var/lib/hive"])];
+    return roots.map((root) => ({
+      permission: "external_directory",
+      pattern: `${root}/*`,
+      action: "deny" as const,
+    }));
   }
 
   /** How long a result of the agent's shell or file tools is held before it is shown: only while a kernel flag could still hide it. */

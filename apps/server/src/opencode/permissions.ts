@@ -92,8 +92,10 @@ function nonInteractiveTools(
 export function buildSessionRuleset(
   userRules: PermissionRuleset,
   mode: PermissionMode = "ask",
+  /** Last, so that it wins: what the agent is not to open at all (see agent-watch/watch.ts `denyRules`). */
+  protect: PermissionRuleset = [],
 ): PermissionRuleset {
-  return [...defaultSessionRuleset(mode), ...userRules];
+  return [...defaultSessionRuleset(mode), ...userRules, ...protect];
 }
 
 /**
@@ -117,6 +119,6 @@ export function invalidRuleLines(rules: string[]): string[] {
  * offered `question`, calls it, and waits for good (a task that needs an answer says so with
  * TASK_BLOCKED instead). A chat, which has a person to answer, keeps `question`.
  */
-export function taskSessionRuleset(): PermissionRuleset {
-  return [{ permission: "*", pattern: "*", action: "allow" }, ...nonInteractiveTools()];
+export function taskSessionRuleset(protect: PermissionRuleset = []): PermissionRuleset {
+  return [{ permission: "*", pattern: "*", action: "allow" }, ...nonInteractiveTools(), ...protect];
 }

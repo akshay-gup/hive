@@ -821,6 +821,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
         // In a shared channel the agent always asks first, whatever a channel's folder says.
         userRules: (binding) => (chat ? [] : deps.rules.effectiveRules(owner, binding)),
         permissionMode: (binding) => (chat ? "ask" : deps.rules.effectiveMode(owner, binding)),
+        protect: () => deps.watch?.denyRules() ?? [],
       },
       owner,
       input.threadId,

@@ -185,7 +185,7 @@ async function createTaskSession(
   const created = await client.session.create({
     title: task.title.slice(0, 80),
     directory,
-    permission: taskSessionRuleset(),
+    permission: taskSessionRuleset(runtime.watch?.denyRules()),
   });
   if (created.error || !created.data) {
     throw new Error(
@@ -227,6 +227,13 @@ async function openTaskSession(
       if (existing?.data) {
         const scope = `task:${task.id}`;
         runtime.bus.track(scope, saved.sessionId);
+        // A session keeps the rules it was made with, and the owner may have asked for more since.
+        const protect = runtime.watch?.denyRules() ?? [];
+        if (protect.length)
+          await runtime.pool
+            .forDirectory(directory)
+            .session.update({ sessionID: saved.sessionId, directory, permission: protect })
+            .catch(() => undefined);
         return { sessionId: saved.sessionId, directory, scope, resumed: true };
       }
     }

@@ -55,7 +55,7 @@ export function protectedRoots(dataDir: string): ProtectedRoot[] {
   ];
 }
 
-function realOrSelf(path: string): string {
+export function realOrSelf(path: string): string {
   try {
     return realpathSync(path);
   } catch {
