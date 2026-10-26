@@ -83,6 +83,7 @@ import {
   s,
   type WebPressState,
 } from "./ui";
+import { ViewMenu } from "./view-menu";
 import { useWorkspace } from "./workspace";
 
 /** 60 -> "hour", 120 -> "2 hours", 1440 -> "day", otherwise minutes. */
@@ -335,18 +336,17 @@ export function AgentActivityScreen() {
   const selected = selectedId ? allTasks.find((task) => task.id === selectedId) : undefined;
   const { width } = useWindowDimensions();
   const narrow = width < 700;
-  const viewSwitcher = (
-    <Segmented
-      label="View"
-      value={view}
-      onChange={setView}
-      options={[
-        { id: "list", label: "List" },
-        { id: "board", label: "Board" },
-        { id: "timeline", label: "Timeline" },
-        { id: "activity", label: "Activity" },
-      ]}
-    />
+  const viewOptions = [
+    { id: "list", label: "List" },
+    { id: "board", label: "Board" },
+    { id: "timeline", label: "Timeline" },
+    { id: "activity", label: "Activity" },
+  ] as const;
+  // A phone has no room for four tabs beside the buttons: one button names the view and opens the rest.
+  const viewSwitcher = narrow ? (
+    <ViewMenu label="View" value={view} onChange={setView} options={[...viewOptions]} />
+  ) : (
+    <Segmented label="View" value={view} onChange={setView} options={[...viewOptions]} />
   );
   const needsChip = view !== "activity" && (needsYouCount > 0 || onlyNeeds) && (
     <Pressable
@@ -397,16 +397,15 @@ export function AgentActivityScreen() {
     <View style={{ gap: 16 }}>
       <AgentStatus />
       {/* One toolbar: how to look at the work, what to narrow it to, and the new button at the right. */}
-      {/* On a phone the three views take a row of their own: squeezed beside the buttons they would slide sideways, cut off. */}
-      <View style={narrow ? { gap: 10 } : [s.row, { gap: 12 }]}>
+      {/* On a phone the views are one button that opens a list, so the buttons keep their row. */}
+      <View style={[s.row, { gap: narrow ? 8 : 12, zIndex: 20 }]}>
         {viewSwitcher}
-        <View style={[s.row, { gap: 12, flex: 1 }]}>
-          {needsChip}
-          <View style={{ flex: 1 }} />
-          {projectTools}
-          {newIssue}
-        </View>
+        {!narrow && needsChip}
+        <View style={{ flex: 1 }} />
+        {projectTools}
+        {newIssue}
       </View>
+      {narrow && !!needsChip && <View style={[s.row, { marginTop: -6 }]}>{needsChip}</View>}
       {(view === "list" || view === "timeline") && tasks.length > 0 && (
         <TaskSheet
           tasks={tasks}
