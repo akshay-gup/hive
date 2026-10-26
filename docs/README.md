@@ -18,5 +18,6 @@ The demos follow a request from chat to the agent's inline browser, then show ho
 - [Verification and limitations](VERIFICATION.md)
 - [Demo recordings](DEMO.md)
 - [Roadmap](../ROADMAP.md)
+- [Later: what we chose to leave for now](later.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Security](../SECURITY.md)
