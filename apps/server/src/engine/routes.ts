@@ -44,6 +44,7 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   app.delete("/tasks/:id", async (c) =>
     c.json(await service.deleteTask(c.get("owner"), c.req.param("id"))),
   );
+  app.get("/projects/people", async (c) => c.json(await service.projectPeople(c.get("owner"))));
   app.post("/projects", async (c) =>
     c.json(await service.createProject(c.get("owner"), await c.req.json()), 201),
   );

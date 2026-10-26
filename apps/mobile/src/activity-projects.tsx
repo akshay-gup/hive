@@ -1,4 +1,4 @@
-import { ListChecks, Lock, Plus } from "lucide-react-native";
+import { Eye, ListChecks, Lock, Plus } from "lucide-react-native";
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Project } from "../../../packages/domain/src/agent";
@@ -137,6 +137,7 @@ export function ProjectsList({ onPick }: { onPick?: () => void }) {
           {label}
         </Text>
         {extra?.lock && <Lock size={13} color={colors.muted} />}
+        {extra?.project?.access === "limited" && <Eye size={13} color={colors.muted} />}
         {count > 0 && (
           <View
             accessibilityLabel={`${count} need you`}
@@ -212,7 +213,7 @@ export function ProjectsList({ onPick }: { onPick?: () => void }) {
       </View>
       {projects.map((project) =>
         row(project.id, project.name, letter(project.name), {
-          lock: !!project.channelId,
+          lock: !!project.channelId || project.access === "private",
           project,
         }),
       )}

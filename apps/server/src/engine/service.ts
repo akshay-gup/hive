@@ -4,10 +4,15 @@ import { z } from "zod";
 import {
   Access,
   canSeeTask,
+  canViewProject,
+  canWorkInProject,
   isDm,
   isIn,
   isPublic,
   managesChannel,
+  managesProject,
+  normalizeEmail,
+  projectFor,
   type Scope,
 } from "../../../../packages/chat-core/src/access.ts";
 import { ChannelPeople } from "../../../../packages/chat-core/src/channel-people.ts";
@@ -601,17 +606,33 @@ export class AgentService {
   }
   /** A thread's work queue: tasks delegated from it, in creation order. */
   async threadTasks(owner: string, threadId: string): Promise<AgentTask[]> {
-    const tasks = await this.db.list<AgentTask>(owner, "tasks");
+    const tasks = await this.inVisibleProjects(
+      owner,
+      await this.db.list<AgentTask>(owner, "tasks"),
+    );
     return tasks
       .filter((t) => t.threadId === threadId)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  /** What of these tasks is not in a project the person may not see. */
+  private async inVisibleProjects(owner: string, tasks: AgentTask[]): Promise<AgentTask[]> {
+    const person = (await this.access.scope(owner)).person;
+    if (!person) return tasks;
+    const projects = await this.projectsById(owner);
+    return tasks.filter((task) => {
+      const project = task.projectId ? projects.get(task.projectId) : undefined;
+      return !project || canViewProject(person, project);
+    });
   }
   /**
    * Tasks visible in a channel: owned by it, or delegated elsewhere but requested here. Everyone
    * sees a shared channel's work; the orchestrator is each person's own, so it lists theirs.
    */
   async channelTasks(owner: string, channelId: string): Promise<AgentTask[]> {
-    const tasks = await this.db.list<AgentTask>(owner, "tasks");
+    const tasks = await this.inVisibleProjects(
+      owner,
+      await this.db.list<AgentTask>(owner, "tasks"),
+    );
     return tasks.filter(
       (t) =>
         ((t.channelId ?? ORCHESTRATOR_CHANNEL_ID) === channelId ||
@@ -682,8 +703,9 @@ export class AgentService {
    * of them. The goals, ideas, memories and notifications belong to the whole workspace.
    */
   private async guestSnapshot(owner: string, scope: Scope): Promise<AgentWorkspace> {
+    const projects = await this.projectsById(owner);
     const tasks = (await this.db.list<AgentTask>(owner, "tasks")).filter((task) =>
-      canSeeTask(scope, task),
+      canSeeTask(scope, task, task.projectId ? projects.get(task.projectId) : null),
     );
     const ids = new Set(tasks.map((task) => task.id));
     const prefs = await this.notificationPrefs(owner);
@@ -695,7 +717,9 @@ export class AgentService {
     return {
       tasks: await this.present(owner, tasks),
       goals: [],
-      projects: [],
+      projects: [...projects.values()]
+        .filter((project) => canViewProject(scope.person, project))
+        .map((project) => projectFor(scope.person, project)),
       monitors: [],
       ideas: [],
       memories: [],
@@ -743,11 +767,14 @@ export class AgentService {
     const scope = await this.access.scope(owner);
     if (!scope.person) return { reviews, receipts };
     const tasks = new Map((await this.db.list<AgentTask>(owner, "tasks")).map((t) => [t.id, t]));
+    const projects = await this.projectsById(owner);
     const hidden = new Set(
       reviews
         .filter((review) => {
           const task = review.taskId ? tasks.get(review.taskId) : undefined;
-          return task && !canSeeTask(scope, task);
+          return (
+            task && !canSeeTask(scope, task, task.projectId ? projects.get(task.projectId) : null)
+          );
         })
         .map((review) => review.id),
     );
@@ -781,7 +808,14 @@ export class AgentService {
       ));
     // What belongs to a private channel is shown to the people in it: its tasks, and what came of
     // them, and what the agent learned there.
-    const hidden = new Set(tasks.filter((task) => !canSeeTask(scope, task)).map((task) => task.id));
+    const projectOf = new Map(projects.map((project) => [project.id, project]));
+    const hidden = new Set(
+      tasks
+        .filter(
+          (task) => !canSeeTask(scope, task, task.projectId ? projectOf.get(task.projectId) : null),
+        )
+        .map((task) => task.id),
+    );
     const byId = new Map(tasks.map((task) => [task.id, task]));
     const prefs = await this.notificationPrefs(owner);
     return {
@@ -790,7 +824,13 @@ export class AgentService {
         tasks.filter((task) => !hidden.has(task.id)),
       ),
       goals: goals.filter((goal) => !goal.channelId || scope.allows(goal.channelId)),
-      projects: projects.filter((project) => !project.channelId || scope.allows(project.channelId)),
+      projects: projects
+        .filter(
+          (project) =>
+            (!project.channelId || scope.allows(project.channelId)) &&
+            canViewProject(scope.person, project),
+        )
+        .map((project) => projectFor(scope.person, project)),
       monitors: monitors.filter((monitor) => !monitor.taskId || !hidden.has(monitor.taskId)),
       ideas,
       memories: memories.filter((memory) => !memory.channelId || scope.allows(memory.channelId)),
@@ -878,7 +918,7 @@ export class AgentService {
     const input = createTaskSchema.parse(raw);
     if (input.goalId && !(await this.db.get(owner, "goals", input.goalId)))
       throw new AppError("Goal not found", 404);
-    if (input.projectId) await this.requireProject(owner, input.projectId);
+    if (input.projectId) await this.assertProjectWork(owner, input.projectId);
     const channelId = input.channelId ?? ORCHESTRATOR_CHANNEL_ID;
     if (channelId !== ORCHESTRATOR_CHANNEL_ID && !(await this.getChannel(owner, channelId)))
       throw new AppError("Channel not found", 404);
@@ -1182,7 +1222,7 @@ export class AgentService {
       patch.goalId = input.goalId ?? undefined;
     }
     if (input.projectId !== undefined) {
-      if (input.projectId) await this.requireProject(owner, input.projectId);
+      if (input.projectId) await this.assertProjectWork(owner, input.projectId);
       patch.projectId = input.projectId;
     }
     const startAt = input.startAt !== undefined ? input.startAt : (task.startAt ?? null);
@@ -1635,34 +1675,102 @@ export class AgentService {
           await this.control(owner, task.id, "pause");
     return saved;
   }
+  /** The people a project can name: everyone who has signed in here, with the part they have in the workspace. */
+  async projectPeople(
+    owner: string,
+  ): Promise<{ email: string; name: string; role: "owner" | "admin" | "member" | "guest" }[]> {
+    if ((await this.access.scope(owner)).person?.role === "guest")
+      throw new AppError("A guest cannot see who is in the workspace", 403);
+    return [...(await this.access.known())].map(([email, who]) => ({ email, ...who }));
+  }
+  /** The workspace's projects by id: what a task is held against to know who may see it. */
+  private async projectsById(owner: string): Promise<Map<string, Project>> {
+    return new Map(
+      (await this.db.list<Project>(owner, "projects")).map((project) => [project.id, project]),
+    );
+  }
+  /**
+   * A project the person may see, as they are shown it. One they may not see is not there: a private
+   * project is its members' to know of.
+   */
+  private async visibleProject(owner: string, id: string): Promise<Project> {
+    const project = await this.db.get<Project>(owner, "projects", id);
+    const person = (await this.access.scope(owner)).person;
+    if (!project || !canViewProject(person, project)) throw new AppError("Project not found", 404);
+    return project;
+  }
+  /** Throws unless the person may put tasks in the project, or change what is in it. */
+  async assertProjectWork(owner: string, projectId: string): Promise<void> {
+    const project = await this.visibleProject(owner, projectId);
+    if (!canWorkInProject((await this.access.scope(owner)).person, project))
+      throw new AppError("You can look at this project but not change what is in it", 403);
+  }
+  /**
+   * Throws, as if it were not there, unless the person may see the task; and, to change it, unless the
+   * project it is in lets them work on it.
+   */
+  async assertTask(owner: string, task: AgentTask, write: boolean): Promise<void> {
+    const scope = await this.access.scope(owner);
+    const project = task.projectId
+      ? await this.db.get<Project>(owner, "projects", task.projectId)
+      : null;
+    if (!canSeeTask(scope, task, project)) throw new AppError("Task not found", 404);
+    if (write && project && !canWorkInProject(scope.person, project))
+      throw new AppError("You can look at this project but not change what is in it", 403);
+  }
   async createProject(owner: string, raw: unknown, channelId?: string): Promise<Project> {
     const input = createProjectSchema.parse(raw);
+    const person = (await this.access.scope(owner)).person;
+    if (person?.role === "guest") throw new AppError("A guest cannot start a project", 403);
     const project: Project = {
       id: randomUUID(),
       name: input.name,
       description: input.description,
       createdAt: date(),
       updatedAt: date(),
+      access: input.access ?? "open",
+      // Who makes it runs it. Where there are no roles there is nobody to name.
+      members: person?.email ? [{ email: person.email, role: "admin" }] : [],
+      createdBy: owner,
       ...(channelId ? { channelId } : {}),
     };
-    return this.db.put(owner, "projects", project);
+    return projectFor(person, await this.db.put(owner, "projects", project));
   }
   async updateProject(owner: string, id: string, raw: unknown): Promise<Project> {
     const input = updateProjectSchema.parse(raw);
-    const project = await this.db.get<Project>(owner, "projects", id);
-    if (!project) throw new AppError("Project not found", 404);
-    return this.db.put(owner, "projects", {
+    const scope = await this.access.scope(owner);
+    const project = await this.visibleProject(owner, id);
+    if (!managesProject(scope.person, project))
+      throw new AppError("Only a project admin can change this project", 403);
+    let members = project.members;
+    if (input.members) {
+      const seen = new Set<string>();
+      members = input.members.filter((m) => {
+        const email = normalizeEmail(m.email);
+        if (seen.has(email)) return false;
+        seen.add(email);
+        return true;
+      });
+      // A project always has someone to run it, so it cannot be locked away from its own people.
+      if (scope.person && !members.some((m) => m.role === "admin"))
+        throw new AppError("A project needs at least one admin", 422);
+    }
+    const saved = await this.db.put(owner, "projects", {
       ...project,
       name: input.name ?? project.name,
       description:
         input.description !== undefined ? (input.description ?? undefined) : project.description,
+      access: input.access ?? project.access ?? "open",
+      members: members ?? [],
       updatedAt: date(),
     });
+    return projectFor(scope.person, saved);
   }
   /** Delete a project; its tasks move to "No project". */
   async deleteProject(owner: string, id: string): Promise<{ deleted: string }> {
-    const project = await this.db.get<Project>(owner, "projects", id);
-    if (!project) throw new AppError("Project not found", 404);
+    const project = await this.visibleProject(owner, id);
+    if (!managesProject((await this.access.scope(owner)).person, project))
+      throw new AppError("Only a project admin can delete this project", 403);
     await this.db.remove(owner, "projects", id);
     for (const task of await this.db.list<AgentTask>(owner, "tasks"))
       if (task.projectId === id)
@@ -1672,10 +1780,6 @@ export class AgentService {
           updatedAt: date(),
         });
     return { deleted: id };
-  }
-  private async requireProject(owner: string, projectId: string) {
-    if (!(await this.db.get<Project>(owner, "projects", projectId)))
-      throw new AppError("Project not found", 404);
   }
   async createMonitor(
     owner: string,

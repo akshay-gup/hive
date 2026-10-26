@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { canSeeTask, type Scope } from "../../../packages/chat-core/src/access.ts";
+import type { Scope } from "../../../packages/chat-core/src/access.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { type AgentTask, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent.ts";
 import type { AgentService } from "./engine/service.ts";
@@ -75,7 +75,8 @@ async function memberGate(c: Context, owner: string, service: AgentService, scop
   };
   const task = async (id: string) => {
     const found = await service.db.get<AgentTask>(owner, "tasks", decoded(id));
-    if (found && !canSeeTask(scope, found)) throw new AppError("Task not found", 404);
+    // To change one, the project it is in has to let the person work on it.
+    if (found) await service.assertTask(owner, found, method !== "GET");
   };
 
   const match = (pattern: RegExp) => pattern.exec(path);
@@ -143,7 +144,8 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
   /** A task of a channel they were added to, whether the work was asked for there or sent on from it. */
   const task = async (id: string, write: boolean) => {
     const found = await service.db.get<AgentTask>(owner, "tasks", decoded(id));
-    if (!found || !canSeeTask(scope, found)) throw new AppError("Task not found", 404);
+    if (!found) throw new AppError("Task not found", 404);
+    await service.assertTask(owner, found, write);
     // What an agent does goes on without anyone asking it, in the channel's workspace: a guest does
     // not steer it. The board's own items, which nothing runs, are theirs to keep.
     if (write && (found.kind !== "manual" || !scope.allows(found.channelId))) throw refuse();

@@ -1,8 +1,8 @@
-import { Bell, ChevronDown, FolderOpen, Menu } from "lucide-react-native";
+import { Bell, ChevronDown, FolderOpen, Menu, Settings } from "lucide-react-native";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
-import { useActivityTitle } from "./activity-projects";
+import { useActivityProjects, useActivityTitle } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
 import { ChannelChatBanner } from "./chat";
 import { ComputerEntry } from "./computer";
@@ -64,6 +64,12 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
       ? "Picking up your next task…"
       : IDLE;
   const project = useActivityTitle();
+  const { selected, manage } = useActivityProjects();
+  // On a project, its settings and people are one tap away.
+  const selectedProject =
+    section === "activity" && selected && selected !== "none"
+      ? data?.projects.find((candidate) => candidate.id === selected)
+      : undefined;
   // The Activity page is named by the project it is on.
   const title = section === "activity" ? project : titles[section] || titles.apps;
   return (
@@ -138,6 +144,13 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
           icon={FolderOpen}
           label="Files in this chat"
           onPress={() => open({ type: "channelFiles", channelId: ORCHESTRATOR_CHANNEL_ID })}
+        />
+      )}
+      {selectedProject && (
+        <IconButton
+          icon={Settings}
+          label={`Settings and people of ${selectedProject.name}`}
+          onPress={() => manage(selectedProject)}
         />
       )}
       <View>

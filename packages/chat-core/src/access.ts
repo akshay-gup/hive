@@ -1,4 +1,10 @@
-import { type Channel, type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../domain/src/agent.ts";
+import {
+  type Channel,
+  type ChannelView,
+  ORCHESTRATOR_CHANNEL_ID,
+  type Project,
+  type ProjectRole,
+} from "../../domain/src/agent.ts";
 import type { WorkspaceRole } from "../../integrations/src/workspace-token.ts";
 import { AppError } from "./errors.ts";
 import { SHARED_OWNER } from "./shared.ts";
@@ -57,11 +63,66 @@ export function managesChannel(person: Person | null, channel: Channel): boolean
   return runs(person) || (channel.managers ?? []).includes(person.email);
 }
 
-/** Whether a task is to be shown to the person: it belongs to a channel they may open, or was asked for in one. */
+/** What a project says of who is in it and how open it is: all the rules below need. */
+type ProjectRules = Pick<Project, "access" | "members">;
+
+/** The part this person has in the project, if they were named in it. */
+export function projectRole(person: Person | null, project: ProjectRules): ProjectRole | null {
+  if (!person?.email) return null;
+  return (project.members ?? []).find((m) => m.email === person.email)?.role ?? null;
+}
+
+/**
+ * Whether the project is to be shown to this person. Those who run the workspace see all of them; a
+ * guest and anyone at a private project only if they are named in it; every other project is open to
+ * the team. A workspace that keeps no roles shows everyone everything.
+ */
+export function canViewProject(person: Person | null, project: ProjectRules): boolean {
+  if (!person || runs(person)) return true;
+  if (person.role === "guest" || (project.access ?? "open") === "private")
+    return projectRole(person, project) !== null;
+  return true;
+}
+
+/**
+ * Whether this person may make and change the project's tasks: in an open project anyone on the team
+ * may, and in the others its admins and members; a viewer only looks.
+ */
+export function canWorkInProject(person: Person | null, project: ProjectRules): boolean {
+  if (!person || runs(person)) return true;
+  const role = projectRole(person, project);
+  if (role === "admin" || role === "member") return true;
+  return person.role !== "guest" && (project.access ?? "open") === "open";
+}
+
+/** Whether this person runs the project: its admins, and those who run the workspace. */
+export function managesProject(person: Person | null, project: ProjectRules): boolean {
+  if (!person || runs(person)) return true;
+  return projectRole(person, project) === "admin";
+}
+
+/** The project as this person is shown it: with what they may do with it. */
+export function projectFor(person: Person | null, project: Project): Project {
+  return {
+    ...project,
+    you: {
+      role: projectRole(person, project),
+      canWork: canWorkInProject(person, project),
+      canManage: managesProject(person, project),
+    },
+  };
+}
+
+/**
+ * Whether a task is to be shown to the person: it belongs to a channel they may open, or was asked for
+ * in one, and, if it is in a project, the project is theirs to see.
+ */
 export function canSeeTask(
   scope: Scope,
   task: { channelId?: string | null; originChannelId?: string | null },
+  project?: ProjectRules | null,
 ): boolean {
+  if (project && !canViewProject(scope.person, project)) return false;
   return scope.allows(task.channelId) || scope.allows(task.originChannelId);
 }
 

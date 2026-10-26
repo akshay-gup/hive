@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { RunAgentInput } from "@ag-ui/core";
 import { defineTool } from "@copilotkit/runtime/v2";
 import { z } from "zod";
-import { canSeeTask } from "../../../../packages/chat-core/src/access.ts";
 import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import {
   type AgentTask,
@@ -83,10 +82,9 @@ export function conversationTools(
       : undefined;
   };
   /** A task in a private channel is not there to someone who is not in the channel, nor to the agent working for them. */
-  const mayReach = async (taskId: string) => {
+  const mayReach = async (taskId: string, write = false) => {
     const task = await service.db.get<AgentTask>(owner, "tasks", taskId);
-    if (task && !canSeeTask(await service.access.scope(owner), task))
-      throw new AppError("Task not found", 404);
+    if (task) await service.assertTask(owner, task, write);
   };
   const tools = [
     ...(jev
@@ -275,7 +273,7 @@ export function conversationTools(
         projectId: z.string().nullable().optional(),
       }),
       execute: async ({ taskId, ...patch }) => {
-        await mayReach(taskId);
+        await mayReach(taskId, true);
         return service.updateTask(owner, taskId, patch, "agent");
       },
     }),
@@ -285,7 +283,7 @@ export function conversationTools(
         "Delete a task or issue from the board. Cannot delete a task the worker is currently running — stop it first.",
       parameters: z.object({ taskId: z.string().min(1) }),
       execute: async (args) => {
-        await mayReach(args.taskId);
+        await mayReach(args.taskId, true);
         return service.deleteTask(owner, args.taskId);
       },
     }),

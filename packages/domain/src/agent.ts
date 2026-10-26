@@ -203,6 +203,21 @@ export interface Goal {
   /** The private channel it came out of, which keeps it from the people who are not in that channel. */
   channelId?: string;
 }
+/**
+ * Who may see and change a project's tasks. Open: everyone in the workspace sees and works on it.
+ * Limited: everyone sees it, only its members work on it. Private: only its members see it.
+ * (A guest is only ever in what they are a member of.)
+ */
+export const PROJECT_ACCESS = ["open", "limited", "private"] as const;
+export type ProjectAccess = (typeof PROJECT_ACCESS)[number];
+/** What a member of a project may do: run it, work on its tasks, or only look. */
+export const PROJECT_ROLES = ["admin", "member", "viewer"] as const;
+export type ProjectRole = (typeof PROJECT_ROLES)[number];
+export interface ProjectMember {
+  /** The address they sign in with. */
+  email: string;
+  role: ProjectRole;
+}
 /** A project groups tasks on the board. Tasks without one sit in "No project". */
 export interface Project {
   id: string;
@@ -212,15 +227,29 @@ export interface Project {
   updatedAt: string;
   /** The private channel it came out of, which keeps it from the people who are not in that channel. */
   channelId?: string;
+  /** Who may see and work on it; open when it does not say. */
+  access?: ProjectAccess;
+  members?: ProjectMember[];
+  createdBy?: string;
+  /** What the person it is sent to may do with it. Filled in when it is sent to them. */
+  you?: { role: ProjectRole | null; canWork: boolean; canManage: boolean };
 }
+const projectMemberSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(200),
+  role: z.enum(PROJECT_ROLES),
+});
 export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().trim().max(500).optional(),
+  access: z.enum(PROJECT_ACCESS).optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export const updateProjectSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().max(500).nullable().optional(),
+  access: z.enum(PROJECT_ACCESS).optional(),
+  /** All of its members, as they are to be: who is not named is not in it. */
+  members: z.array(projectMemberSchema).max(200).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 export interface Monitor {

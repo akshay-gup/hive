@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import type { Project } from "../../../packages/domain/src/agent";
+import type { Project, ProjectAccess } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
+import { AccessChoice, ProjectPeople } from "./project-access";
+import { accessLine } from "./project-text";
 import {
   Button,
   colors,
@@ -89,6 +91,7 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
   const { mutate } = useAgentWorkspace();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [access, setAccess] = useState<ProjectAccess>("open");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -104,6 +107,7 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
       await mutate("/projects", {
         name: trimmed,
         ...(description.trim() ? { description: description.trim() } : {}),
+        access,
       });
       onClose();
     } catch (e) {
@@ -113,7 +117,7 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Sheet title="New project" subtitle="Group tasks on the board" onClose={onClose}>
+    <Sheet title="New project" subtitle="Group tasks on the board" onClose={onClose} tall>
       <View style={{ gap: 16 }}>
         <ErrorNotice error={error} />
         <Field
@@ -128,6 +132,14 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
           onChangeText={setDescription}
           placeholder="—"
         />
+        <View style={{ gap: 8 }}>
+          <Text style={s.label}>Who can see it</Text>
+          <AccessChoice value={access} onChange={setAccess} />
+          <Text style={s.small}>
+            You run it, and can change this and who is in it later. Owners and admins of the
+            workspace always see every project.
+          </Text>
+        </View>
         <Button primary busy={busy} onPress={() => void create()}>
           Create project
         </Button>
@@ -136,7 +148,10 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Rename or delete a project. Deleting keeps its tasks in "No project". */
+/**
+ * A project's settings: its name, how open it is and who is in it, for those who run it; to everyone
+ * else, who can see and work on it. Deleting keeps its tasks in "No project".
+ */
 export function ProjectManage({
   project,
   taskCount,
@@ -149,9 +164,11 @@ export function ProjectManage({
   const { api } = useWorkspace();
   const { refresh } = useAgentWorkspace();
   const [name, setName] = useState(project.name);
+  const [access, setAccess] = useState<ProjectAccess>(project.access ?? "open");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [armed, setArmed] = useState(false);
+  const canManage = !!project.you?.canManage;
 
   async function save() {
     const trimmed = name.trim();
@@ -162,7 +179,7 @@ export function ProjectManage({
     setError("");
     setBusy(true);
     try {
-      await api.request(`/api/agent/projects/${project.id}`, { name: trimmed }, "PATCH");
+      await api.request(`/api/agent/projects/${project.id}`, { name: trimmed, access }, "PATCH");
       await refresh();
       onClose();
     } catch (e) {
@@ -189,27 +206,55 @@ export function ProjectManage({
       title={project.name}
       subtitle={`${taskCount} task${taskCount === 1 ? "" : "s"}`}
       onClose={onClose}
+      tall
     >
-      <View style={{ gap: 16 }}>
+      <View style={{ gap: 20 }}>
         <ErrorNotice error={error} />
-        <Field label="Name" value={name} onChangeText={setName} />
-        <Button primary busy={busy} onPress={() => void save()}>
-          Save changes
-        </Button>
-        <Button
-          danger
-          disabled={busy}
-          onPress={() => {
-            if (armed) void remove();
-            else {
-              setArmed(true);
-              setTimeout(() => setArmed(false), 4000);
-            }
-          }}
-        >
-          {armed ? "Tap again to confirm delete" : "Delete project"}
-        </Button>
-        <Text style={s.small}>Deleting keeps its tasks — they move to No project.</Text>
+        {canManage ? (
+          <>
+            <Field label="Name" value={name} onChangeText={setName} />
+            <View style={{ gap: 8 }}>
+              <Text style={s.label}>Who can see it</Text>
+              <AccessChoice value={access} onChange={setAccess} disabled={busy} />
+            </View>
+            <Button
+              primary
+              busy={busy}
+              disabled={name.trim() === project.name && access === (project.access ?? "open")}
+              onPress={() => void save()}
+            >
+              Save changes
+            </Button>
+          </>
+        ) : (
+          <View style={{ gap: 4 }}>
+            <Text style={s.text}>{accessLine(project.access)}</Text>
+            <Text style={s.small}>
+              {project.you?.canWork
+                ? "You can work on its tasks. A project admin changes who is in it."
+                : "You can look at it. A project admin changes who is in it."}
+            </Text>
+          </View>
+        )}
+        <ProjectPeople project={project} />
+        {canManage && (
+          <View style={{ gap: 8 }}>
+            <Button
+              danger
+              disabled={busy}
+              onPress={() => {
+                if (armed) void remove();
+                else {
+                  setArmed(true);
+                  setTimeout(() => setArmed(false), 4000);
+                }
+              }}
+            >
+              {armed ? "Tap again to confirm delete" : "Delete project"}
+            </Button>
+            <Text style={s.small}>Deleting keeps its tasks — they move to No project.</Text>
+          </View>
+        )}
       </View>
     </Sheet>
   );

@@ -9,6 +9,7 @@ import {
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import DateOnlyField from "./DateOnlyField";
+import { canWorkIn } from "./project-text";
 import { TaskAttention } from "./task-attention";
 import { priorityColors } from "./task-board";
 import { TaskBrief } from "./task-brief";
@@ -265,7 +266,10 @@ export function TaskDetail({
             }
             options={[
               { id: "none", label: "No project" },
-              ...projects.map((project) => ({ id: project.id, label: project.name })),
+              // Only where the person may put work, and the one the task is in.
+              ...projects
+                .filter((project) => canWorkIn(project) || project.id === task.projectId)
+                .map((project) => ({ id: project.id, label: project.name })),
             ]}
           />
         </View>
