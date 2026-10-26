@@ -196,6 +196,11 @@ export interface RunStart {
   /** The files on the message that asked, each to be fetched from the path (on the chat service) for a few minutes. */
   files: { id: string; name: string; mime: string; bytes: number; path: string }[];
   mode: "ask";
+  /**
+   * Set when the run was sent before and its machine restarted: what the reply held then. The agent carries
+   * on from there, in the session it already has, and the reply goes on from this.
+   */
+  resume?: { body: string; steps: unknown[] };
 }
 export interface ContextMessage {
   id: string;

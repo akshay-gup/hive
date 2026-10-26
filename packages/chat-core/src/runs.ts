@@ -247,17 +247,20 @@ export class Runs {
   }
 
   /**
-   * A run its machine lost, put back to be sent again from the start, unless it has been sent enough. What
-   * the lost run had asked is forgotten (the new one asks again), and the wait for a machine starts over.
+   * A run its machine lost, put back to be sent again, unless it has been sent enough. What had been asked
+   * and answered stays; what was waiting for an answer is forgotten, since the question went with the
+   * machine and the agent asks again if it still needs to. The wait for a machine starts over.
    */
   restart(id: string): boolean {
+    const run = this.get(id);
+    if (!run || run.state !== "running" || run.attempt >= RUN_LIMITS.maxAttempts) return false;
     return (
       this.sql.run(
-        `UPDATE runs SET state = 'queued', last_n = 0, prompts = '[]', beat_ms = NULL, sent_ms = ?, updates = 0, saved_ms = 0
-         WHERE id = ? AND state = 'running' AND attempt < ?`,
+        `UPDATE runs SET state = 'queued', last_n = 0, prompts = ?, beat_ms = NULL, sent_ms = ?, updates = 0, saved_ms = 0
+         WHERE id = ? AND state = 'running'`,
+        JSON.stringify(run.prompts.filter((p) => p.answered)),
         this.clock(),
         id,
-        RUN_LIMITS.maxAttempts,
       ) > 0
     );
   }

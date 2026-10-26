@@ -69,6 +69,42 @@ export class RunRecord {
     }
   }
 
+  /**
+   * Take up what an earlier try of this run had said, so a run that carries on shows all of it. A tool call
+   * that never came back was cut off by the restart, and says so.
+   */
+  seed(earlier: unknown[]): void {
+    const answered = new Set<string>();
+    for (const raw of earlier) {
+      const message = raw as Message | null;
+      if (message?.role === "tool" && typeof message.toolCallId === "string")
+        answered.add(message.toolCallId);
+    }
+    const cut: string[] = [];
+    for (const raw of earlier) {
+      const message = raw as Message | null;
+      if (!message || typeof message.id !== "string") continue;
+      if (message.role === "assistant") {
+        const reply = this.reply(message.id);
+        reply.content = typeof message.content === "string" ? message.content : "";
+        const calls = Array.isArray(message.toolCalls) ? (message.toolCalls as Call[]) : [];
+        for (const call of calls) {
+          const kept: Call = { ...call, function: { ...call.function } };
+          this.calls.set(kept.id, kept);
+          reply.toolCalls.push(kept);
+        }
+        for (const call of calls) if (!answered.has(call.id)) cut.push(call.id);
+      } else if (message.role === "tool") this.order.push({ ...message });
+    }
+    for (const id of cut)
+      this.order.push({
+        id: `interrupted-${id}`,
+        role: "tool",
+        toolCallId: id,
+        content: "error: Interrupted by a restart",
+      });
+  }
+
   /** The messages in the order they were said; a reply that has said nothing yet is left out. */
   messages(): Message[] {
     return this.order

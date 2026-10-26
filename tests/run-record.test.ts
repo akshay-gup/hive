@@ -196,3 +196,34 @@ test("the main chat is one record whether the page or the agent names it", async
   assert.equal(conversationKey(undefined), "default");
   assert.equal(conversationKey("thread-7"), "thread-7");
 });
+
+test("a run that carries on shows what the earlier try said, and a tool that never came back says it was cut off", () => {
+  const record = new RunRecord();
+  record.seed([
+    {
+      id: "m1",
+      role: "assistant",
+      content: "Looking it up.",
+      toolCalls: [
+        { id: "c1", type: "function", function: { name: "browse_web", arguments: "{}" } },
+        { id: "c2", type: "function", function: { name: "browse_web", arguments: "{}" } },
+      ],
+    },
+    { id: "t1", role: "tool", toolCallId: "c1", content: "{}" },
+  ]);
+  // What it says next goes on from there.
+  record.handle({ type: "TEXT_MESSAGE_START", messageId: "m2" });
+  record.handle({ type: "TEXT_MESSAGE_CONTENT", messageId: "m2", delta: "Found it." });
+  const messages = record.messages();
+  assert.deepEqual(
+    messages.map((m) => [m.role, m.id]),
+    [
+      ["assistant", "m1"],
+      ["tool", "t1"],
+      ["tool", "interrupted-c2"],
+      ["assistant", "m2"],
+    ],
+  );
+  assert.equal(messages[2]?.content, "error: Interrupted by a restart");
+  assert.equal(messages[3]?.content, "Found it.");
+});

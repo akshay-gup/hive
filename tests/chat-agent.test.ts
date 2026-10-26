@@ -671,7 +671,7 @@ test("after the machine reconnects, what it reports is kept and what it does not
   await hello([]);
   const again = await replyTo(a.id);
   assert.equal(extraOf(again).status, "queued");
-  assert.equal(again.body, "", "what the lost run had written is cleared");
+  assert.equal(again.body, "Half of it", "what the lost run had written stays in the reply");
   assert.deepEqual(
     new Map(started(third).map((s) => [s.run.id, s.run.attempt])),
     new Map([
@@ -680,6 +680,10 @@ test("after the machine reconnects, what it reports is kept and what it does not
     ]),
     "both are sent again",
   );
+  // The one that had written something carries on from it; the one that had not starts as it was.
+  const resumed = started(third).find((s) => s.run.id === ra);
+  assert.equal(resumed?.run.resume?.body, "Half of it");
+  assert.equal(started(third).find((s) => s.run.id === rb)?.run.resume, undefined);
 });
 
 test("a run its machine keeps losing is sent a few times, and then given up on", async () => {

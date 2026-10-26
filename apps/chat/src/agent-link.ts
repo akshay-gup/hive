@@ -171,8 +171,8 @@ export class AgentLink {
         runs.markRunning(run.id);
         keep.push(run.id);
       } else if (run.state === "running") {
-        // Its machine restarted and lost it: it is sent again from the start, and what it had written is cleared.
-        if (runs.restart(run.id)) await this.write(run.id, { body: "", steps: [] }, true);
+        // Its machine restarted and lost it: it is sent again to carry on, and the reply keeps what it had.
+        if (runs.restart(run.id)) await this.rewrite(run.id, true);
         else await this.finish(run.id, "failed", "lost", {}, false);
       } else runs.requeue(run.id);
     }
@@ -466,6 +466,13 @@ export class AgentLink {
     const workspace = this.deps.workspaceId();
     const key = this.deps.linkKey();
     const attached = files.ofMessages([trigger.id]).get(trigger.id) ?? [];
+    // Sent before, and the reply has something: the agent carries on from there.
+    const reply = run.attempt > 0 ? messages.get(run.replyId) : null;
+    const earlier = (reply?.extra as Partial<AgentExtra> | null)?.steps ?? [];
+    const resume =
+      reply && (reply.body.trim() || earlier.length)
+        ? { body: reply.body, steps: earlier }
+        : undefined;
     return {
       id: run.id,
       attempt: run.attempt + 1,
@@ -501,6 +508,7 @@ export class AgentLink {
             }))
           : [],
       mode: "ask",
+      ...(resume ? { resume } : {}),
     };
   }
 

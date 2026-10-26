@@ -212,11 +212,14 @@ export class ChatRunnerHost {
       this.fail(start, "I am busy with other requests. Try again in a moment.");
       return;
     }
+    const record = new RunRecord();
+    // Carrying on after a restart: the reply goes on from what it held.
+    if (start.resume) record.seed(start.resume.steps);
     const run: Active = {
       runId: start.id,
       threadId,
       start,
-      record: new RunRecord(),
+      record,
       n: 0,
       lastSay: 0,
       timer: null,
@@ -248,7 +251,10 @@ export class ChatRunnerHost {
         guest: start.asker.role === "guest",
         privateChannel: start.channel.visibility === "private",
         context: (toolNotes) => buildRunContext(start, toolNotes, files.saved) + missing,
-        text: stripMention(start.text, "@hive") || start.text,
+        // The request is said again: the session it was in may be gone, and then it is all the agent has.
+        text: start.resume
+          ? `${stripMention(start.text, "@hive") || start.text}\n\n(The machine you were running on restarted while you were answering this. Carry on from where you left off and finish your answer. Do not repeat what you have already done or said.)`
+          : stripMention(start.text, "@hive") || start.text,
         files: files.parts,
         shareFile: (path) => this.shareFile(run, path),
       };
