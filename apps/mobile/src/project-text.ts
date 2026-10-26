@@ -37,6 +37,10 @@ export const accessLine = (access: ProjectAccess | undefined): string =>
 export const canWorkIn = (project: { you?: { canWork: boolean } }): boolean =>
   project.you?.canWork !== false;
 
+/** Whether what was typed is the project's name: the proof that the person means this project. */
+export const nameMatches = (typed: string, name: string): boolean =>
+  typed.trim().toLowerCase() === name.trim().toLowerCase();
+
 /**
  * Where a deleted project's tasks can go: any other project work may be put in, General first and then
  * by name, narrowed by what was typed.

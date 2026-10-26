@@ -5,6 +5,7 @@ import {
   accessLine,
   canWorkIn,
   destinations,
+  nameMatches,
   roleChoices,
 } from "../src/project-text.ts";
 
@@ -45,4 +46,11 @@ test("where a deleted project's tasks can go: any other project they may work in
     ["Website"],
   );
   assert.deepEqual(destinations(projects, "gone", "zzz"), []);
+});
+
+test("a project is deleted by typing its name, whatever the case and the spaces around it", () => {
+  assert.equal(nameMatches("Reorg", "Reorg"), true);
+  assert.equal(nameMatches("  reorg ", "Reorg"), true);
+  assert.equal(nameMatches("Reor", "Reorg"), false);
+  assert.equal(nameMatches("", "Reorg"), false);
 });

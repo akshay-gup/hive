@@ -7,8 +7,8 @@ import {
   type ProjectAccess,
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
-import { accessChoices, destinations } from "./project-text";
-import { Button, colors, ErrorNotice, SearchField, Segmented, Sheet, s } from "./ui";
+import { accessChoices, destinations, nameMatches } from "./project-text";
+import { Button, colors, ErrorNotice, Field, SearchField, Segmented, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 const word = (access: ProjectAccess | undefined) =>
@@ -119,7 +119,8 @@ function ProjectPicker({
 
 /**
  * Deleting a project, on a page of its own: what becomes of its tasks (to another project, picked from
- * a list that copes with many, or deleted with it) and then the deleting. Deleting tasks asks twice.
+ * a list that copes with many, or deleted with it) and then the deleting, which is done by typing the
+ * project's name.
  */
 export function DeleteProject({
   project,
@@ -137,7 +138,7 @@ export function DeleteProject({
   const places = destinations(data?.projects ?? [], project.id);
   const [fate, setFate] = useState<"move" | "delete">("move");
   const [target, setTarget] = useState(GENERAL_PROJECT_ID);
-  const [armed, setArmed] = useState(false);
+  const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const losing = fate === "delete" && taskCount > 0;
@@ -179,10 +180,7 @@ export function DeleteProject({
               label="What happens to its tasks"
               value={fate}
               disabled={busy}
-              onChange={(next) => {
-                setFate(next);
-                setArmed(false);
-              }}
+              onChange={setFate}
               options={[
                 { id: "move", label: "Move them" },
                 { id: "delete", label: "Delete them" },
@@ -202,22 +200,26 @@ export function DeleteProject({
             )}
           </View>
         )}
+        <Field
+          label={`Type ${project.name} to confirm`}
+          value={typed}
+          onChangeText={setTyped}
+          placeholder={project.name}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
         <Button
           danger
           busy={busy}
           disabled={
-            busy || (fate === "move" && taskCount > 0 && !places.some((p) => p.id === target))
+            busy ||
+            !nameMatches(typed, project.name) ||
+            (fate === "move" && taskCount > 0 && !places.some((p) => p.id === target))
           }
-          onPress={() => {
-            if (!losing || armed) void remove();
-            else {
-              setArmed(true);
-              setTimeout(() => setArmed(false), 4000);
-            }
-          }}
+          onPress={() => void remove()}
         >
-          {armed
-            ? `Tap again to delete the project and ${taskCount} task${taskCount === 1 ? "" : "s"}`
+          {losing
+            ? `Delete the project and ${taskCount} task${taskCount === 1 ? "" : "s"}`
             : "Delete project"}
         </Button>
         <Button disabled={busy} onPress={onBack}>
