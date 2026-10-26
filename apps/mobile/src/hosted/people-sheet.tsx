@@ -2,6 +2,7 @@ import { Copy, LogOut, Share2, Trash2, UserMinus } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Platform, Share, Text, View } from "react-native";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent";
+import { AgentFlags } from "../agent-flags";
 import { ChannelDirectory } from "../channel-directory";
 import { channelsChanged } from "../channel-events";
 import { channelsOfGuest, guestChannelsLine } from "../channel-text";
@@ -444,6 +445,11 @@ export function PeopleSheet() {
       {manages && (
         <View style={{ marginTop: 28 }}>
           <ChannelDirectory />
+        </View>
+      )}
+      {manages && (
+        <View style={{ marginTop: 28 }}>
+          <AgentFlags />
         </View>
       )}
 
