@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WITHHELD } from "../apps/server/src/agent-watch/egress.ts";
+import { WATCH_STOP_TEXT } from "../packages/domain/src/agent-watch.ts";
 import { wired } from "./helpers/chat-wired.ts";
 import type { FakeTurn } from "./helpers/fake-opencode.ts";
 
@@ -50,21 +50,49 @@ test("only marked: what the agent reads of the machine's data is shown as it is,
   assert.equal(flag?.channelId, room.id);
 });
 
-test("with refusing on: the result of a call that reaches the machine's data is not shown to the channel", async (t) => {
+test("with refusing on: a call that reaches the machine's data stops the run, and nothing of it is shown", async (t) => {
   let dataDir = "";
   const f = await wired(t, (turn) => {
     nativeCall(turn, "c1", "bash", { command: `cat ${dataDir}/postgres/PG_VERSION` }, "secret-17");
-    nativeCall(turn, "c2", "bash", { command: "echo fine" }, "fine");
-    turn.say("done");
+    nativeCall(turn, "c2", "bash", { command: "echo fine" }, "later-fine");
+    turn.say("the answer is secret-17");
   });
   dataDir = f.dataDir;
   await f.core.agent.setWatchMode("enforce");
   const room = await f.channel("max", "Design");
   const asked = await f.post("max", room.id, "@hive look");
   const reply = await f.finished(asked.id);
-  const steps = stepsText(f.extra(reply).steps);
-  assert.ok(!steps.includes("secret-17"), "the secret is not in the reply");
-  assert.ok(steps.includes(WITHHELD), "it says the result was withheld");
-  assert.ok(steps.includes("fine"), "what the agent did in its own way is shown");
-  assert.equal(f.core.flags.list()[0]?.mode, "enforce");
+  // The person is told why, in words, and the run shows as failed for that reason.
+  assert.equal(f.extra(reply).status, "failed");
+  assert.equal(f.extra(reply).reason, "watch");
+  assert.equal(reply.body, WATCH_STOP_TEXT);
+  // Nothing the agent read, or did after, is in what the channel is shown.
+  const shown = stepsText(f.extra(reply).steps) + reply.body;
+  assert.ok(!shown.includes("secret-17"));
+  assert.ok(!shown.includes("later-fine"));
+  // It is marked as stopped, and the agent's session is refused the data, stopped and forgotten.
+  const [flag] = f.core.flags.list();
+  assert.equal(flag?.action, "blocked");
+  assert.equal(flag?.mode, "enforce");
+  await f.until("the session to be forgotten", () => f.opencode.deleted.length === 1);
+  assert.equal(f.opencode.aborted.length >= 1, true);
+  const told = f.opencode.told.at(-1)?.permission as { permission: string; action: string }[];
+  assert.ok(
+    told.some((rule) => rule.permission === "external_directory" && rule.action === "deny"),
+  );
+});
+
+test("with refusing on, a run that reaches nothing of the kind is left alone", async (t) => {
+  const f = await wired(t, (turn) => {
+    nativeCall(turn, "c1", "bash", { command: "echo fine" }, "fine");
+    turn.say("done");
+  });
+  await f.core.agent.setWatchMode("enforce");
+  const room = await f.channel("max", "Design");
+  const asked = await f.post("max", room.id, "@hive look");
+  const reply = await f.finished(asked.id);
+  assert.equal(f.extra(reply).status, "done");
+  assert.match(stepsText(f.extra(reply).steps), /fine/);
+  assert.equal(f.opencode.deleted.length, 0);
+  assert.equal(f.core.flags.list().length, 0);
 });

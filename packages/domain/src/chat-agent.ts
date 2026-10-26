@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type WatchMode, watchFindingSchema } from "./agent-watch.ts";
+import { WATCH_STOP_TEXT, type WatchMode, watchFindingSchema } from "./agent-watch.ts";
 
 /**
  * How the agent and the chat service talk. The agent's reply to a mention is one message (`author_kind`
@@ -25,6 +25,7 @@ export const RUN_REASONS = [
   "disabled",
   "archived",
   "error",
+  "watch",
 ] as const;
 export type RunReason = (typeof RUN_REASONS)[number];
 
@@ -42,6 +43,7 @@ export const REASON_TEXT: Record<RunReason, string> = {
   disabled: "The agent is not switched on in this channel. A channel manager can switch it on.",
   archived: "This channel is archived.",
   error: "Something went wrong, so the agent stopped.",
+  watch: WATCH_STOP_TEXT,
 };
 
 const text = (max: number) => z.string().max(max);
@@ -165,6 +167,8 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     body: text(40_000),
     steps: stepsSchema,
     error: text(500).optional(),
+    /** Why a failed run failed, when it was the watch that stopped it. */
+    reason: z.literal("watch").optional(),
   }),
   z.object({ t: z.literal("beat"), runIds: z.array(text(100)).max(16) }),
   /** The agent touched something of the machine's own (see agent-watch.ts); the service says who asked and where. */

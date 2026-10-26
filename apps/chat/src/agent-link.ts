@@ -226,7 +226,11 @@ export class AgentLink {
     await this.finish(
       frame.runId,
       frame.status,
-      frame.status === "failed" ? "error" : frame.status === "stopped" ? "user" : "ok",
+      frame.status === "failed"
+        ? (frame.reason ?? "error")
+        : frame.status === "stopped"
+          ? "user"
+          : "ok",
       { body: frame.body, steps: frame.steps },
       false,
     );

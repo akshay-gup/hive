@@ -34,6 +34,9 @@ export interface FakeOpencode {
   prompts: FakePrompt[];
   /** The sessions that were stopped. */
   aborted: string[];
+  /** The sessions that were deleted, and the rules sessions were told. */
+  deleted: string[];
+  told: { sessionID: string; permission: unknown[] }[];
   /** The answers Hive gave to what the agent asked: permissions and questions. */
   answered: { kind: "permission" | "question"; requestID: string; action: string; body: Body }[];
   close: () => Promise<void>;
@@ -48,6 +51,7 @@ interface Body {
   reply?: string;
   answers?: string[][];
   config?: { url?: string; headers?: Record<string, string> };
+  permission?: unknown[];
 }
 
 const readBody = async (request: IncomingMessage): Promise<Body> => {
@@ -79,6 +83,8 @@ export async function fakeOpencode(options: {
   >();
   const prompts: FakePrompt[] = [];
   const aborted: string[] = [];
+  const deleted: string[] = [];
+  const told: { sessionID: string; permission: unknown[] }[] = [];
   const answered: FakeOpencode["answered"] = [];
   let sessionCount = 0;
   let messageCount = 0;
@@ -217,7 +223,16 @@ export async function fakeOpencode(options: {
         const [, id, action] = session;
         if (!sessions.has(id)) return json(response, { error: "Session not found" }, 404);
         if (request.method === "GET" && !action) return json(response, { id, directory });
-        if (request.method === "PATCH" && !action) return json(response, { id, directory });
+        if (request.method === "PATCH" && !action) {
+          const body = (await readBody(request)) as { permission?: unknown[] };
+          if (body.permission) told.push({ sessionID: id, permission: body.permission });
+          return json(response, { id, directory });
+        }
+        if (request.method === "DELETE" && !action) {
+          deleted.push(id);
+          sessions.delete(id);
+          return json(response, true);
+        }
         if (request.method === "POST" && action === "abort") {
           aborted.push(id);
           return json(response, true);
@@ -266,6 +281,8 @@ export async function fakeOpencode(options: {
     url: `http://127.0.0.1:${port}`,
     prompts,
     aborted,
+    deleted,
+    told,
     answered,
     close: async () => {
       for (const listener of listeners) listener.end();

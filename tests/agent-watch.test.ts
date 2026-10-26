@@ -134,7 +134,10 @@ test("in the stricter mode the run is told of each serious call, with the call, 
   const run = watch.forRun({
     scope: "channel",
     directory: own,
-    onSerious: ({ callId }) => told.push(callId),
+    onSerious: ({ callId }) => {
+      told.push(callId);
+      return false;
+    },
   });
   run(tool("a", "bash", { command: "cat /data/hive/postgres/PG_VERSION" }));
   assert.deepEqual(told, [], "not while it only marks");

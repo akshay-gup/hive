@@ -1,4 +1,4 @@
-import type { WatchMode } from "../../../../packages/domain/src/agent-watch.ts";
+import { WATCH_STOP_TEXT, type WatchMode } from "../../../../packages/domain/src/agent-watch.ts";
 import type {
   PromptChoice,
   RoomFrame,
@@ -552,14 +552,16 @@ export class ChatRunnerHost {
     const stopped = run.stopped;
     const failed = !stopped && run.failure !== null;
     run.n++;
+    const watchStop = failed && run.failure === WATCH_STOP_TEXT;
     const frame: Extract<RunnerFrame, { t: "run.end" }> = {
       t: "run.end",
       runId: run.runId,
       n: run.n,
       status: stopped ? "stopped" : failed ? "failed" : "done",
-      body: failed && !body ? failureText(run.failure ?? "") : body,
+      body: watchStop ? WATCH_STOP_TEXT : failed && !body ? failureText(run.failure ?? "") : body,
       steps,
       ...(failed ? { error: clip(run.failure ?? "", 500) } : {}),
+      ...(watchStop ? { reason: "watch" as const } : {}),
     };
     this.finals.set(run.runId, frame);
     this.deps.send(frame);

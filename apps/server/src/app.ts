@@ -702,7 +702,7 @@ export async function createApp(
       });
     }
   }
-  return { app, auth, files, actions, workspace, agent, opencode };
+  return { app, auth, files, actions, workspace, agent, opencode, watch };
 }
 
 /**

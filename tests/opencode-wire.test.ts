@@ -7,6 +7,7 @@ import { EventSchemas } from "@ag-ui/core";
 import { createApp } from "../apps/server/src/app.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore } from "../apps/server/src/db.ts";
+import { WATCH_STOP_TEXT } from "../packages/domain/src/agent-watch.ts";
 import { encodeJevAction } from "../packages/domain/src/jev.ts";
 import { type FakeTurn, fakeOpencode } from "./helpers/fake-opencode.ts";
 
@@ -278,4 +279,60 @@ test("a question the agent asks in a person's own chat is there for the app to s
   assert.equal(reply.status, 200);
   const { types } = await running;
   assert.equal(types.at(-1), "RUN_FINISHED");
+});
+
+/** A call of one of OpenCode's own tools (not one of Hive's), as OpenCode reports it. */
+const nativeCall = (
+  turn: FakeTurn,
+  callID: string,
+  tool: string,
+  input: object,
+  output: string,
+) => {
+  const messageID = `msg_${callID}`;
+  turn.emit({
+    type: "message.updated",
+    properties: { info: { id: messageID, role: "assistant", sessionID: "x" } },
+  });
+  const part = (state: Record<string, unknown>) =>
+    turn.emit({
+      type: "message.part.updated",
+      properties: { part: { id: `prt_${callID}`, messageID, type: "tool", callID, tool, state } },
+    });
+  part({ status: "running", input });
+  part({ status: "completed", input, output });
+};
+
+test("with refusing on, a call in a person's own chat that reaches the machine's data stops the run and shows nothing of it", async (t) => {
+  let dataDir = "";
+  const f = await wired(t, (turn) => {
+    nativeCall(turn, "c1", "bash", { command: `cat ${dataDir}/postgres/PG_VERSION` }, "secret-17");
+    turn.say("the answer is secret-17");
+  });
+  dataDir = f.config.dataDir;
+  f.watch.setMode("enforce");
+  const run = await f.chat("@hive look");
+  const error = run.events.find((event) => event.type === "RUN_ERROR");
+  assert.equal(error?.message, WATCH_STOP_TEXT);
+  assert.ok(!JSON.stringify(run.events).includes("secret-17"));
+  assert.ok(!run.types.includes("RUN_FINISHED"));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(f.opencode.deleted.length, 1, "the session it read in is forgotten");
+});
+
+test("with refusing on, a task that reaches the machine's data fails with the reason, and its log shows nothing of it", async (t) => {
+  let dataDir = "";
+  const f = await wired(t, async (turn) => {
+    nativeCall(turn, "c1", "bash", { command: `cat ${dataDir}/postgres/PG_VERSION` }, "secret-17");
+    await turn.call("finish_task", { summary: "done" }).catch(() => undefined);
+  });
+  dataDir = f.config.dataDir;
+  f.watch.setMode("enforce");
+  const task = await f.agent.createTask("owner", { prompt: "Look around", kind: "agent" });
+  await f.agent.worker.tick();
+  const failed = await f.agent.getTask("owner", task.id);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error, WATCH_STOP_TEXT);
+  const log = await f.db.list<{ taskId?: string }>("shared", "run-events");
+  assert.ok(!JSON.stringify(log.filter((e) => e.taskId === task.id)).includes("secret-17"));
 });

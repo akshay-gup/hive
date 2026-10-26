@@ -29,6 +29,7 @@ import {
   type ChannelThread,
   ORCHESTRATOR_CHANNEL_ID,
 } from "../../../../packages/domain/src/agent.ts";
+import { WATCH_STOP_TEXT } from "../../../../packages/domain/src/agent-watch.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import { Egress } from "../agent-watch/egress.ts";
 import type { AgentWatch } from "../agent-watch/watch.ts";
@@ -870,12 +871,37 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       stripped || "(summoned by mention with no additional text — see the conversation above)";
     const fileParts = chat ? chat.files : promptFileParts(messages);
 
+    // The run is stopped for reaching the machine's own data: nothing more of it is shown, its Hive tools are taken
+    // away, the session is refused the data and stopped, and forgotten, so what it read is not in its memory.
+    let stoppedForData = false;
+    const lockdown = (): boolean => {
+      if (stoppedForData) return true;
+      if (ctx.settled) return false;
+      stoppedForData = true;
+      egress?.shutDown();
+      toolLease?.release();
+      ctx.translator?.fail(WATCH_STOP_TEXT);
+      const session = ctx.session;
+      if (session)
+        void (async () => {
+          const client = deps.pool.forDirectory(session.directory);
+          const where = { sessionID: session.sessionId, directory: session.directory };
+          await client.session
+            .update({ ...where, permission: deps.watch?.denyRules() ?? [] })
+            .catch(() => undefined);
+          await abortRunSession(ctx);
+          await deps.tracker.rejectAllForScope(deps, input.threadId).catch(() => 0);
+          await client.session.delete(where).catch(() => undefined);
+        })();
+      return true;
+    };
     const watching = deps.watch?.forRun({
       scope: chat ? "channel" : "own-chat",
       ...(chat ? { runId: input.runId } : {}),
       directory,
       onSerious: ({ callId }) => {
         if (callId) egress?.withhold(callId);
+        return lockdown();
       },
     });
     egress = new Egress(send, { holdMs: () => deps.watch?.holdMs() ?? 0 });

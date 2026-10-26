@@ -15,7 +15,7 @@ export interface WatchRun {
    * Told when the run does something that reaches the machine's own data, in the stricter mode: with the call,
    * if it was one tool call, so its result can be kept from the screen.
    */
-  onSerious?: (info: { callId?: string; finding: WatchFinding }) => void;
+  onSerious?: (info: { callId?: string; finding: WatchFinding }) => boolean | undefined;
 }
 
 export interface WatchDeps {
@@ -118,7 +118,10 @@ export class AgentWatch {
         mode: this.mode,
       };
       // Said every time, even of what was marked before: each call's result has to be kept back.
-      if (this.mode === "enforce" && found.severity !== "low") run.onSerious?.({ callId, finding });
+      if (this.mode === "enforce" && found.severity !== "low") {
+        // If the run was stopped for it, the mark says so.
+        if (run.onSerious?.({ callId, finding })) finding.action = "blocked";
+      }
       if (seen.has(key) || seen.size >= PER_RUN) return;
       seen.add(key);
       this.report(finding);

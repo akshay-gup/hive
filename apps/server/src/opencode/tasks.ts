@@ -18,6 +18,7 @@
 import { mkdir } from "node:fs/promises";
 import type { AgentTask, TaskStep } from "../../../../packages/domain/src/agent.ts";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent.ts";
+import { WATCH_STOP_TEXT } from "../../../../packages/domain/src/agent-watch.ts";
 import type { AgentWatch } from "../agent-watch/watch.ts";
 import type { Config } from "../config.ts";
 import { renderUpdate } from "../engine/brief.ts";
@@ -464,11 +465,32 @@ export async function runOpencodeTask(
     clearTimeout(settleTimer);
   };
 
+  // The task's run is stopped for reaching the machine's own data: its Hive tools go, the session is refused the
+  // data, stopped and forgotten, and the task fails with the reason.
+  let stoppedForData = false;
+  const lockdown = (): boolean => {
+    if (stoppedForData) return true;
+    if (ended) return false;
+    stoppedForData = true;
+    toolLease?.release();
+    const where = { sessionID: sessionId, directory };
+    void (async () => {
+      await client.session
+        .update({ ...where, permission: runtime.watch?.denyRules() ?? [] })
+        .catch(() => undefined);
+      await client.session.abort(where).catch(() => undefined);
+      await client.session.delete(where).catch(() => undefined);
+      await service.db.remove(owner, "task-sessions", task.id).catch(() => undefined);
+    })();
+    turn.reject(new Error(WATCH_STOP_TEXT));
+    return true;
+  };
   const watching = runtime.watch?.forRun({
     scope: "task",
     directory,
     onSerious: ({ callId }) => {
       if (callId) runLog.withhold(callId);
+      return lockdown();
     },
   });
   const unsubscribe = runtime.bus.onEvent(scope, (event) => {

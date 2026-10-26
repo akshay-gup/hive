@@ -16,6 +16,9 @@ export const WATCH_SCOPES = ["channel", "own-chat", "task"] as const;
 export const WATCH_SEVERITIES = ["low", "medium", "high"] as const;
 export const WATCH_ACTIONS = ["marked", "blocked"] as const;
 
+/** What a person is told when the agent's run is stopped for reaching the machine's own data. */
+export const WATCH_STOP_TEXT = "Stopped, because the agent tried to open the workspace's own data.";
+
 const text = (max: number) => z.string().max(max);
 
 /** One thing the machine saw. */
