@@ -29,7 +29,11 @@ import {
   type ChannelThread,
   ORCHESTRATOR_CHANNEL_ID,
 } from "../../../../packages/domain/src/agent.ts";
-import { WATCH_STOP_TEXT } from "../../../../packages/domain/src/agent-watch.ts";
+import {
+  WATCH_DOWN_TEXT,
+  WATCH_STOP_TEXT,
+  type WatchFinding,
+} from "../../../../packages/domain/src/agent-watch.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import { Egress } from "../agent-watch/egress.ts";
 import type { AgentWatch } from "../agent-watch/watch.ts";
@@ -671,6 +675,13 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     : guest
       ? await guestRefusal(deps, owner, binding)
       : await closedChannel(deps, owner, binding);
+  // With refusing on, nothing runs while the machine's watch is not working (a run of a channel is refused by the runner).
+  const paused = chat ? null : (deps.watch?.refusal() ?? null);
+  if (paused) {
+    send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
+    send({ type: "RUN_ERROR", message: paused, code: "OPENCODE_RUN_FAILED" });
+    return;
+  }
   if (!binding || refusal) {
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
     send({
@@ -874,13 +885,13 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     // The run is stopped for reaching the machine's own data: nothing more of it is shown, its Hive tools are taken
     // away, the session is refused the data and stopped, and forgotten, so what it read is not in its memory.
     let stoppedForData = false;
-    const lockdown = (): boolean => {
+    const lockdown = (finding?: WatchFinding): boolean => {
       if (stoppedForData) return true;
       if (ctx.settled) return false;
       stoppedForData = true;
       egress?.shutDown();
       toolLease?.release();
-      ctx.translator?.fail(WATCH_STOP_TEXT);
+      ctx.translator?.fail(finding?.rule === "watch" ? WATCH_DOWN_TEXT : WATCH_STOP_TEXT);
       const session = ctx.session;
       if (session)
         void (async () => {
@@ -899,9 +910,9 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       scope: chat ? "channel" : "own-chat",
       ...(chat ? { runId: input.runId } : {}),
       directory,
-      onSerious: ({ callId }) => {
+      onSerious: ({ callId, finding }) => {
         if (callId) egress?.withhold(callId);
-        return lockdown();
+        return lockdown(finding);
       },
     });
     egress = new Egress(send, { holdMs: () => deps.watch?.holdMs() ?? 0 });
@@ -955,11 +966,15 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       },
     });
     ctx.translator = translator;
-    ctx.unsubscribe = deps.bus.onEvent(input.threadId, (event) => {
+    const unsubscribe = deps.bus.onEvent(input.threadId, (event) => {
       // Looked at first: a call's result can be on its way in the same event that first shows what it asked for.
       watching?.(event);
       translator.handle(event);
     });
+    ctx.unsubscribe = () => {
+      unsubscribe();
+      watching?.end();
+    };
 
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
 

@@ -1,8 +1,9 @@
 import { resolve } from "node:path";
 import type { WatchFinding, WatchMode } from "../../../../packages/domain/src/agent-watch.ts";
+import { WATCH_DOWN_TEXT } from "../../../../packages/domain/src/agent-watch.ts";
 import type { OpenCodeEvent } from "../opencode/events.ts";
 import type { PermissionRuleset } from "../opencode/permissions.ts";
-import { classify, classifyAsk, realOrSelf, type WatchSetup } from "./classify.ts";
+import { classify, classifyAsk, realOrSelf, ruleOfPath, type WatchSetup } from "./classify.ts";
 
 /** What one run is, as far as the watch needs to know. */
 export interface WatchRun {
@@ -18,6 +19,15 @@ export interface WatchRun {
   onSerious?: (info: { callId?: string; finding: WatchFinding }) => boolean | undefined;
 }
 
+/** A read the kernel saw of the machine's own data (see kernel.ts). */
+export interface KernelRead {
+  path: string;
+  cwd: string;
+  comm: string;
+  exe: string;
+  pid: number;
+}
+
 export interface WatchDeps {
   dataDir: string;
   env: Record<string, string | undefined>;
@@ -29,11 +39,13 @@ export interface WatchDeps {
 /** The most a single run is marked for, and the most kept for a moment when the chat service is out of reach. */
 const PER_RUN = 50;
 const KEPT = 100;
-/** How long a result waits for the kernel's word (it usually comes in a few milliseconds). */
-const KERNEL_HOLD_MS = 300;
+/** How long a result waits for the kernel's word (it usually comes in a few hundred milliseconds). */
+const KERNEL_HOLD_MS = 500;
 
 /** What one run's watch is: the handler of its events, and the verdict on what it asks leave for. */
 export type RunWatch = ((event: OpenCodeEvent) => void) & {
+  /** The run is over: the kernel's reads are no longer matched to it. */
+  end: () => void;
   /** True if the agent is to be refused what it asked leave for (see `refuses`). */
   asked: (ask: { permission: string; patterns: string[]; metadata?: unknown }) => boolean;
 };
@@ -51,6 +63,13 @@ export class AgentWatch {
   private kept: WatchFinding[] = [];
   /** The kernel watch, when this machine has one, which is what makes holding results back worth it. */
   private kernel: { alive: () => boolean } | null = null;
+  /** The runs that are going, so a read the kernel saw can be matched to the one that made it. */
+  private readonly going = new Set<{
+    run: WatchRun;
+    read: (read: KernelRead) => void;
+    stop: (finding: WatchFinding) => void;
+  }>();
+  private down = false;
 
   constructor(private readonly deps: WatchDeps) {}
 
@@ -179,7 +198,89 @@ export class AgentWatch {
         );
       return refuse;
     };
-    return Object.assign(handle, { asked });
+    const entry = {
+      run,
+      read: (read: KernelRead) => {
+        const found = ruleOfPath(read.path, this.deps.dataDir);
+        if (found)
+          mark({ ...found, target: read.path, source: "kernel" }, read.comm, read.exe, "marked");
+      },
+      stop: (finding: WatchFinding) => {
+        if (this.mode === "enforce") run.onSerious?.({ finding });
+      },
+    };
+    this.going.add(entry);
+    return Object.assign(handle, { asked, end: () => this.going.delete(entry) });
+  }
+
+  /**
+   * The kernel saw a read of the machine's own data by something that is not the server. It is the run whose
+   * folder the reader was working in, or the only run going, or no run we know of.
+   */
+  kernelRead(read: KernelRead): void {
+    const found = ruleOfPath(read.path, this.deps.dataDir);
+    if (!found) return;
+    const inside = (dir: string) => read.cwd === dir || read.cwd.startsWith(`${dir}/`);
+    const runs = [...this.going];
+    const matched = runs.filter((entry) => inside(entry.run.directory));
+    const targets = matched.length ? matched : runs.length === 1 ? runs : [];
+    if (targets.length) {
+      for (const entry of targets) entry.read(read);
+      return;
+    }
+    this.report({
+      source: "kernel",
+      scope: "machine",
+      tool: read.comm.slice(0, 100),
+      target: read.path.slice(0, 500),
+      ...(read.exe ? { command: read.exe.slice(0, 500) } : {}),
+      rule: found.rule,
+      severity: found.severity,
+      action: "marked",
+      mode: this.mode,
+    });
+  }
+
+  /** The kernel watch has stopped working, or is working again. */
+  kernelDown(down: boolean, why: string): void {
+    if (down === this.down) return;
+    this.down = down;
+    if (!down) return;
+    const finding: WatchFinding = {
+      source: "watch",
+      scope: "machine",
+      tool: "kernel watch",
+      target: why.slice(0, 500),
+      rule: "watch",
+      severity: "high",
+      action: "marked",
+      mode: this.mode,
+    };
+    // With refusing on, nothing runs without the watch: what is running is stopped.
+    if (this.mode === "enforce") {
+      finding.action = "blocked";
+      for (const entry of [...this.going]) entry.stop(finding);
+    }
+    this.report(finding);
+  }
+
+  /** Something about the kernel watch the owner should know, that does not stop anything. */
+  kernelNote(why: string): void {
+    this.report({
+      source: "watch",
+      scope: "machine",
+      tool: "kernel watch",
+      target: why.slice(0, 500),
+      rule: "watch",
+      severity: "medium",
+      action: "marked",
+      mode: this.mode,
+    });
+  }
+
+  /** Why a new run is not to start, if it is not: refusing is on and the kernel watch is down. */
+  refusal(): string | null {
+    return this.mode === "enforce" && this.down ? WATCH_DOWN_TEXT : null;
   }
 
   /** Say that something was seen; kept for a little if the chat service cannot be reached. */

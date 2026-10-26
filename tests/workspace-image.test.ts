@@ -42,3 +42,33 @@ test("the image carries the browser worker and the scripts that keep a machine u
   );
   assert.match(worker.dependencies.playwright, /^\d+\.\d+\.\d+$/, "an exact version, not a range");
 });
+
+test("the image has the kernel watch: the audit system, a unit that runs as root, and the server's process id where it looks", () => {
+  const vm = (name: string) =>
+    readFileSync(new URL(`../apps/workspace/vm/${name}`, import.meta.url), "utf8");
+  assert.match(vm("bake.sh"), /apt install .* auditd/);
+  assert.match(vm("bake.sh"), /systemctl enable hive-watch\.service/);
+  // An image whose audit system does not answer is not kept.
+  assert.match(vm("bake.sh"), /auditctl -s/);
+  const unit = vm("hive-watch.service");
+  assert.match(
+    unit,
+    /^ExecStart=\/usr\/local\/bin\/node dist\/apps\/workspace\/src\/kernel-watch-main\.js$/m,
+  );
+  assert.match(unit, /^RuntimeDirectory=hive-watch$/m);
+  // The workspace starts after it, and does not need it: the server sees the folder, and treats a silent watch as down.
+  assert.match(vm("hive-workspace.service"), /^After=.*hive-watch\.service/m);
+  assert.match(vm("hive-workspace.service"), /^Wants=.*hive-watch\.service/m);
+  // The file the watch reads is the one the supervisor writes.
+  const supervisorMain = readFileSync(
+    new URL("../apps/workspace/src/index.ts", import.meta.url),
+    "utf8",
+  );
+  const watcherMain = readFileSync(
+    new URL("../apps/workspace/src/kernel-watch-main.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(supervisorMain, /HIVE_RUN \?\? "\/run\/hive"/);
+  assert.match(supervisorMain, /join\(runDir, "server\.pid"\)/);
+  assert.match(watcherMain, /"\/run\/hive\/server\.pid"/);
+});

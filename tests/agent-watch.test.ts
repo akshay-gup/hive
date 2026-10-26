@@ -155,7 +155,7 @@ test("results are held back only while refusing is on and the kernel watch is al
   watch.setKernel({ alive: () => alive });
   assert.equal(watch.holdMs(), 0, "not while it only marks");
   watch.setMode("enforce");
-  assert.equal(watch.holdMs(), 300);
+  assert.equal(watch.holdMs(), 500);
   alive = false;
   assert.equal(watch.holdMs(), 0, "nothing to wait for when no kernel flag can come");
 });

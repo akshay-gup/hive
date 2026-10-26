@@ -12,12 +12,16 @@ export const WATCH_MODES = ["audit", "enforce"] as const;
 export type WatchMode = (typeof WATCH_MODES)[number];
 
 export const WATCH_SOURCES = ["command", "file-tool", "kernel", "watch"] as const;
-export const WATCH_SCOPES = ["channel", "own-chat", "task"] as const;
+export const WATCH_SCOPES = ["channel", "own-chat", "task", "machine"] as const;
 export const WATCH_SEVERITIES = ["low", "medium", "high"] as const;
 export const WATCH_ACTIONS = ["marked", "blocked"] as const;
 
 /** What a person is told when the agent's run is stopped for reaching the machine's own data. */
 export const WATCH_STOP_TEXT = "Stopped, because the agent tried to open the workspace's own data.";
+
+/** What a person is told when the agent is paused because the machine's kernel watch is not working. */
+export const WATCH_DOWN_TEXT =
+  "The watch on this machine is not working, so the agent is paused until it is back.";
 
 const text = (max: number) => z.string().max(max);
 

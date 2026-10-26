@@ -341,3 +341,26 @@ export function classifyAsk(args: {
     }
   return [...found.values()];
 }
+
+/**
+ * What the kernel watch looks at: the files and folders that belong to the workspace's own data and that the
+ * agent has no reason to be in. Not `owners/` (the agent's own work folders are there, and a watch on them logs
+ * every install it runs) and not `/etc/hive` (the updater reads it on a timer).
+ */
+export function kernelRoots(dataDir: string): string[] {
+  const keep = new Set(["database", "keys", "files"]);
+  return protectedRoots(dataDir)
+    .filter((root) => keep.has(root.rule) && root.path.startsWith(realOrSelf(resolve(dataDir))))
+    .map((root) => root.path);
+}
+
+/** The rule a path the kernel saw read falls under, if it is one of the machine's own. */
+export function ruleOfPath(
+  path: string,
+  dataDir: string,
+): { rule: WatchRuleName; severity: Severity } | null {
+  // `owners/` is the agent's own work area and the kernel watch does not look at it.
+  const roots = protectedRoots(dataDir).filter((root) => root.rule !== "other-channel");
+  const found = ruleOf(path, roots, []);
+  return found ? { rule: found.rule, severity: found.severity } : null;
+}

@@ -10,6 +10,7 @@ export function flagWhere(flag: FlagRow): string {
       flag.channelName ? `#${flag.channelName}` : "a channel"
     }`;
   if (flag.scope === "task") return "A task the agent was working on";
+  if (flag.scope === "machine") return "Something on the machine";
   return "A private chat with the agent";
 }
 

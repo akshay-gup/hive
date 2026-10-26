@@ -47,7 +47,7 @@ prepare() {
   say "Packages"
   apt update
   apt -y upgrade
-  apt install -y --no-install-recommends ca-certificates curl git jq python3 ripgrep unzip nftables sudo
+  apt install -y --no-install-recommends ca-certificates curl git jq python3 ripgrep unzip nftables sudo auditd
   install_cloudflared
   install_crane
 }
@@ -158,6 +158,15 @@ install_workspace() {
   done
   systemctl enable hive-update.timer hive-update.path hive-update-watchdog.timer
 
+  # The kernel watch: the audit system notes every read of the workspace's own data, and a unit of ours
+  # reads its log (see hive-watch.service). Its log is kept to a few files, written as it happens.
+  sed -i -e 's/^flush *=.*/flush = DATA/' -e 's/^max_log_file *=.*/max_log_file = 8/' \
+    -e 's/^num_logs *=.*/num_logs = 4/' -e 's/^max_log_file_action *=.*/max_log_file_action = ROTATE/' \
+    /etc/audit/auditd.conf
+  systemctl enable auditd.service
+  install -m 0644 "$HERE/hive-watch.service" /etc/systemd/system/hive-watch.service
+  systemctl enable hive-watch.service
+
   say "The firewall"
   nft -c -f "$HERE/nftables.conf"
   install -m 0644 "$HERE/nftables.conf" /etc/nftables.conf
@@ -195,6 +204,8 @@ check() {
   say "Starting a workspace to see that it does"
   /usr/local/bin/node --version
   /usr/local/bin/opencode --version
+  # The audit system answers, which the kernel watch needs.
+  auditctl -s >/dev/null
   cloudflared --version
   runuser -u hive -- sudo -n true
   # A browser that cannot start is found out here, not by the first person who asks the agent to browse.

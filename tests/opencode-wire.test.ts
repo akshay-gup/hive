@@ -7,7 +7,7 @@ import { EventSchemas } from "@ag-ui/core";
 import { createApp } from "../apps/server/src/app.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore } from "../apps/server/src/db.ts";
-import { WATCH_STOP_TEXT } from "../packages/domain/src/agent-watch.ts";
+import { WATCH_DOWN_TEXT, WATCH_STOP_TEXT } from "../packages/domain/src/agent-watch.ts";
 import { encodeJevAction } from "../packages/domain/src/jev.ts";
 import { type FakeTurn, fakeOpencode } from "./helpers/fake-opencode.ts";
 
@@ -335,4 +335,18 @@ test("with refusing on, a task that reaches the machine's data fails with the re
   assert.equal(failed.error, WATCH_STOP_TEXT);
   const log = await f.db.list<{ taskId?: string }>("shared", "run-events");
   assert.ok(!JSON.stringify(log.filter((e) => e.taskId === task.id)).includes("secret-17"));
+});
+
+test("with refusing on and the machine's watch down, the person's own chat and a task are not run, and say why", async (t) => {
+  const f = await wired(t, ({ say }) => say("hello"));
+  f.watch.setMode("enforce");
+  f.watch.kernelDown(true, "the kernel watch went quiet");
+  const run = await f.chat("@hive hi");
+  assert.equal(run.events.find((event) => event.type === "RUN_ERROR")?.message, WATCH_DOWN_TEXT);
+  const task = await f.agent.createTask("owner", { prompt: "Look around", kind: "agent" });
+  await f.agent.worker.tick();
+  const failed = await f.agent.getTask("owner", task.id);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error, WATCH_DOWN_TEXT);
+  assert.equal(f.opencode.prompts.length, 0);
 });

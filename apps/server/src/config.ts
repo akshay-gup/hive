@@ -99,6 +99,8 @@ export interface Config {
    * set on a workspace the control plane runs, where the agent answers mentions in chat channels.
    */
   chatRunner?: { tokenUrl: string; key: string };
+  /** Where the machine's kernel watch writes, on a machine that has one (see agent-watch/kernel.ts). */
+  kernelWatchDir?: string;
   /** Set when the Hive control plane runs this workspace (WORKSPACE_ID, CONTROL_PLANE_PUBLIC_KEY). */
   managed?: ManagedWorkspace;
 }
@@ -161,6 +163,7 @@ export function readConfig(): Config {
       process.env.ALLOWED_ORIGINS ?? "http://localhost:8081,http://127.0.0.1:8081"
     ).split(","),
   };
+  config.kernelWatchDir = process.env.HIVE_WATCH_DIR?.trim() || "/run/hive-watch";
   const chatTokenUrl = process.env.CHAT_RUNNER_TOKEN_URL?.trim();
   const chatKey = process.env.CHAT_RUNNER_KEY?.trim();
   if (chatTokenUrl && chatKey) config.chatRunner = { tokenUrl: chatTokenUrl, key: chatKey };

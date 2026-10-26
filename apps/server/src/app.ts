@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { MessageSchema } from "@ag-ui/core";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -10,6 +10,7 @@ import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { emailDraftSchema, proposalSchema } from "../../../packages/domain/src/index.ts";
 import { ActionService } from "./actions.ts";
 import { makeRuntime } from "./agent.ts";
+import { KernelWatch } from "./agent-watch/kernel.ts";
 import { AgentWatch } from "./agent-watch/watch.ts";
 import { createAuth } from "./auth.ts";
 import { BrowserService } from "./browser.ts";
@@ -352,6 +353,12 @@ export async function createApp(
     send: (frame) => chatLink?.link.send(frame) ?? false,
     log: (line) => console.log(line),
   });
+  // On a machine with a kernel watch (a folder it writes in), what it sees is passed to the watch, and a watch
+  // that has gone quiet is treated as a reason to stop what is running when refusing is on.
+  const kernel =
+    config.kernelWatchDir && existsSync(config.kernelWatchDir)
+      ? new KernelWatch({ dir: config.kernelWatchDir, watch, log: (line) => console.log(line) })
+      : null;
   const shimDeps = {
     watch,
     service: agent,
@@ -430,6 +437,7 @@ export async function createApp(
           channelFiles: agent.channelFiles,
           origin: () => link.origin,
           setWatchMode: (mode) => watch.setMode(mode),
+          refusal: () => watch.refusal(),
           directoryOf: (channelId, owner) => sessionDirectory(config, owner, channelId),
           standIns: () => agent.standInIds(),
           forgetChannel: (channelId) => agent.purgeChannel(channelId),
@@ -456,9 +464,11 @@ export async function createApp(
       const { version } = await ensureOpencodeServerReachable(connection);
       console.log(`OpenCode server reachable at ${connection.url} (v${version})`);
       bus.start();
+      kernel?.start();
       chatLink?.link.start();
     },
     stop: () => {
+      kernel?.stop();
       chatLink?.link.stop();
       chatLink?.host.stop();
       return bus.stop();

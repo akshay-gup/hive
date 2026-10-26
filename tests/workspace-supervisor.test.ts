@@ -67,6 +67,7 @@ async function setup(
   over: {
     agent?: Record<string, string>;
     server?: Record<string, string>;
+    serverPidFile?: string;
     browser?: Record<string, string>;
     timeout?: number;
     grace?: number;
@@ -95,6 +96,7 @@ async function setup(
       name: "hive",
       command: [process.execPath, stub("stub-hive.mjs")],
       env: { ...common, ...over.server },
+      ...(over.serverPidFile ? { pidFile: over.serverPidFile } : {}),
     },
     browser: over.browser && {
       name: "browser",
@@ -435,4 +437,25 @@ test("a workspace without a browser asked for never starts one", async () => {
   supervisor.stop("test");
   assert.equal(await done, 0);
   assert.equal(startsOfBrowser(), 0);
+});
+
+test("the server's process id is written while it runs, for what watches the machine from outside, and removed when it ends", async () => {
+  const pidFile = join(dir, "server.pid");
+  const { supervisor } = await setup({ serverPidFile: pidFile });
+  const done = supervisor.run();
+  await settle(() => saw("hive", "started-with-agent"));
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  assert.ok(Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+  process.kill(pid, 0);
+  supervisor.stop("test");
+  await done;
+  assert.equal(existsSync(pidFile), false);
+});
+
+test("a place that cannot be written to does not stop the server from starting", async () => {
+  const { supervisor } = await setup({ serverPidFile: join(dir, "nowhere", "server.pid") });
+  const done = supervisor.run();
+  await settle(() => saw("hive", "started-with-agent"));
+  supervisor.stop("test");
+  assert.equal(await done, 0);
 });

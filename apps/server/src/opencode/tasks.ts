@@ -18,7 +18,11 @@
 import { mkdir } from "node:fs/promises";
 import type { AgentTask, TaskStep } from "../../../../packages/domain/src/agent.ts";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent.ts";
-import { WATCH_STOP_TEXT } from "../../../../packages/domain/src/agent-watch.ts";
+import {
+  WATCH_DOWN_TEXT,
+  WATCH_STOP_TEXT,
+  type WatchFinding,
+} from "../../../../packages/domain/src/agent-watch.ts";
 import type { AgentWatch } from "../agent-watch/watch.ts";
 import type { Config } from "../config.ts";
 import { renderUpdate } from "../engine/brief.ts";
@@ -333,6 +337,9 @@ export async function runOpencodeTask(
 ): Promise<Partial<AgentTask>> {
   const config = runtime.config;
   let task = initial;
+  // With refusing on, nothing runs while the machine's watch is not working.
+  const paused = runtime.watch?.refusal();
+  if (paused) throw new Error(paused);
 
   const identity = await service.db.get<{ name: string; tone: string }>(
     owner,
@@ -468,7 +475,7 @@ export async function runOpencodeTask(
   // The task's run is stopped for reaching the machine's own data: its Hive tools go, the session is refused the
   // data, stopped and forgotten, and the task fails with the reason.
   let stoppedForData = false;
-  const lockdown = (): boolean => {
+  const lockdown = (finding?: WatchFinding): boolean => {
     if (stoppedForData) return true;
     if (ended) return false;
     stoppedForData = true;
@@ -482,15 +489,15 @@ export async function runOpencodeTask(
       await client.session.delete(where).catch(() => undefined);
       await service.db.remove(owner, "task-sessions", task.id).catch(() => undefined);
     })();
-    turn.reject(new Error(WATCH_STOP_TEXT));
+    turn.reject(new Error(finding?.rule === "watch" ? WATCH_DOWN_TEXT : WATCH_STOP_TEXT));
     return true;
   };
   const watching = runtime.watch?.forRun({
     scope: "task",
     directory,
-    onSerious: ({ callId }) => {
+    onSerious: ({ callId, finding }) => {
       if (callId) runLog.withhold(callId);
-      return lockdown();
+      return lockdown(finding);
     },
   });
   const unsubscribe = runtime.bus.onEvent(scope, (event) => {
@@ -743,6 +750,7 @@ export async function runOpencodeTask(
     }
   } finally {
     ended = true;
+    watching?.end();
     stopWatching();
     clearTimeout(settleTimer);
     toolLease?.release();

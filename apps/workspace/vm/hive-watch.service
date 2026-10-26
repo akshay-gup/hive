@@ -1,0 +1,27 @@
+# The kernel watch: it asks the machine's audit system to note every read of the workspace's own data (its
+# database, key and files kept for everyone), leaves the workspace server's own process out, and leaves what it
+# sees where the server can read it (see apps/workspace/src/kernel-watch.ts). It runs as root, because the audit
+# system is the kernel's, and it does nothing but look.
+[Unit]
+Description=Hive kernel watch
+After=auditd.service
+Wants=auditd.service
+# Without its settings there is no workspace to watch.
+ConditionPathExists=/etc/hive/workspace.json
+
+[Service]
+Type=simple
+WorkingDirectory=/app
+Environment=NODE_ENV=production
+Environment=HIVE_ENV_FILE=/etc/hive/workspace.json
+Environment=VOLUME_DIR=/data
+# The folder the server reads from: the reads the watch saw, and whether it is working.
+RuntimeDirectory=hive-watch
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/local/bin/node dist/apps/workspace/src/kernel-watch-main.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

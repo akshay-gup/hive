@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
@@ -254,6 +254,8 @@ export interface ChildSpec {
   command: string[];
   env: Record<string, string>;
   cwd?: string;
+  /** Where to write the process id while it runs, for what watches the machine from outside (see kernel-watch.ts). */
+  pidFile?: string;
 }
 
 export interface SupervisorSpec {
@@ -441,12 +443,24 @@ export class Supervisor {
       env: spec.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    if (spec.pidFile && child.pid)
+      try {
+        writeFileSync(spec.pidFile, String(child.pid));
+      } catch {
+        // Nowhere to put it: nothing watches from outside here.
+      }
     const running: Running = {
       name: spec.name,
       child,
       done: false,
       exited: new Promise<void>((resolve) => {
         child.once("close", (code, signal) => {
+          if (spec.pidFile)
+            try {
+              rmSync(spec.pidFile, { force: true });
+            } catch {
+              // As above.
+            }
           running.done = true;
           this.spec.log(`[supervisor] ${spec.name} exited (${signal ?? `code ${code}`})`);
           resolve();

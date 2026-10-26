@@ -2,8 +2,8 @@
 # instead of a container runtime, with its settings in a file that only root can read.
 [Unit]
 Description=Hive workspace
-After=network-online.target
-Wants=network-online.target
+After=network-online.target hive-watch.service
+Wants=network-online.target hive-watch.service
 # Without its settings there is no workspace to run. A machine that has not been given them waits.
 ConditionPathExists=/etc/hive/workspace.json
 

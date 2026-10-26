@@ -27,6 +27,7 @@ const started = await startWith(made, {
   volume: volumeDir,
 });
 const env = started.env;
+const runDir = process.env.HIVE_RUN ?? "/run/hive";
 
 // A new machine mounts its volume owned by root. It starts as root only to hand the volume to the
 // workspace's own user, then becomes that user, so what it starts, the agent included, is not root
@@ -36,6 +37,13 @@ if (process.getuid?.() === 0) {
   const gid = Number(env.WORKSPACE_GID ?? 10001);
   mkdirSync(volumeDir, { recursive: true });
   chownSync(volumeDir, uid, gid);
+  // Where the server's process id is written for the kernel watch, which runs as root and reads it.
+  try {
+    mkdirSync(runDir, { recursive: true });
+    chownSync(runDir, uid, gid);
+  } catch {
+    // Not a machine with one: nothing watches from outside.
+  }
   process.setgroups?.([gid]);
   process.setgid?.(gid);
   process.setuid?.(uid);
@@ -61,6 +69,7 @@ const supervisor = new Supervisor({
   },
   server: {
     name: "hive",
+    pidFile: join(runDir, "server.pid"),
     command: [
       process.execPath,
       fileURLToPath(new URL("../../server/src/index.js", import.meta.url)),

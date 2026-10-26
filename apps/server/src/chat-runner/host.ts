@@ -36,6 +36,8 @@ export interface HostDeps {
   origin: () => string | null;
   /** What the room says is to be done when the agent is seen opening the machine's own data. */
   setWatchMode?: (mode: WatchMode) => void;
+  /** Why no new run is to start, if there is a reason: the watch of the machine is not working. */
+  refusal?: () => string | null;
   /** The folder a channel's work is in. */
   directoryOf: (channelId: string, owner: string) => string;
   /** Reads a file of a channel's folder, to put it in the agent's reply. */
@@ -252,6 +254,12 @@ export class ChatRunnerHost {
       return;
     }
     const threadId = threadIdFor(start.thread.rootId);
+    const paused = this.deps.refusal?.();
+    if (paused) {
+      this.deps.send({ t: "run.ack", runId: start.id });
+      this.fail(start, paused);
+      return;
+    }
     if (this.runs.size >= (this.deps.maxRuns ?? 2)) {
       this.fail(start, "I am busy with other requests. Try again in a moment.");
       return;
