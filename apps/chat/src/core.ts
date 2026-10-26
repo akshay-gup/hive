@@ -7,6 +7,7 @@ import {
   managesChannel,
   type Person,
 } from "../../../packages/chat-core/src/access.ts";
+import { AgentFlags } from "../../../packages/chat-core/src/agent-flags.ts";
 import { ChannelPeople } from "../../../packages/chat-core/src/channel-people.ts";
 import { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { DirectMessages } from "../../../packages/chat-core/src/direct-messages.ts";
@@ -72,6 +73,7 @@ export class ChatCore {
   readonly filing: Filing;
   readonly messaging: Messaging;
   readonly runs: Runs;
+  readonly flags: AgentFlags;
   readonly agent: AgentLink;
   private readonly publishEvent: (event: ChatEvent) => void;
   private readonly workQueued: () => void;
@@ -156,8 +158,10 @@ export class ChatCore {
       publish: this.publishEvent,
     });
     this.runs = new Runs(sql, options.clock);
+    this.flags = new AgentFlags(sql, options.clock);
     this.agent = new AgentLink({
       store: this.store,
+      flags: this.flags,
       access: this.access,
       messages: this.messages,
       runs: this.runs,
@@ -558,6 +562,36 @@ export class ChatCore {
           input.choice,
         ),
       );
+    });
+
+    // Owners and admins: what the agent was seen to open of the machine's own data. For anyone else it is not there.
+    const watcher = async (owner: string) => {
+      if (!(await this.access.manages(owner))) throw new AppError("Not found", 404);
+    };
+    app.get("/v1/agent-flags", async (c) => {
+      await watcher(c.get("owner"));
+      const people = await this.access.byId();
+      const channels = new Map(
+        (await this.store.list<Channel>(SHARED_OWNER, "channels")).map((ch) => [ch.id, ch.name]),
+      );
+      return c.json({
+        unreviewed: this.flags.unreviewed(),
+        flags: this.flags.list().map((flag) => ({
+          ...flag,
+          ...(flag.askerId
+            ? { askerName: people.get(flag.askerId)?.name || people.get(flag.askerId)?.email }
+            : {}),
+          ...(flag.channelId ? { channelName: channels.get(flag.channelId) } : {}),
+        })),
+      });
+    });
+    app.post("/v1/agent-flags/review", async (c) => {
+      await watcher(c.get("owner"));
+      return c.json({ changed: this.flags.review(c.get("owner")) });
+    });
+    app.post("/v1/agent-flags/:id/review", async (c) => {
+      await watcher(c.get("owner"));
+      return c.json({ changed: this.flags.review(c.get("owner"), c.req.param("id")) });
     });
 
     // Owners and admins: what channels exist, private ones too, and not what is said in them.

@@ -119,6 +119,7 @@ export class RoomLogic {
       files.deleted(keys);
     }
     this.core.events.prune();
+    this.core.flags.prune();
     files.reconcile();
     // Runs that waited, ran or asked too long are ended, and the room looks at them again soon while any are going.
     const running = await this.core.agent.maintain();

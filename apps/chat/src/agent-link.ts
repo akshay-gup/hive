@@ -4,6 +4,7 @@ import {
   managesChannel,
   type Person,
 } from "../../../packages/chat-core/src/access.ts";
+import type { AgentFlags } from "../../../packages/chat-core/src/agent-flags.ts";
 import { agentOn, agentRefusal } from "../../../packages/chat-core/src/agent-trigger.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Files } from "../../../packages/chat-core/src/files.ts";
@@ -55,6 +56,7 @@ const WAKE_EVERY_MS = 30_000;
 
 export interface AgentLinkDeps {
   store: RecordStore;
+  flags: AgentFlags;
   access: Access;
   messages: Messages;
   runs: Runs;
@@ -151,6 +153,17 @@ export class AgentLink {
         return this.fileBegin(frame);
       case "file.done":
         return this.fileDone(frame);
+      case "agent.flag": {
+        // Who asked and where come from the run the room holds, not from what the machine says.
+        const run = frame.finding.runId ? this.deps.runs.get(frame.finding.runId) : null;
+        if (frame.finding.runId && !run) return;
+        this.deps.flags.add(
+          crypto.randomUUID(),
+          frame.finding,
+          run ? { id: run.id, channelId: run.channelId, askedBy: run.askedBy } : null,
+        );
+        return;
+      }
       case "renew":
         return; // The connection's token is the Durable Object's to renew; see room.ts.
     }

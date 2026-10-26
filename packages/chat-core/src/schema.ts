@@ -115,6 +115,20 @@ const STEPS: string[][] = [
     `CREATE INDEX runs_thread ON runs (channel_id, root_id, created_ms)`,
     `CREATE INDEX runs_asker ON runs (asked_by, created_ms)`,
   ],
+  [
+    // What the agent was seen to open of the machine's own data (see packages/domain/src/agent-watch.ts), for
+    // the owner and admins to read. The run, and with it who asked and where, is the room's own record.
+    `CREATE TABLE agent_flags (
+       id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL,
+       run_id TEXT, channel_id TEXT, asked_by TEXT,
+       scope TEXT NOT NULL, source TEXT NOT NULL, tool TEXT NOT NULL,
+       target TEXT NOT NULL, command TEXT, rule TEXT NOT NULL,
+       severity TEXT NOT NULL, action TEXT NOT NULL, mode TEXT NOT NULL,
+       reviewed_by TEXT, reviewed_ms INTEGER
+     )`,
+    `CREATE INDEX agent_flags_at ON agent_flags (at_ms)`,
+    `CREATE INDEX agent_flags_run ON agent_flags (run_id)`,
+  ],
 ];
 
 /** The newest version of the tables. */
