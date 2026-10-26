@@ -398,8 +398,9 @@ export function AgentActivityScreen() {
       <AgentStatus />
       {/* One toolbar: how to look at the work, what to narrow it to, and the new button at the right. */}
       {/* On a phone the views are one button that opens a list, so the buttons keep their row. */}
-      <View style={[s.row, { gap: narrow ? 8 : 12, zIndex: 20 }]}>
-        {viewSwitcher}
+      {/* The row is as tall as the tallest thing that can be in it (a project's people and gear), so the page below does not move when one is opened. */}
+      <View style={[s.row, { gap: narrow ? 8 : 12, zIndex: 20, minHeight: narrow ? 44 : 36 }]}>
+        <View>{viewSwitcher}</View>
         {!narrow && needsChip}
         <View style={{ flex: 1 }} />
         {projectTools}
