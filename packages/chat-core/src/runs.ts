@@ -1,5 +1,6 @@
 import type {
   PromptChoice,
+  PromptPlace,
   PromptState,
   RunPrompt,
   RunReason,
@@ -25,6 +26,8 @@ export const RUN_LIMITS = {
   beatStaleMs: 90_000,
   /** A lost run is failed if it has not shown up again after this. */
   lostGraceMs: 180_000,
+  /** How many times a run is sent to the machine, when the machine restarts under it. */
+  maxAttempts: 3,
   /** The least between two snapshots of a reply that are kept; the others are only shown. */
   saveEveryMs: 1_000,
   maxUpdates: 4_000,
@@ -243,6 +246,22 @@ export class Runs {
     this.sql.run("UPDATE runs SET state = 'queued' WHERE id = ? AND state = 'sent'", id);
   }
 
+  /**
+   * A run its machine lost, put back to be sent again from the start, unless it has been sent enough. What
+   * the lost run had asked is forgotten (the new one asks again), and the wait for a machine starts over.
+   */
+  restart(id: string): boolean {
+    return (
+      this.sql.run(
+        `UPDATE runs SET state = 'queued', last_n = 0, prompts = '[]', beat_ms = NULL, sent_ms = ?, updates = 0, saved_ms = 0
+         WHERE id = ? AND state = 'running' AND attempt < ?`,
+        this.clock(),
+        id,
+        RUN_LIMITS.maxAttempts,
+      ) > 0
+    );
+  }
+
   beat(ids: string[]): void {
     const now = this.clock();
     for (const id of ids)
@@ -289,7 +308,7 @@ export class Runs {
   }
 
   /** The agent asks something of the people. */
-  addPrompt(id: string, prompt: RunPrompt, requestId: string): Run | null {
+  addPrompt(id: string, prompt: RunPrompt, requestId: string, after?: PromptPlace): Run | null {
     const run = this.get(id);
     if (!run || (run.state !== "running" && run.state !== "sent")) return null;
     if (run.prompts.length >= 40 || run.prompts.some((p) => p.prompt.id === prompt.id)) return run;
@@ -297,7 +316,12 @@ export class Runs {
       "UPDATE runs SET prompts = ? WHERE id = ?",
       JSON.stringify([
         ...run.prompts,
-        { prompt, requestId, askedAt: new Date(this.clock()).toISOString() },
+        {
+          prompt,
+          requestId,
+          askedAt: new Date(this.clock()).toISOString(),
+          ...(after ? { after } : {}),
+        },
       ]),
       id,
     );
@@ -352,7 +376,7 @@ export class Runs {
     const now = this.clock();
     const out: { run: Run; reason: RunReason }[] = [];
     for (const run of this.active()) {
-      if (run.state === "queued" && now - run.createdMs > RUN_LIMITS.wakeMs)
+      if (run.state === "queued" && now - (run.sentMs ?? run.createdMs) > RUN_LIMITS.wakeMs)
         out.push({ run, reason: "no-runner" });
       else if (run.state === "sent" && now - (run.sentMs ?? run.createdMs) > RUN_LIMITS.wakeMs)
         out.push({ run, reason: "no-runner" });

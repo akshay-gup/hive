@@ -22,7 +22,7 @@ import type {
   PostMessageInput,
 } from "../../../packages/domain/src/chat.ts";
 import { editMessageSchema, postMessageSchema } from "../../../packages/domain/src/chat.ts";
-import type { AgentExtra } from "../../../packages/domain/src/chat-agent.ts";
+import type { AgentExtra, PromptState } from "../../../packages/domain/src/chat-agent.ts";
 import {
   mentionedPeople,
   namedMentions,
@@ -399,6 +399,19 @@ export class Messaging {
 
   /** The person who asked the agent is told it has answered, unless they can no longer open the channel or have muted it. */
   async runEnded(run: Run, reply: Message): Promise<void> {
+    await this.tellAsker(run, reply, "end");
+  }
+
+  /** The person who asked is told the agent waits on them. */
+  async runAsked(run: Run, reply: Message): Promise<void> {
+    await this.tellAsker(run, reply, "ask");
+  }
+
+  /**
+   * One notice for a run, which says what it is now. A notice they have already read is made new again
+   * when there is more to tell: another question, and the end of the run.
+   */
+  private async tellAsker(run: Run, reply: Message, why: "ask" | "end"): Promise<void> {
     const prefs = await this.deps.channels.notificationPrefs(run.askedBy);
     const scope = await this.deps.access.scope(run.askedBy);
     if (prefs.muted.includes(run.channelId) || !scope.allows(run.channelId)) return;
@@ -412,7 +425,8 @@ export class Messaging {
       channelId: run.channelId,
       seq: reply.seq,
     });
-    if (added)
+    const again = added ? false : this.deps.notices.markUnread(run.askedBy, [reply.id]) > 0;
+    if (added || again || why === "end")
       this.emit(
         sent,
         "notification.new",
@@ -445,8 +459,11 @@ export class Messaging {
     const where = channel.kind === "dm" ? "a direct message" : `#${channel.name}`;
     // The agent's answer to someone is told as that, and shown with the agent's picture (no address).
     const agent = message.authorKind === "agent";
-    const status = (message.extra as { status?: string } | null)?.status;
+    const extra = message.extra as { status?: string; prompts?: PromptState[] } | null;
+    const status = extra?.status;
     const ended = status === "failed" || status === "stopped";
+    // The agent is waiting on a decision: the notice says so, and shows what it asks.
+    const asked = agent && !ended ? extra?.prompts?.find((p) => !p.answered)?.prompt : undefined;
     const people = withHandles(
       [...known.values()]
         .filter((p) => p.email)
@@ -460,11 +477,17 @@ export class Messaging {
       by: agent ? "" : (by?.email ?? ""),
       byName: agent ? "" : name,
       title: agent
-        ? `${name} ${ended ? "could not answer" : "answered you"} in ${where}`
+        ? `${name} ${asked ? "needs you" : ended ? "could not answer" : "answered you"} in ${where}`
         : kind === "mention"
           ? `${name} mentioned you in ${where}`
           : `${name} replied in ${where}`,
-      body: snippet(namedMentions(message.body, people)),
+      body: snippet(
+        asked
+          ? asked.kind === "question"
+            ? (asked.questions[0]?.question ?? "")
+            : `Needs your OK: ${asked.title}`
+          : namedMentions(message.body, people),
+      ),
       createdAt: message.createdAt,
       read,
     };

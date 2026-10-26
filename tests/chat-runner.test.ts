@@ -377,6 +377,9 @@ test("a question the agent asks is answered with words", async (t) => {
   );
   const run = f.core.runs.active()[0];
   assert.ok(run);
+  // The machine says where in its reply it asked, so the app can show the question there.
+  const place = f.extra(await f.replyTo(asked.id)).prompts?.[0]?.after;
+  assert.ok(place && place.steps >= 0 && place.chars >= 0);
   // Approving is not an answer to a question.
   const wrong = await f.call("max", "POST", `/v1/runs/${run.id}/answer`, {
     promptId: "que_1",

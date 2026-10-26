@@ -13,6 +13,15 @@ import {
   summarizeSteps,
 } from "./run-progress";
 
+/** A stretch of an agent's reply: what it did, how far its words go, and what it asked after that. */
+export interface AgentSegment {
+  steps: ProgressStep[];
+  /** Where its words end in the reply's text; to the end, for the last stretch. */
+  endsAt: number | null;
+  /** What was asked at the end of it. */
+  prompts: PromptState[];
+}
+
 /** What the screen shows of an agent's reply to a mention. */
 export interface AgentView {
   runId: string;
@@ -25,6 +34,8 @@ export interface AgentView {
   ended?: { status: "failed" | "stopped"; text: string };
   /** What it did, in order, as the lists the chat already draws. */
   steps: ProgressStep[];
+  /** The same, split where it asked something, so each question comes up where it was asked. */
+  segments: AgentSegment[];
   /** A step is under way, which has its own spinner. */
   stepMoving: boolean;
   /** What it asks of the people, the unanswered first. */
@@ -77,9 +88,33 @@ export function agentView(extra: unknown): AgentView | null {
   // The agent's own cards (mail, choices) are not offered in a channel; one that shows up is only a step.
   const items = mergeItems(progressItems(calls, results as never[], going));
   const steps = items.flatMap((item) => (item.kind === "steps" ? item.steps : []));
-  const prompts = (Array.isArray(extra.prompts) ? (extra.prompts as PromptState[]) : [])
-    .filter((p) => isRecord(p) && isRecord(p.prompt) && typeof p.prompt.id === "string")
-    .sort((a, b) => Number(!!a.answered) - Number(!!b.answered));
+  const prompts = (Array.isArray(extra.prompts) ? (extra.prompts as PromptState[]) : []).filter(
+    (p) => isRecord(p) && isRecord(p.prompt) && typeof p.prompt.id === "string",
+  );
+  // What was asked, in the order it came up; one that does not say where goes after everything else.
+  const placed = prompts
+    .filter((p) => isRecord(p.after))
+    .sort(
+      (a, b) =>
+        (a.after?.steps ?? 0) - (b.after?.steps ?? 0) ||
+        (a.after?.chars ?? 0) - (b.after?.chars ?? 0),
+    );
+  const loose = prompts.filter((p) => !isRecord(p.after));
+  const callsIn: Call[][] = Array.from({ length: placed.length + 1 }, () => []);
+  rawSteps.forEach((raw, index) => {
+    if (!isRecord(raw) || raw.role !== "assistant" || !Array.isArray(raw.toolCalls)) return;
+    let at = 0;
+    while (at < placed.length && index >= (placed[at]?.after?.steps ?? 0)) at++;
+    callsIn[at]?.push(...(raw.toolCalls as unknown[]).filter(isCall));
+  });
+  const segmentItems = callsIn.map((own, at) =>
+    mergeItems(progressItems(own, results as never[], going && at === placed.length)),
+  );
+  const segments: AgentSegment[] = segmentItems.map((own, at) => ({
+    steps: own.flatMap((item) => (item.kind === "steps" ? item.steps : [])),
+    endsAt: at < placed.length ? (placed[at]?.after?.chars ?? 0) : null,
+    prompts: at < placed.length ? [placed[at] as PromptState] : loose,
+  }));
   const reason = typeof extra.reason === "string" ? extra.reason : undefined;
   return {
     runId: extra.runId,
@@ -100,7 +135,8 @@ export function agentView(extra: unknown): AgentView | null {
           }
         : undefined,
     steps,
-    stepMoving: showsRunningStep(items),
+    segments,
+    stepMoving: showsRunningStep(segmentItems[placed.length] ?? items),
     prompts,
     waiting: going && prompts.some((p) => !p.answered),
   };

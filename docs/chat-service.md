@@ -90,8 +90,12 @@ stand-in folder for the channel (`stubs.ts`) and reports it, `context.ts` makes 
 the message's files. A chat run always asks first, whatever a channel's folder says, and has only `browse_web`,
 `create_issue` and `send_file` (`send_file` puts the file in the reply through the room's own upload path, as the
 asker). In a **private channel** it has no board tool: what it makes there would be kept on a machine the channel's
-members do not control. A restart of the machine loses its runs; the room fails them (`lost`) and the person
-mentions again.
+members do not control. A restart of the machine loses its runs; when it connects again and reports
+none, the room clears what such a run had written and sends it again from the start, up to
+`RUN_LIMITS.maxAttempts` sends in all, and then fails it (`lost`) and the person mentions again. When the agent asks
+something, the person who asked is told at once, not at the end; the notice is the run's one notice, and says what
+the run is now. A prompt records, from the machine, how many steps and letters of the reply came before it, so the
+app shows it where it came up.
 
 What a run is shown stays on the machine's disk (the OpenCode session and the channel's folder) and is readable by
 any later run there. That is why a private channel has to be switched on, and why the machine is the workspace's.
@@ -100,8 +104,8 @@ any later run there. That is why a private channel has to be switched on, and wh
 
 Presence, search, pins, edit history, multipart uploads over 100 MB, push and email notifications, retention;
 for the agent: direct messages, an auto-approve mode and "always allow" rules, choices cards, requests for
-uploads, mail, goals and memory in channels, resuming a run after a restart, tidying the machine's stand-in folders,
+uploads, mail, goals and memory in channels, resuming a run mid-way after a restart (it starts over), tidying the machine's stand-in folders,
 and keeping the machine awake while it works (a free plan on a host that stops idle machines can stop mid-run; on
-DigitalOcean nothing stops). A workspace server still has its own channel records, members and privacy rules for
-the orchestrator chat and a workspace run without the chat service. Pictures are made smaller on the web and the
+DigitalOcean nothing stops). A workspace server still has its own channel records, members and privacy rules, which the app no
+longer shows: channels in the app are the chat service's alone. Pictures are made smaller on the web and the
 phone.

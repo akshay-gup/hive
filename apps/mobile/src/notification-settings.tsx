@@ -43,7 +43,14 @@ export function usePrefs() {
  * Notifications, as the person wants them: whether a mention or the end of work they asked for tells
  * them, and the channels they have muted. Their own: no one else's notifications change with them.
  */
-export function NotificationSettingsSheet({ onClose }: { onClose: () => void }) {
+export function NotificationSettingsSheet({
+  onClose,
+  onClearAll,
+}: {
+  onClose: () => void;
+  /** Where the list of notifications is shown, a way to remove every one of them. */
+  onClearAll?: () => void;
+}) {
   const { api } = useWorkspace();
   const { prefs, change, error, busy } = usePrefs();
   const [channels, setChannels] = useState<ChannelView[]>([]);
@@ -105,6 +112,17 @@ export function NotificationSettingsSheet({ onClose }: { onClose: () => void }) 
             <Text style={s.small}>
               What you turn off is hidden, not deleted: turn it back on and it is there again.
             </Text>
+            {onClearAll && (
+              <>
+                <SectionHeading title="Your list" />
+                <Text style={s.muted}>
+                  Remove every notification from your list, read or not. It cannot be undone.
+                </Text>
+                <Button small onPress={onClearAll} style={{ alignSelf: "flex-start" }}>
+                  Clear all notifications
+                </Button>
+              </>
+            )}
           </>
         )}
       </View>

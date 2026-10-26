@@ -280,7 +280,15 @@ export function InboxScreen() {
         </View>
       </View>
       <ErrorNotice error={error} />
-      {settings && <NotificationSettingsSheet onClose={() => setSettings(false)} />}
+      {settings && (
+        <NotificationSettingsSheet
+          onClose={() => setSettings(false)}
+          onClearAll={() => {
+            setSettings(false);
+            void run("all", "/notifications/dismiss-all");
+          }}
+        />
+      )}
       {!shown.length ? (
         <Empty
           icon={BellOff}

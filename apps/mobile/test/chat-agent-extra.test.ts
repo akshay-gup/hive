@@ -76,7 +76,7 @@ test("a queued run says it is waiting", () => {
   assert.equal(view?.working, false);
 });
 
-test("what the agent is waiting on comes first, and a run waiting is marked so", () => {
+test("what the agent asked stays in the order it was asked, and a run waiting is marked so", () => {
   const view = agentView({
     v: 1,
     runId: "r1",
@@ -93,7 +93,7 @@ test("what the agent is waiting on comes first, and a run waiting is marked so",
   });
   assert.deepEqual(
     view?.prompts.map((p) => p.prompt.id),
-    ["p2", "p1"],
+    ["p1", "p2"],
   );
   assert.equal(view?.waiting, true);
   const answered = agentView({
@@ -161,4 +161,52 @@ test("a message asks for the agent when it names it", () => {
   assert.equal(asksAgent("hive@example.com"), false);
   assert.equal(asksAgent("@hiver"), false);
   assert.equal(asksAgent("the hive"), false);
+});
+
+test("what the agent asked comes up where it was asked: the steps before it, then the ones after", () => {
+  const ask = (id: string, steps: number, chars: number, answered = false) => ({
+    prompt: { kind: "question", id, questions: [{ header: "h", question: "q", options: [] }] },
+    after: { steps, chars },
+    ...(answered
+      ? { answered: { by: "u1", byName: "Max", at: "", choice: { dismiss: true } } }
+      : {}),
+  });
+  const view = agentView({
+    v: 1,
+    runId: "r1",
+    askedBy: "u1",
+    status: "working",
+    steps,
+    prompts: [ask("p2", 3, 40), ask("p1", 2, 10, true)],
+  });
+  assert.ok(view);
+  assert.equal(view.segments.length, 3);
+  // The one asked after two steps comes before the one asked after three, whatever order they were kept in.
+  assert.deepEqual(
+    view.segments.map((s) => s.prompts.map((p) => p.prompt.id)),
+    [["p1"], ["p2"], []],
+  );
+  assert.deepEqual(
+    view.segments.map((s) => s.endsAt),
+    [10, 40, null],
+  );
+  assert.deepEqual(
+    view.segments.map((s) => s.steps.length),
+    [1, 1, 0],
+    "the web page before the first question, the issue before the second",
+  );
+});
+
+test("a question that does not say where it was asked goes after everything", () => {
+  const view = agentView({
+    v: 1,
+    runId: "r1",
+    askedBy: "u1",
+    status: "working",
+    steps,
+    prompts: [{ prompt: { kind: "approval", id: "p1", title: "bash" } }],
+  });
+  assert.equal(view?.segments.length, 1);
+  assert.equal(view?.segments[0]?.prompts.length, 1);
+  assert.equal(view?.segments[0]?.endsAt, null);
 });

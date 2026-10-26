@@ -70,6 +70,8 @@ export interface AgentLinkDeps {
   edited: (message: ChatMessage) => void;
   /** The person who asked is told the run is over. */
   notifyEnd: (run: Run, reply: Message) => Promise<void>;
+  /** The person who asked is told the agent is waiting for them (or anyone) to decide something. */
+  notifyAsk: (run: Run, reply: Message) => Promise<void>;
   workspaceId: () => string | null;
   linkKey: () => string | undefined;
   /** Ask for the agent's machine to be started. */
@@ -121,8 +123,18 @@ export class AgentLink {
       case "run.say":
         return this.say(frame);
       case "run.ask": {
-        const run = this.deps.runs.addPrompt(frame.runId, frame.prompt, frame.requestId);
-        if (run) await this.rewrite(run.id, true);
+        const before = this.deps.runs.get(frame.runId)?.prompts.length ?? 0;
+        const run = this.deps.runs.addPrompt(
+          frame.runId,
+          frame.prompt,
+          frame.requestId,
+          frame.after,
+        );
+        if (!run) return;
+        await this.rewrite(run.id, true);
+        // Told when it is asked, not when the run is over, which may be never if it waits for the answer.
+        const reply = run.prompts.length > before ? this.deps.messages.get(run.replyId) : null;
+        if (reply && !reply.deletedAt) await this.deps.notifyAsk(run, reply);
         return;
       }
       case "run.asked.done":
@@ -158,8 +170,11 @@ export class AgentLink {
       if (reported.has(run.id)) {
         runs.markRunning(run.id);
         keep.push(run.id);
-      } else if (run.state === "running") await this.finish(run.id, "failed", "lost", {}, false);
-      else runs.requeue(run.id);
+      } else if (run.state === "running") {
+        // Its machine restarted and lost it: it is sent again from the start, and what it had written is cleared.
+        if (runs.restart(run.id)) await this.write(run.id, { body: "", steps: [] }, true);
+        else await this.finish(run.id, "failed", "lost", {}, false);
+      } else runs.requeue(run.id);
     }
     this.send({ t: "welcome", limits: { maxRunMs: RUN_LIMITS.maxRunMs }, resume: keep });
     await this.pump();

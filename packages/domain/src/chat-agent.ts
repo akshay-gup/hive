@@ -80,8 +80,17 @@ export const choiceSchema = z.union([
 ]);
 export type PromptChoice = z.infer<typeof choiceSchema>;
 
+/** Where in the reply a prompt was asked: how many steps and how many letters of its words came before it. */
+export const promptPlaceSchema = z.object({
+  steps: z.number().int().min(0).max(10_000),
+  chars: z.number().int().min(0).max(100_000),
+});
+export type PromptPlace = z.infer<typeof promptPlaceSchema>;
+
 export interface PromptState {
   prompt: RunPrompt;
+  /** Where in the reply it was asked, so the app shows it where it came up. */
+  after?: PromptPlace;
   /** What the machine will answer with. Kept by the room; never sent to the app. */
   requestId?: string;
   /** When it was asked, which is when the wait for an answer starts. */
@@ -141,6 +150,8 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     prompt: promptSchema,
     /** What the machine will answer with, so an answer can be told what it answers. */
     requestId: text(200),
+    /** What the reply held when it was asked. */
+    after: promptPlaceSchema.optional(),
   }),
   z.object({ t: z.literal("run.asked.done"), runId: text(100), promptId: text(100) }),
   z.object({

@@ -462,9 +462,16 @@ export class ChatRunnerHost {
 
   private ask(run: Active, requestId: string, prompt: RunPrompt) {
     run.prompts.set(prompt.id, { kind: prompt.kind, requestId });
-    // What is waiting is shown with the latest of what was said.
+    // What is waiting is shown with the latest of what was said, and is said to come after it.
+    const { body, steps } = this.snapshot(run);
     this.say(run);
-    this.deps.send({ t: "run.ask", runId: run.runId, prompt, requestId });
+    this.deps.send({
+      t: "run.ask",
+      runId: run.runId,
+      prompt,
+      requestId,
+      after: { steps: steps.length, chars: body.length },
+    });
   }
 
   private async answer(frame: Extract<RoomFrame, { t: "run.answer" }>) {

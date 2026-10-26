@@ -665,11 +665,90 @@ test("after the machine reconnects, what it reports is kept and what it does not
     [[rb, 2]],
     "sent again, as a second try",
   );
-  // A machine that restarted and knows nothing of a running run: it is lost.
+  // A machine that restarted and knows nothing of a running run: the run is sent again, from the start.
+  await fromMachine({ t: "run.say", runId: ra, n: 1, body: "Half of it", steps: [] });
   const third = connectMachine();
   await hello([]);
-  assert.equal(extraOf(await replyTo(a.id)).reason, "lost");
-  assert.equal(started(third).length, 1, "b is sent again once more");
+  const again = await replyTo(a.id);
+  assert.equal(extraOf(again).status, "queued");
+  assert.equal(again.body, "", "what the lost run had written is cleared");
+  assert.deepEqual(
+    new Map(started(third).map((s) => [s.run.id, s.run.attempt])),
+    new Map([
+      [ra, 2],
+      [rb, 3],
+    ]),
+    "both are sent again",
+  );
+});
+
+test("a run its machine keeps losing is sent a few times, and then given up on", async () => {
+  const room = await make("max", "Design");
+  connectMachine();
+  await hello();
+  const asked = await post("max", room.id, "@hive long job");
+  const runId = runOf(asked.id).id;
+  for (let attempt = 1; attempt < RUN_LIMITS.maxAttempts; attempt++) {
+    await fromMachine({ t: "run.ack", runId });
+    connectMachine();
+    await hello([]);
+    assert.equal(
+      extraOf(await replyTo(asked.id)).status,
+      "queued",
+      `sent again after try ${attempt}`,
+    );
+  }
+  await fromMachine({ t: "run.ack", runId });
+  connectMachine();
+  await hello([]);
+  const last = await replyTo(asked.id);
+  assert.equal(extraOf(last).status, "failed");
+  assert.equal(extraOf(last).reason, "lost");
+});
+
+test("the agent asking is told to the person who asked at once, with where in the reply it came up", async () => {
+  const room = await make("max", "Design");
+  connectMachine();
+  await hello();
+  const asked = await post("max", room.id, "@hive what colour?");
+  const runId = runOf(asked.id).id;
+  await fromMachine({ t: "run.ack", runId });
+  await fromMachine({
+    t: "run.say",
+    runId,
+    n: 1,
+    body: "Let me check.",
+    steps: [{ role: "assistant", toolCalls: [] }],
+  });
+  await fromMachine({
+    t: "run.ask",
+    runId,
+    requestId: "r1",
+    prompt: {
+      kind: "question",
+      id: "q1",
+      questions: [{ header: "Colour", question: "Which colour do you like?", options: [] }],
+    },
+    after: { steps: 1, chars: 13 },
+  });
+  type Told = { title: string; body: string; read: boolean }[];
+  const told = (await (await call("max", "GET", "/v1/notifications")).json()) as Told;
+  assert.equal(told.length, 1, "told while it still waits");
+  assert.match(told[0]?.title ?? "", /Hive needs you in #Design/);
+  assert.equal(told[0]?.body, "Which colour do you like?");
+  assert.deepEqual(extraOf(await replyTo(asked.id)).prompts?.[0]?.after, { steps: 1, chars: 13 });
+  // Read, answered, and then the run ends: it is news again, now as an answer.
+  const noticeId = (await replyTo(asked.id)).id;
+  await call("max", "POST", `/v1/notifications/${noticeId}/read`);
+  await call("max", "POST", `/v1/runs/${runId}/answer`, {
+    promptId: "q1",
+    choice: { answers: [["Green"]] },
+  });
+  await fromMachine({ t: "run.end", runId, n: 2, status: "done", body: "Green it is.", steps: [] });
+  const end = (await (await call("max", "GET", "/v1/notifications")).json()) as Told;
+  assert.equal(end.length, 1, "still one notice for the run");
+  assert.match(end[0]?.title ?? "", /Hive answered you in #Design/);
+  assert.equal(end[0]?.read, false);
 });
 
 test("the machine's name is the agent's name, and what it says that is not understood changes nothing", async () => {

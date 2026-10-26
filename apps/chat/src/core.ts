@@ -167,6 +167,7 @@ export class ChatCore {
       stream: (channelId, message) => options.stream?.(channelId, message),
       edited: (message) => this.emit("message.edited", message, { channelId: message.channelId }),
       notifyEnd: (run, reply) => this.messaging.runEnded(run, reply),
+      notifyAsk: (run, reply) => this.messaging.runAsked(run, reply),
       workspaceId: () => options.workspaceId?.() ?? null,
       linkKey: options.linkKey ?? (() => undefined),
       wake: () => {
