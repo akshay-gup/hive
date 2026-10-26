@@ -10,6 +10,7 @@ import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { emailDraftSchema, proposalSchema } from "../../../packages/domain/src/index.ts";
 import { ActionService } from "./actions.ts";
 import { makeRuntime } from "./agent.ts";
+import { AgentWatch } from "./agent-watch/watch.ts";
 import { createAuth } from "./auth.ts";
 import { BrowserService } from "./browser.ts";
 import { channelGate } from "./channel-gate.ts";
@@ -344,7 +345,15 @@ export async function createApp(
     .removeBelow(SHARED_OWNER, "live-chat-runs", "startedAt", Number.MAX_SAFE_INTEGER)
     .catch(() => 0)
     .then(publishRuns);
+  // Marks what a run opens of the machine's own data, and tells the chat service when it is reachable.
+  const watch = new AgentWatch({
+    dataDir: config.dataDir,
+    env: process.env,
+    send: (frame) => chatLink?.link.send(frame) ?? false,
+    log: (line) => console.log(line),
+  });
   const shimDeps = {
+    watch,
     service: agent,
     bus,
     pool,
@@ -394,7 +403,7 @@ export async function createApp(
   // Give OpenCode a moment to come up, then carry on any reply a restart cut off.
   setTimeout(() => void shim.resume().catch(() => undefined), 15_000).unref?.();
   app.route("/api/agent/opencode", opencodePermissionRoutes(shimDeps));
-  agent.opencodeRuntime = { bus, pool, tracker, config, hiveTools };
+  agent.opencodeRuntime = { bus, pool, tracker, config, hiveTools, watch };
   // Where the chat service starts the agent's runs: this machine connects out to it and does what it is given.
   const chatLink = config.chatRunner
     ? (() => {
@@ -403,7 +412,10 @@ export async function createApp(
           tokenUrl: config.chatRunner.tokenUrl,
           key: config.chatRunner.key,
           onFrame: (frame) => host.onFrame(frame),
-          onOpen: () => host.onOpen(),
+          onOpen: () => {
+            host.onOpen();
+            watch.flush();
+          },
           onClose: () => host.onClose(),
           fetcher: options.chatRunner?.fetcher,
           socket: options.chatRunner?.socket,

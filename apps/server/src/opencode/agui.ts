@@ -30,6 +30,7 @@ import {
   ORCHESTRATOR_CHANNEL_ID,
 } from "../../../../packages/domain/src/agent.ts";
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
+import type { AgentWatch } from "../agent-watch/watch.ts";
 import type { Config } from "../config.ts";
 import type { AgentService } from "../engine/service.ts";
 import { diskOwnerForChannel } from "../engine/threads.ts";
@@ -62,6 +63,8 @@ export interface OpencodeShimDeps {
   };
   /** What a conversation holds now. */
   loadMessages?: (owner: string, threadId: string) => Promise<unknown[]>;
+  /** Marks what a run opens of the machine's own data (see agent-watch/watch.ts). */
+  watch?: AgentWatch;
 }
 
 /**
@@ -897,7 +900,15 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       },
     });
     ctx.translator = translator;
-    ctx.unsubscribe = deps.bus.onEvent(input.threadId, (event) => translator.handle(event));
+    const watching = deps.watch?.forRun({
+      scope: chat ? "channel" : "own-chat",
+      ...(chat ? { runId: input.runId } : {}),
+      directory,
+    });
+    ctx.unsubscribe = deps.bus.onEvent(input.threadId, (event) => {
+      translator.handle(event);
+      watching?.(event);
+    });
 
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
 

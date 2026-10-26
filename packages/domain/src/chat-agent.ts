@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { watchFindingSchema } from "./agent-watch.ts";
 
 /**
  * How the agent and the chat service talk. The agent's reply to a mention is one message (`author_kind`
@@ -166,6 +167,8 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     error: text(500).optional(),
   }),
   z.object({ t: z.literal("beat"), runIds: z.array(text(100)).max(16) }),
+  /** The agent touched something of the machine's own (see agent-watch.ts); the service says who asked and where. */
+  z.object({ t: z.literal("agent.flag"), finding: watchFindingSchema }),
   /** The agent has a file to put in its reply: the room says where to send the bytes. */
   z.object({
     t: z.literal("file.begin"),

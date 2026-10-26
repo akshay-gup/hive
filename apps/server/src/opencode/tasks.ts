@@ -18,6 +18,7 @@
 import { mkdir } from "node:fs/promises";
 import type { AgentTask, TaskStep } from "../../../../packages/domain/src/agent.ts";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent.ts";
+import type { AgentWatch } from "../agent-watch/watch.ts";
 import type { Config } from "../config.ts";
 import { renderUpdate } from "../engine/brief.ts";
 import type { AgentService } from "../engine/service.ts";
@@ -38,6 +39,8 @@ export interface OpencodeTaskRuntime {
   tracker: PermissionTracker;
   config: Config;
   hiveTools?: HiveToolBridge;
+  /** Marks what a run opens of the machine's own data (see agent-watch/watch.ts). */
+  watch?: AgentWatch;
   /** How often a run looks for new notes, and how long it waits to confirm an idle session (tests shorten these). */
   steer?: { pollMs?: number; settleMs?: number };
 }
@@ -454,8 +457,10 @@ export async function runOpencodeTask(
     clearTimeout(settleTimer);
   };
 
+  const watching = runtime.watch?.forRun({ scope: "task", directory });
   const unsubscribe = runtime.bus.onEvent(scope, (event) => {
     runLog.handle(event);
+    watching?.(event);
     if (event.type === "permission.asked") {
       const props = event.properties as {
         id?: string;
