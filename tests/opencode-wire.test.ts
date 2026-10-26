@@ -229,3 +229,53 @@ test("a task whose session fails records why", async (t) => {
   assert.equal(failed.status, "failed");
   assert.match(String(failed.error), /No API key found for provider openai/);
 });
+
+test("a question the agent asks in a person's own chat is there for the app to show, and answering it lets the run on", async (t) => {
+  let waited: (() => boolean) | undefined;
+  const f = await wired(t, async ({ emit, say, sessionID }) => {
+    emit({
+      type: "question.asked",
+      properties: {
+        id: "que_1",
+        sessionID,
+        questions: [
+          {
+            header: "Who",
+            question: "Who is it for?",
+            options: [{ label: "A friend", description: "Someone you know" }],
+          },
+        ],
+      },
+    });
+    for (let i = 0; i < 400 && !waited?.(); i++) await new Promise((r) => setTimeout(r, 10));
+    say("Done.");
+  });
+  waited = () => f.opencode.answered.length > 0;
+  const { token } = await f.auth.session();
+  const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const running = f.chat("@hive help me draft a message");
+  let pending: { requestId: string }[] = [];
+  let status = 0;
+  for (let i = 0; i < 200 && !pending.length; i++) {
+    const response = await f.app.request(
+      "/api/agent/opencode/threads/wire-thread/questions/pending",
+      { headers: auth },
+    );
+    status = response.status;
+    if (response.status === 200) pending = (await response.json()) as typeof pending;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.equal(status, 200, "the app can ask what is pending");
+  assert.deepEqual(
+    pending.map((q) => q.requestId),
+    ["que_1"],
+  );
+  const reply = await f.app.request("/api/agent/opencode/questions/que_1/reply", {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({ answers: [["A friend"]] }),
+  });
+  assert.equal(reply.status, 200);
+  const { types } = await running;
+  assert.equal(types.at(-1), "RUN_FINISHED");
+});

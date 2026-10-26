@@ -959,8 +959,8 @@ export function ChatScreen({
             </Button>
           )}
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-            {(richThreads || selection.id !== "local") && <PendingApprovals threadId={threadId} />}
-            {(richThreads || selection.id !== "local") && <PendingQuestions threadId={threadId} />}
+            <PendingApprovals threadId={threadId} />
+            <PendingQuestions threadId={threadId} />
             <ErrorNotice error={saveError} />
             {!!saveError && (
               <Button
