@@ -140,6 +140,41 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
   const typed = email.trim().toLowerCase();
   const named = new Set(view?.people.map((person) => person.email));
 
+  // The question replaces the sheet while it is asked, so there is not one sheet on top of another.
+  if (deleting)
+    return (
+      <DeleteChannelSheet
+        id={channelId}
+        name={view?.name ?? name ?? channelId}
+        onClose={() => setDeleting(false)}
+        onArchiveInstead={() => {
+          setDeleting(false);
+          setArchiving(true);
+        }}
+        onDeleted={() => {
+          setDeleting(false);
+          // It is gone for everyone: move to somewhere that is still there.
+          close();
+          if (mainId) select({ id: mainId, existing: true });
+          else retry();
+        }}
+      />
+    );
+  if (archiving)
+    return (
+      <ArchiveChannelSheet
+        id={channelId}
+        name={view?.name ?? name ?? channelId}
+        onClose={() => setArchiving(false)}
+        onArchived={() => {
+          setArchiving(false);
+          // It has left everyone's list: move to somewhere that is still there.
+          close();
+          if (mainId) select({ id: mainId, existing: true });
+          else retry();
+        }}
+      />
+    );
   return (
     <Sheet
       title={view ? `# ${view.name}` : name ? `# ${name}` : "Channel"}
@@ -492,38 +527,6 @@ export function ChannelMembersSheet({ channelId, name }: { channelId: string; na
             </View>
           )}
         </View>
-      )}
-      {deleting && (
-        <DeleteChannelSheet
-          id={channelId}
-          name={view?.name ?? name ?? channelId}
-          onClose={() => setDeleting(false)}
-          onArchiveInstead={() => {
-            setDeleting(false);
-            setArchiving(true);
-          }}
-          onDeleted={() => {
-            setDeleting(false);
-            // It is gone for everyone: move to somewhere that is still there.
-            close();
-            if (mainId) select({ id: mainId, existing: true });
-            else retry();
-          }}
-        />
-      )}
-      {archiving && (
-        <ArchiveChannelSheet
-          id={channelId}
-          name={view?.name ?? name ?? channelId}
-          onClose={() => setArchiving(false)}
-          onArchived={() => {
-            setArchiving(false);
-            // It has left everyone's list: move to somewhere that is still there.
-            close();
-            if (mainId) select({ id: mainId, existing: true });
-            else retry();
-          }}
-        />
       )}
     </Sheet>
   );
