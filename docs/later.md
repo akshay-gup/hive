@@ -36,6 +36,8 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **The agent repeats a request it already did.** Asked in #general to add "Buy milk", then asked something else in the same channel, it added "Buy milk" again. Chat runs may need to know which earlier messages they have already answered.
 - **Board tools in chat runs can only create.** The agent can add to-dos but cannot list or read the board, so "what is on the board?" gets "I can't" (kept on purpose for now; the rules make a read call safe).
 - **A guest cannot create anything in General.** By the current rules, a guest sees no projects until invited to a channel; say so in the app instead of an empty screen.
+- **A deleted workspace's old chat token makes an empty room.** For up to an hour after a workspace is deleted, a token made before it still reaches the chat service, which starts a fresh, empty room with a default #general. It holds no old data, but the chat service should remember a deletion and refuse.
+- **Making a workspace shows its steps going backwards.** The check is done in rounds a minute apart (a Worker may make only 50 requests in one go), and each round starts from the first step, so the progress shown jumps back from "checking" to "machine".
 - **Pin or favourite projects.**
 - **A hint when no agent is connected.**
 - **Hide single tasks inside a project.**
