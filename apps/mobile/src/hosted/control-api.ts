@@ -118,7 +118,12 @@ export class ControlApi {
 
   /** Which ways in this control plane has: public, so the app can offer them before anyone signs in. */
   health() {
-    return this.call<{ ok: boolean; mode: "sample" | "live"; google: boolean }>("GET", "/health");
+    return this.call<{
+      ok: boolean;
+      mode: "sample" | "live";
+      google: boolean;
+      testSignIn?: boolean;
+    }>("GET", "/health");
   }
 
   // Signing in. The control plane gives a session once a person has proved who they are.
@@ -129,6 +134,16 @@ export class ControlApi {
       "POST",
       "/v1/auth/dev",
       { email, name: name || undefined },
+    );
+    this.token = session.token;
+    return session.account;
+  }
+  /** A testing way in, kept by a passphrase; refused unless the control plane has one. */
+  async signInForTest(email: string, key: string, name?: string) {
+    const session = await this.call<{ token: string; account: ControlAccount }>(
+      "POST",
+      "/v1/auth/test",
+      { email, key, name: name || undefined },
     );
     this.token = session.token;
     return session.account;

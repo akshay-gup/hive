@@ -164,7 +164,11 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
       try {
         const health = await control.health();
         if (!current) return;
-        setOptions({ google: health.google, email: health.mode === "sample" });
+        setOptions({
+          google: health.google,
+          email: health.mode === "sample",
+          test: Boolean(health.testSignIn),
+        });
         const saved = await storage.get(sessionKey);
         if (saved) {
           control.token = saved;
@@ -332,6 +336,23 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
     [control, enter],
   );
 
+  const signInForTest = useCallback(
+    async (email: string, key: string) => {
+      setBusy(true);
+      setError("");
+      try {
+        await control.signInForTest(email, key);
+        await enter();
+      } catch (e) {
+        setError(message(e));
+        setPhase({ name: "signed-out" });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [control, enter],
+  );
+
   const signOut = useCallback(async () => {
     try {
       await control.signOut();
@@ -444,6 +465,7 @@ export function HostedApp({ controlUrl }: { controlUrl: string }) {
             notice={notice}
             onGoogle={() => void signInWithGoogle()}
             onEmail={(email, name) => void signInByEmail(email, name)}
+            onTest={(email, key) => void signInForTest(email, key)}
           />
         );
       case "home":

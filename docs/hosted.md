@@ -317,6 +317,7 @@ The Worker answers with an error until the signing key is set. Add `<CONTROL_PUB
 | `CONTROL_MAX_WORKSPACES` | How many workspaces one person can be in, made or joined (default 3; the hosted site sets 1). A refused join does not use up the invitation. |
 | `CONTROL_CLIENT_IP_HEADER` | The header the host's proxy puts the visitor's address in (`Fly-Client-IP` on Fly). Sign-in limits count per visitor, and without it every visitor looks like the proxy. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | The OAuth client people sign in with. Required in live mode. |
+| `CONTROL_TEST_SIGN_IN_KEY` | Optional, at least 24 characters. Turns on a "Test sign-in" on the sign-in screen: an email address plus this passphrase signs in that account, so a tester can be invited and try a live Hive. It never signs in an account that has used Google. Leave it unset when not testing, and set it as a secret. |
 | `CONTROL_EDGE_TOKEN` | At least 32 characters. What the edge shows to ask where a workspace is (`GET /internal/upstream/:id`); the route does not exist without it. |
 | `PROVISIONER` | `fly`, `digitalocean` or `local`. |
 

@@ -11,6 +11,8 @@ export interface SignInOptions {
   google: boolean;
   /** A sample control plane, for a laptop, takes anyone's email address. */
   email: boolean;
+  /** A live control plane with a testing passphrase. */
+  test?: boolean;
 }
 
 export function SignInScreen({
@@ -21,6 +23,7 @@ export function SignInScreen({
   notice,
   onGoogle,
   onEmail,
+  onTest,
 }: {
   options: SignInOptions;
   /** What the invitation link the person arrived by is for, when they arrived by one. */
@@ -31,9 +34,12 @@ export function SignInScreen({
   notice?: string;
   onGoogle: () => void;
   onEmail: (email: string, name: string) => void;
+  onTest?: (email: string, key: string) => void;
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [key, setKey] = useState("");
   return (
     <Frame>
       <Mascot size={pageBee} />
@@ -107,7 +113,49 @@ export function SignInScreen({
                 </Text>
               </>
             )}
-            {!options.google && !options.email && (
+            {options.test && !options.email && onTest && (
+              <View style={{ marginTop: 15 }}>
+                {testing ? (
+                  <>
+                    <Field
+                      label="Email"
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="test@example.com"
+                      autoCapitalize="none"
+                      autoComplete="email"
+                      autoCorrect={false}
+                      keyboardType="email-address"
+                    />
+                    <Field
+                      label="Passphrase"
+                      value={key}
+                      onChangeText={setKey}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      secureTextEntry
+                      onSubmitEditing={() => email.trim() && key && onTest(email, key)}
+                    />
+                    <Button
+                      primary
+                      disabled={!email.trim() || !key}
+                      onPress={() => onTest(email, key)}
+                    >
+                      Test sign-in
+                    </Button>
+                  </>
+                ) : (
+                  <Text
+                    style={[s.small, { textAlign: "center", textDecorationLine: "underline" }]}
+                    accessibilityRole="button"
+                    onPress={() => setTesting(true)}
+                  >
+                    Test sign-in
+                  </Text>
+                )}
+              </View>
+            )}
+            {!options.google && !options.email && !options.test && (
               <Text style={s.muted}>Signing in is not set up on this Hive yet.</Text>
             )}
           </Card>

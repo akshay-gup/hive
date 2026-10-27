@@ -45,6 +45,11 @@ export interface ControlConfig {
    * there is no such route, and machines are told nothing.
    */
   releaseToken?: string;
+  /**
+   * A passphrase that signs in an account by its email address alone, for testing a live Hive as a
+   * person who has not signed in with Google. Without one there is no such route.
+   */
+  testSignInKey?: string;
   googleClientId?: string;
   googleClientSecret?: string;
   googleRedirectUri: string;
@@ -92,12 +97,15 @@ export function readControlConfig(env: Env = process.env): ControlConfig {
     clientIpHeader: env.CONTROL_CLIENT_IP_HEADER?.trim() || undefined,
     edgeToken: env.CONTROL_EDGE_TOKEN?.trim() || undefined,
     releaseToken: env.CONTROL_RELEASE_TOKEN?.trim() || undefined,
+    testSignInKey: env.CONTROL_TEST_SIGN_IN_KEY?.trim() || undefined,
     googleClientId: env.GOOGLE_CLIENT_ID?.trim() || undefined,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET?.trim() || undefined,
     googleRedirectUri: `${publicUrl}/v1/auth/google/callback`,
   };
   if (config.edgeToken && config.edgeToken.length < 32)
     throw new Error("CONTROL_EDGE_TOKEN must be at least 32 characters");
+  if (config.testSignInKey && config.testSignInKey.length < 24)
+    throw new Error("CONTROL_TEST_SIGN_IN_KEY must be at least 24 characters");
   if (config.releaseToken && config.releaseToken.length < 32)
     throw new Error("CONTROL_RELEASE_TOKEN must be at least 32 characters");
   if (mode === "sample" && !["127.0.0.1", "localhost", "::1"].includes(host))

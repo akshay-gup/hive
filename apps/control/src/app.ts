@@ -4,7 +4,7 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { z } from "zod";
-import { type Account, Accounts } from "./accounts.ts";
+import { type Account, Accounts, accountIdFor } from "./accounts.ts";
 import type { ControlConfig } from "./config.ts";
 import { HttpError } from "./errors.ts";
 import { type GatewaySettings, ModelGateway } from "./gateway.ts";
@@ -137,6 +137,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
       ok: true,
       mode: config.mode,
       google: Boolean(deps.google),
+      testSignIn: Boolean(config.testSignInKey),
       provisioner: deps.provisioner.name,
     }),
   );
@@ -286,6 +287,24 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
       .object({ email: z.string().max(320), name: z.string().max(100).optional() })
       .parse(await c.req.json());
     return c.json(await sessionFor(await accounts.upsert(body)));
+  });
+  // A way in for testing, kept by a passphrase: an email address and the passphrase are enough. It
+  // never signs in an account that has been through Google, so it cannot be used to become a person.
+  app.post("/v1/auth/test", async (c) => {
+    if (!config.testSignInKey) throw new HttpError("Sign in with Google", 404);
+    await limitSignIns(c);
+    const body = z
+      .object({
+        email: z.string().max(320),
+        name: z.string().max(100).optional(),
+        key: z.string().max(200),
+      })
+      .parse(await c.req.json());
+    if (!sameSecret(body.key, config.testSignInKey))
+      throw new HttpError("That passphrase is not right", 401);
+    const taken = await accounts.get(accountIdFor(body.email.trim().toLowerCase()));
+    if (taken?.googleSub) throw new HttpError("That account signs in with Google", 403);
+    return c.json(await sessionFor(await accounts.upsert({ email: body.email, name: body.name })));
   });
   app.post("/v1/auth/exchange", async (c) => {
     await limitSignIns(c);

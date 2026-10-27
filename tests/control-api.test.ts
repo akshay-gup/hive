@@ -158,6 +158,7 @@ test("a web page from another origin is refused, and the app's own is allowed", 
     ok: true,
     mode: "sample",
     google: false,
+    testSignIn: false,
     provisioner: "fake",
   });
 });
