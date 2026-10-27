@@ -18,6 +18,16 @@ test("what the channel screens ask the workspace server is asked of the chat ser
     ["/api/agent/dms/people", "/v1/dms/people"],
     ["/api/agent/notification-prefs", "/v1/notification-prefs"],
     ["/chat/v1/channels/design/messages?limit=3", "/v1/channels/design/messages?limit=3"],
+    // The board is the chat service's.
+    ["/api/agent/tasks", "/v1/tasks"],
+    ["/api/agent/tasks/t1", "/v1/tasks/t1"],
+    ["/api/agent/tasks/t1/notes", "/v1/tasks/t1/notes"],
+    ["/api/agent/tasks/t1/notes/n1", "/v1/tasks/t1/notes/n1"],
+    ["/api/agent/tasks/t1/control", "/v1/tasks/t1/control"],
+    ["/api/agent/tasks/t1/input", "/v1/tasks/t1/input"],
+    ["/api/agent/projects", "/v1/projects"],
+    ["/api/agent/projects/people", "/v1/projects/people"],
+    ["/api/agent/projects/p1", "/v1/projects/p1"],
   ];
   for (const [from, to] of pairs) assert.equal(chatPathOf(from), to, from);
 });
@@ -30,7 +40,6 @@ test("what belongs to the agent stays with the workspace server", () => {
     "/api/agent/channels/design/files/info?path=a",
     "/api/agent/channels/design/uploads/req1",
     "/api/agent/threads/t1/channel",
-    "/api/agent/tasks",
     "/api/agent",
     "/api/conversation?threadId=channel:design",
     "/api/agent/notifications",

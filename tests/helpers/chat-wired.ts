@@ -57,6 +57,8 @@ export async function wired(t: TestContext, behave: (turn: FakeTurn) => void | P
 
   // The socket between them.
   const asked: string[] = [];
+  /** The bytes of files the bucket would hold, by file id (the test puts them here). */
+  const stored = new Map<string, Uint8Array>();
   const socket = (_url: string, protocols: string[]): SocketLike => {
     assert.equal(protocols[0], "hive.runner.v1");
     const sock: SocketLike = {
@@ -84,6 +86,12 @@ export async function wired(t: TestContext, behave: (turn: FakeTurn) => void | P
       const bytes = (init.body as Uint8Array).length;
       core.filing.uploaded(decodeURIComponent(upload[1] ?? ""), "file", bytes);
       return Response.json({ ok: true, bytes });
+    }
+    // The Worker's side of fetching one: the bytes the test put there.
+    const download = /^https:\/\/chat\.test\/w\/w1\/f\/dl\/([^/?]+)\?/.exec(String(url));
+    if (download) {
+      const bytes = stored.get(decodeURIComponent(download[1] ?? ""));
+      return bytes ? new Response(bytes as BodyInit) : new Response("gone", { status: 404 });
     }
     asked.push(String(url));
     return Response.json({
@@ -197,5 +205,6 @@ export async function wired(t: TestContext, behave: (turn: FakeTurn) => void | P
     until,
     finished,
     asked,
+    stored,
   };
 }

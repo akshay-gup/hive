@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTask, TaskNote } from "./agent.ts";
+import type { AgentTask, TaskAttachment, TaskNote } from "./agent.ts";
 import { WATCH_STOP_TEXT, type WatchMode, watchFindingSchema } from "./agent-watch.ts";
 
 /**
@@ -261,6 +261,8 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     /** The same call said again (a retry) does not do it twice. */
     key: text(200).optional(),
   }),
+  /** The machine has done what a finished task calls for (`task.outcome`). */
+  z.object({ t: z.literal("task.outcome.done"), taskId: text(100), at: text(100) }),
   /** The answer to something the room asked (`work.ask`). */
   z.object({
     t: z.literal("work.answer"),
@@ -320,6 +322,8 @@ export type RoomFrame =
   | { t: "task.start"; start: TaskStart }
   /** People added notes to a task the machine is working on: the agent is told of them. */
   | { t: "task.note"; taskId: string; leaseId: string; notes: TaskNote[] }
+  /** People attached files to a task the machine is working on (each with an address to fetch it from). */
+  | { t: "task.files"; taskId: string; leaseId: string; files: TaskAttachment[] }
   /** The task is no longer the machine's to work on (paused, cancelled, or the lease was lost): let go of it. */
   | { t: "task.stop"; taskId: string; leaseId: string }
   /** The room has the end of the task. */
@@ -343,6 +347,11 @@ export type RoomFrame =
   | { t: "file.upload"; reqId: string; fileId: string; path: string }
   | { t: "file.attached"; reqId: string }
   | { t: "file.refused"; reqId: string; error: string }
+  /**
+   * A person finished a task (marked it done): what that sets going on the machine (the goal it counts toward,
+   * the notice) is done there. Said again, at each connection, until the machine says it is done.
+   */
+  | { t: "task.outcome"; task: AgentTask }
   /** What a `work.call` came to: the board's answer, or why not. */
   | { t: "work.result"; reqId: string; ok: true; body: unknown }
   | { t: "work.result"; reqId: string; ok: false; error: string; status: number }

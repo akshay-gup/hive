@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 import { people, wired } from "./helpers/chat-wired.ts";
 
@@ -110,4 +112,99 @@ test("what only the machine keeps of a task is asked for through the room, for a
   });
   const refused = await f.call("mia", "GET", `/v1/tasks/${hidden.id}/run`);
   assert.equal(refused.status, 404);
+});
+
+test("when a person marks a task done, the goal it counts toward is told on the machine", async (t) => {
+  const f = await wired(t, ({ say }) => say("ok"));
+  const goal = await f.server.agent.createGoal(people.max.id, {
+    title: "Launch",
+    description: "Ship it",
+    category: "work",
+    milestones: [],
+  });
+  const made = await f.core.work.createTask(people.max.id, {
+    kind: "manual",
+    title: "Write the post",
+    goalId: goal.id,
+    input: {},
+  });
+  await f.core.work.updateTask(people.max.id, made.id, { status: "succeeded" });
+  await f.until("the goal to count it", async () => {
+    const current = await f.db.get<{ milestones: { id: string; done: boolean }[] }>(
+      people.max.id,
+      "goals",
+      goal.id,
+    );
+    return Boolean(current?.milestones.some((m) => m.id === made.id && m.done));
+  });
+  // Said once it is done: the room does not keep telling.
+  await f.until(
+    "the room to stop telling",
+    async () => (await f.core.store.list("system", "outcomes")).length === 0,
+  );
+});
+
+test("a file attached to a task is kept by the room, reaches the agent while it works, and is gone from the machine after", async (t) => {
+  const prompts: string[] = [];
+  const f = await wired(t, (turn) => {
+    prompts.push(turn.text);
+    turn.say("Read it.\nTASK_COMPLETE: summarised");
+  });
+  const made = await f.core.work.createTask(people.max.id, {
+    kind: "manual",
+    title: "Summarise the brief",
+    prompt: "Summarise the attached brief",
+    input: {},
+  });
+  // The person asks to attach, sends the bytes to the address given, and puts the file on the task.
+  const bytes = new TextEncoder().encode("# Brief\n\nLaunch in May.\n");
+  const begun = await f.call("max", "POST", `/v1/tasks/${made.id}/attachments/begin`, {
+    name: "brief.md",
+    bytes: bytes.length,
+  });
+  assert.equal(begun.status, 201);
+  const { fileId } = (await begun.json()) as { fileId: string };
+  f.stored.set(fileId, bytes);
+  f.core.filing.uploaded(fileId, "file", bytes.length);
+  const attached = await f.call("max", "POST", `/v1/tasks/${made.id}/attachments`, { fileId });
+  assert.equal(attached.status, 201);
+  const shown = (await attached.json()) as { attachments: { name: string; url?: string }[] };
+  assert.equal(shown.attachments[0]?.name, "brief.md");
+  assert.match(shown.attachments[0]?.url ?? "", /^\/f\/dl\//);
+  // Someone who may not see the task cannot put a file on it.
+  const secret = await f.core.work.createProject(people.max.id, {
+    name: "Reorg",
+    access: "private",
+  });
+  const hidden = await f.core.work.createTask(people.max.id, {
+    kind: "manual",
+    title: "Quiet",
+    projectId: secret.id,
+    input: {},
+  });
+  const refused = await f.call("mia", "POST", `/v1/tasks/${hidden.id}/attachments/begin`, {
+    name: "x.md",
+    bytes: 3,
+  });
+  assert.equal(refused.status, 404);
+  // Handing the task to the agent: the file is fetched for the run and the agent is told where it is.
+  const handed = await f.call("max", "PATCH", `/v1/tasks/${made.id}`, { assignee: "agent" });
+  assert.equal(handed.status, 200);
+  await f.until("the task to come back", () => f.core.tasks.get(made.id)?.status === "in_review");
+  assert.match(prompts[0] ?? "", /brief\.md/);
+  await f.until(
+    "the machine to let go of its files",
+    async () => (await f.db.scan("tasks")).length === 0,
+  );
+  assert.equal(
+    await readdir(join(f.dataDir, "task-files", made.id)).then(
+      (names) => names.length,
+      () => 0,
+    ),
+    0,
+  );
+  // Taking it off the task is the person who attached it.
+  const gone = await f.call("max", "DELETE", `/v1/tasks/${made.id}/attachments/${fileId}`);
+  assert.equal(gone.status, 200);
+  assert.equal(f.core.files.get(fileId), null);
 });

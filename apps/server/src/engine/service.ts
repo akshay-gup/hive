@@ -2414,8 +2414,11 @@ export class AgentService {
         : { plan: task.plan.map((s) => ({ ...s, status: "succeeded" as const })) }),
     };
   }
-  private async publishOutcome(owner: string, saved: AgentTask) {
-    const task = await this.getTask(owner, saved.id);
+  /** A person finished a task in the chat service: what that sets going here is done. */
+  async outcome(task: AgentTask) {
+    await this.publishOutcome(task.createdBy ?? SHARED_OWNER, task);
+  }
+  private async publishOutcome(owner: string, task: AgentTask) {
     if (task.status === "succeeded") {
       await this.notify(
         owner,

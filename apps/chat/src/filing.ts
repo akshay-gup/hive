@@ -12,6 +12,10 @@ import { type LinkKind, signedPath, type Variant } from "./uploads.ts";
 /** How long the address to send a file to, or to fetch it from, lasts. */
 const UPLOAD_MS = 15 * 60_000;
 const DOWNLOAD_MS = 5 * 60_000;
+/** A task's file link, as shown in a task: the screen is told again when the task changes. */
+const TASK_LINK_MS = 30 * 60_000;
+/** The container a task's files are kept in (a file's "channel"). */
+export const TASK_FILES = "task:";
 
 export const beginUploadSchema = z.object({
   channelId: z.string().min(1).max(200),
@@ -48,6 +52,8 @@ export class Filing {
       workQueued: () => void;
       /** Said when a file leaves a message that is still there, so screens update it. */
       fileGone: (file: FileRow) => void;
+      /** Throws unless the person may see the task (its files are theirs to open). */
+      taskVisible?: (owner: string, taskId: string) => Promise<void>;
     },
   ) {}
 
@@ -55,6 +61,13 @@ export class Filing {
     owner: string,
     channelId: string,
   ): Promise<{ channel: Channel; person: Person }> {
+    // A task's files are kept as a container of their own, open to whoever may see the task.
+    if (channelId.startsWith(TASK_FILES)) {
+      const person = await this.deps.access.person(owner);
+      if (!person?.email || !this.deps.taskVisible) throw new AppError("File not found", 404);
+      await this.deps.taskVisible(owner, channelId.slice(TASK_FILES.length));
+      return { channel: { id: channelId, status: "active" } as Channel, person };
+    }
     await this.deps.access.assertChannel(owner, channelId);
     const channel = await this.deps.store.get<Channel>(SHARED_OWNER, "channels", channelId);
     const person = await this.deps.access.person(owner);
@@ -86,12 +99,40 @@ export class Filing {
   /** A person is going to send a file to a channel: room is set aside, and they are given where to send it. */
   async begin(owner: string, workspaceId: string, raw: unknown) {
     const input = beginUploadSchema.parse(raw);
+    // A task's files are sent through the task, which holds them to its own limits.
+    if (input.channelId.startsWith(TASK_FILES)) throw new AppError("Channel not found", 404);
     const { channel, person } = await this.open(owner, input.channelId);
     if (channel.status === "archived") throw new AppError("This channel is archived", 409);
     if (!isIn(person, channel)) throw new AppError("Join the channel to take part in it", 403);
+    return this.reserve(owner, workspaceId, input);
+  }
+
+  /** A person is going to send a file to a task: the task's rules were checked, and room is set aside. */
+  async beginTaskFile(
+    owner: string,
+    workspaceId: string,
+    taskId: string,
+    input: { name: string; mime: string; bytes: number },
+  ) {
+    return this.reserve(owner, workspaceId, { ...input, channelId: `${TASK_FILES}${taskId}` });
+  }
+
+  private reserve(
+    owner: string,
+    workspaceId: string,
+    input: {
+      channelId: string;
+      name: string;
+      mime: string;
+      bytes: number;
+      thumbBytes?: number;
+      width?: number;
+      height?: number;
+    },
+  ) {
     this.key();
     const file = this.deps.files.reserve({
-      channelId: channel.id,
+      channelId: input.channelId,
       uploaderId: owner,
       name: input.name,
       mime: input.mime,
@@ -114,6 +155,13 @@ export class Filing {
     };
   }
 
+  /** An address to fetch a task's file from, below the workspace; the caller has checked who may. */
+  taskFileLink(workspaceId: string, fileId: string, ms = TASK_LINK_MS): string | null {
+    const file = this.deps.files.get(fileId);
+    if (!file || file.state !== "ready" || !this.deps.linkKey()) return null;
+    return this.path(workspaceId, "dl", file, "file", ms).path;
+  }
+
   /** An address to fetch a file from, for someone who may open its channel. */
   async link(owner: string, workspaceId: string, fileId: string, variant: Variant) {
     const file = this.deps.files.get(fileId);
@@ -132,6 +180,8 @@ export class Filing {
   async remove(owner: string, fileId: string): Promise<{ ok: true }> {
     const file = this.deps.files.get(fileId);
     if (!file) throw new AppError("File not found", 404);
+    if (file.channelId.startsWith(TASK_FILES))
+      throw new AppError("Take it off the task instead", 403);
     const { channel, person } = await this.open(owner, file.channelId);
     if (channel.status === "archived") throw new AppError("This channel is archived", 409);
     if (file.uploaderId !== owner && !managesChannel(person, channel))

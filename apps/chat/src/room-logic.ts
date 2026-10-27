@@ -125,6 +125,10 @@ export class RoomLogic {
     const running = await this.core.agent.maintain();
     // Soon again while an upload is waiting out its time, otherwise once a day.
     if (running) return { nextInMs: 30_000 };
+    // A scheduled task is looked at when it is due.
+    const due = this.core.tasks.nextScheduledMs();
+    if (due !== null)
+      return { nextInMs: Math.min(24 * 3600_000, Math.max(1_000, due - Date.now())) };
     return { nextInMs: files.hasWork() ? 60_000 : 24 * 3600_000 };
   }
 

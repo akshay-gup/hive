@@ -1,12 +1,14 @@
 import {
   type AgentTask,
   addNoteSchema,
+  attachmentTypes,
   createProjectSchema,
   createTaskSchema,
   deleteProjectSchema,
   GENERAL_PROJECT_ID,
   ORCHESTRATOR_CHANNEL_ID,
   type Project,
+  type TaskAttachment,
   type TaskNote,
   type TaskStatus,
   taskBriefLimits,
@@ -23,7 +25,20 @@ import {
   projectFor,
 } from "./access.ts";
 import { AppError } from "./errors.ts";
+import type { FileRow } from "./files.ts";
 import type { Projects, Tasks } from "./work.ts";
+
+/** The name a task's file is shown by: no folders, no control characters, a bounded length. */
+function attachmentName(raw: string): string {
+  const base = Array.from(raw.split(/[\\/]/).at(-1) ?? "")
+    .filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127)
+    .join("")
+    .trim();
+  const dot = base.lastIndexOf(".");
+  const extension = dot > 0 ? base.slice(dot) : "";
+  const stem = base.slice(0, base.length - extension.length).replace(/^\.+/, "");
+  return `${stem.slice(0, 100).trim() || "file"}${extension}`;
+}
 
 /** A task is done with, until a person sends it back. */
 const TERMINAL: ReadonlySet<TaskStatus> = new Set(["succeeded", "failed", "cancelled"]);
@@ -66,8 +81,18 @@ export interface WorkDeps {
   projectChanged?: (project: Project, removed?: boolean) => void;
   /** Whether a channel exists in this workspace, and the person may open it. */
   channel?: (id: string) => Promise<{ id: string } | null>;
+  /** The files of tasks, kept with the room's other files (see apps/chat/src/filing.ts). */
+  files?: {
+    get(id: string): FileRow | null;
+    remove(id: string): FileRow | null;
+    removeOfChannel(channelId: string): number;
+  };
+  /** A signed address, below the workspace, to fetch a task's file from; null if it cannot be made. */
+  fileLink?: (fileId: string) => string | null;
+  /** Files were let go of: the bucket has things to delete. */
+  filesGone?: () => void;
   /** Recent talk in a channel, for a task handed to the agent. */
-  discussion?: (channelId: string) => { name: string; lines: string } | null;
+  discussion?: (channelId: string) => Promise<{ name: string; lines: string } | null>;
   newId?: () => string;
 }
 
@@ -279,6 +304,23 @@ export class Work {
     return this.present(owner, visible);
   }
 
+  /** An address, below the workspace, to fetch one of a task's files from. */
+  fileLink(fileId: string): string | null {
+    return this.deps.fileLink?.(fileId) ?? null;
+  }
+
+  /** The task with an address to fetch each of its files from, good for a while. */
+  withLinks(task: AgentTask): AgentTask {
+    if (!task.attachments?.length) return task;
+    return {
+      ...task,
+      attachments: task.attachments.map((file) => {
+        const url = this.deps.fileLink?.(file.id);
+        return url ? { ...file, url } : file;
+      }),
+    };
+  }
+
   /** Tasks as a client sees them: who asked and who wrote each note, by name. The names are never stored. */
   async present(owner: string, tasks: AgentTask[]): Promise<AgentTask[]> {
     const known = await this.deps.access.byId();
@@ -286,9 +328,16 @@ export class Work {
       const who = id ? known.get(id) : undefined;
       return who ? who.name || who.email : undefined;
     };
-    return tasks.map((task) => ({
+    return tasks.map(this.withLinks.bind(this)).map((task) => ({
       ...task,
       ...(task.createdBy ? { createdByName: nameOf(task.createdBy) } : {}),
+      ...(task.attachments && {
+        attachments: task.attachments.map((file) => ({
+          ...file,
+          addedByName: nameOf(file.addedBy),
+          mine: file.addedBy === owner,
+        })),
+      }),
       ...(task.notes && {
         notes: task.notes.map((note) => ({
           ...note,
@@ -320,6 +369,7 @@ export class Work {
 
   private removeTask(task: AgentTask) {
     this.deps.tasks.remove(task.id);
+    if (this.deps.files?.removeOfChannel(`task:${task.id}`)) this.deps.filesGone?.();
     this.deps.changed?.({ task, before: task, removed: true });
     // Nothing waits on a task that is gone.
     for (const other of this.deps.tasks.all())
@@ -416,13 +466,13 @@ export class Work {
    * stays as written. Each run's brief is built from it, the notes and files on the task, and (unless the
    * person declines) a snapshot of the channel discussion taken now.
    */
-  private assignToAgent(task: AgentTask, patch: Partial<AgentTask>, channelContext: boolean) {
+  private async assignToAgent(task: AgentTask, patch: Partial<AgentTask>, channelContext: boolean) {
     if (task.kind !== "manual")
       throw new AppError("Only manual issues can be assigned to the agent", 422);
     const channelId = task.channelId;
     const context =
       channelContext && channelId && channelId !== ORCHESTRATOR_CHANNEL_ID
-        ? (this.deps.discussion?.(channelId) ?? null)
+        ? ((await this.deps.discussion?.(channelId)) ?? null)
         : null;
     const { discussion: _earlier, ...input } = task.input ?? {};
     patch.kind = "agent";
@@ -490,7 +540,8 @@ export class Work {
     if (input.assignee !== undefined && input.assignee !== (task.assignee ?? null)) {
       if (input.status !== undefined || input.prompt !== undefined)
         throw new AppError("Cannot change assignee together with status or prompt", 422);
-      if (input.assignee === "agent") this.assignToAgent(task, patch, input.channelContext ?? true);
+      if (input.assignee === "agent")
+        await this.assignToAgent(task, patch, input.channelContext ?? true);
       else this.unassignFromAgent(task, patch);
     }
     if (input.title !== undefined) patch.title = input.title;
@@ -617,6 +668,41 @@ export class Work {
     });
   }
 
+  /** A person marks finished work done. The agent can never do this: whether it is good enough is theirs to say. */
+  async accept(owner: string, id: string): Promise<AgentTask> {
+    const task = await this.getTask(owner, id, true);
+    await this.refuseGuestIfGuest(owner);
+    if (task.status !== "in_review")
+      throw new AppError("Only work that is ready for review can be marked done", 409);
+    const saved = this.change(task, { status: "succeeded", error: null as unknown as undefined });
+    return (await this.present(owner, [saved]))[0] as AgentTask;
+  }
+
+  /** Move a task to another channel (the agent there takes it up); it stays with whoever it was waiting for. */
+  async delegate(owner: string, id: string, target: string, reason?: string): Promise<AgentTask> {
+    const task = await this.getTask(owner, id, true);
+    await this.refuseGuestIfGuest(owner);
+    if (task.status === "running" && task.leaseId)
+      throw new AppError("Task is running; checkpoint it to waiting before delegating", 409);
+    if (target !== ORCHESTRATOR_CHANNEL_ID) {
+      const channel = await this.deps.channel?.(target);
+      if (!channel || !(await this.deps.access.scope(owner)).allows(target))
+        throw new AppError("Target channel not found", 404);
+    }
+    const saved = this.change(task, {
+      originChannelId: task.originChannelId ?? task.channelId ?? ORCHESTRATOR_CHANNEL_ID,
+      channelId: target,
+      delegatedTo: target,
+      delegationReason: reason?.slice(0, 500),
+      // Paused work stays paused, and work waiting for review stays that way: moving it to another
+      // channel must not send it back to the agent.
+      status: task.status === "paused" || task.status === "in_review" ? task.status : "queued",
+      leaseId: null,
+      leaseUntil: null,
+    });
+    return (await this.present(owner, [saved]))[0] as AgentTask;
+  }
+
   // Notes
 
   private newNote(owner: string, text: string, kind: TaskNote["kind"]): TaskNote {
@@ -690,6 +776,101 @@ export class Work {
           leaseUntil: null,
         }))
       : this.change(task, (current) => ({ notes: withNote(current) }), false);
+    return (await this.present(owner, [saved]))[0] as AgentTask;
+  }
+
+  // Files
+
+  /** Whether a file may be attached to the task, and what it is called and typed as. */
+  async beginAttachment(
+    owner: string,
+    id: string,
+    raw: { name?: unknown; bytes?: unknown },
+  ): Promise<{ name: string; mime: string; bytes: number }> {
+    const task = await this.getTask(owner, id, true);
+    await this.refuseGuestIfGuest(owner);
+    const name = attachmentName(String(raw.name ?? ""));
+    const dot = name.lastIndexOf(".");
+    const mime = attachmentTypes[dot < 0 ? "" : name.slice(dot).toLowerCase()];
+    if (!mime)
+      throw new AppError(
+        `Attach a PDF, an image, or a text, Markdown, CSV or JSON file (${Object.keys(attachmentTypes).join(", ")})`,
+        422,
+      );
+    const bytes = Number(raw.bytes);
+    if (!Number.isInteger(bytes) || bytes <= 0) throw new AppError("That file is empty", 422);
+    if (bytes > taskBriefLimits.attachmentBytes)
+      throw new AppError(
+        `Files must be ${taskBriefLimits.attachmentBytes / (1024 * 1024)} MB or smaller`,
+        413,
+      );
+    this.checkRoom(task, bytes);
+    return { name, mime, bytes };
+  }
+
+  private checkRoom(task: AgentTask, more: number) {
+    const held = task.attachments ?? [];
+    if (held.length >= taskBriefLimits.attachments)
+      throw new AppError(
+        `A task can carry ${taskBriefLimits.attachments} files. Remove one first.`,
+        409,
+      );
+    if (
+      held.reduce((total, file) => total + file.size, 0) + more >
+      taskBriefLimits.attachmentTotalBytes
+    )
+      throw new AppError(
+        `The files on a task can total ${taskBriefLimits.attachmentTotalBytes / (1024 * 1024)} MB. Remove one first.`,
+        413,
+      );
+  }
+
+  /** The file has been sent: put it on the task. */
+  async addAttachment(owner: string, id: string, fileId: string): Promise<AgentTask> {
+    const task = await this.getTask(owner, id, true);
+    await this.refuseGuestIfGuest(owner);
+    const file = this.deps.files?.get(fileId);
+    if (
+      !file ||
+      file.state !== "ready" ||
+      file.channelId !== `task:${id}` ||
+      file.uploaderId !== owner
+    )
+      throw new AppError("That file cannot be attached", 422);
+    if (task.attachments?.some((a) => a.id === fileId)) return task;
+    this.checkRoom(task, file.bytes);
+    const dot = file.name.lastIndexOf(".");
+    const attachment: TaskAttachment = {
+      id: file.id,
+      name: file.name,
+      mimeType: attachmentTypes[dot < 0 ? "" : file.name.slice(dot).toLowerCase()] ?? file.mime,
+      size: file.bytes,
+      addedAt: this.now(),
+      addedBy: owner,
+    };
+    const saved = this.change(
+      task,
+      (current) => ({ attachments: [...(current.attachments ?? []), attachment] }),
+      false,
+    );
+    return (await this.present(owner, [saved]))[0] as AgentTask;
+  }
+
+  /** Take a file off a task. Only the person who attached it can. */
+  async removeAttachment(owner: string, id: string, fileId: string): Promise<AgentTask> {
+    const task = await this.getTask(owner, id, true);
+    await this.refuseGuestIfGuest(owner);
+    const attachment = task.attachments?.find((a) => a.id === fileId);
+    if (!attachment) throw new AppError("File not found", 404);
+    if (attachment.addedBy !== owner)
+      throw new AppError("Only the person who attached a file can remove it", 403);
+    const saved = this.change(
+      task,
+      (current) => ({ attachments: (current.attachments ?? []).filter((a) => a.id !== fileId) }),
+      false,
+    );
+    this.deps.files?.remove(fileId);
+    this.deps.filesGone?.();
     return (await this.present(owner, [saved]))[0] as AgentTask;
   }
 

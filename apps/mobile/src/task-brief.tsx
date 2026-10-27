@@ -1,5 +1,4 @@
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
 import { FileText, Image as ImageIcon, Paperclip } from "lucide-react-native";
 import { useState } from "react";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
@@ -12,6 +11,7 @@ import {
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import type { MuseApi } from "./api";
+import { put } from "./chat-upload";
 import { fileSize } from "./file-format";
 import { ago } from "./task-board";
 import { Button, Chip, colors, ErrorNotice, Field, radius, s } from "./ui";
@@ -42,24 +42,19 @@ export async function attachFile(api: MuseApi, taskId: string): Promise<boolean>
   const file = result.assets[0];
   if (file.size !== undefined && file.size > taskBriefLimits.attachmentBytes)
     throw new Error(`Files must be ${megabytes(taskBriefLimits.attachmentBytes)} MB or smaller.`);
-  const path = `/api/agent/tasks/${taskId}/attachments`;
-  if (Platform.OS === "web") {
-    if (!file.file) throw new Error("The selected file could not be read. Please choose it again.");
-    const form = new FormData();
-    form.append("file", file.file, file.name);
-    await api.request(path, form);
-  } else {
-    const upload = await FileSystem.uploadAsync(api.url(path), file.uri, {
-      httpMethod: "POST",
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-      fieldName: "file",
-      mimeType: file.mimeType ?? "application/octet-stream",
-      headers: { Authorization: `Bearer ${api.token}` },
-    });
-    const payload = JSON.parse(upload.body);
-    if (upload.status < 200 || upload.status >= 300)
-      throw new Error(payload.error || "Could not attach this file.");
-  }
+  const size = file.size ?? file.file?.size ?? 0;
+  if (!size) throw new Error("The selected file could not be read. Please choose it again.");
+  if (Platform.OS === "web" && !file.file)
+    throw new Error("The selected file could not be read. Please choose it again.");
+  // The chat service keeps the task's files: ask it for room, send the bytes to where it says, and put the
+  // file on the task.
+  const mime = file.mimeType ?? file.file?.type ?? "application/octet-stream";
+  const begun = await api.request<{ fileId: string; upload: string }>(
+    `/chat/v1/tasks/${taskId}/attachments/begin`,
+    { name: file.name, bytes: size },
+  );
+  await put(api, begun.upload, { size, mime, blob: file.file, uri: file.uri }, file.name);
+  await api.request(`/chat/v1/tasks/${taskId}/attachments`, { fileId: begun.fileId });
   return true;
 }
 
@@ -125,6 +120,7 @@ function NoteRow({
 }
 
 function FileRow({ file, onRemove }: { file: TaskAttachment; onRemove?: () => void }) {
+  const { api } = useWorkspace();
   const Icon = file.mimeType.startsWith("image/") ? ImageIcon : FileText;
   return (
     <View
@@ -145,7 +141,7 @@ function FileRow({ file, onRemove }: { file: TaskAttachment; onRemove?: () => vo
         accessibilityRole="link"
         accessibilityLabel={`Open ${file.name}`}
         disabled={!file.url}
-        onPress={() => file.url && void Linking.openURL(file.url)}
+        onPress={() => file.url && void Linking.openURL(api.chatUrl(file.url))}
         style={{ flex: 1, minWidth: 0 }}
       >
         <Text style={[s.text, { color: colors.primaryText }]} numberOfLines={1}>

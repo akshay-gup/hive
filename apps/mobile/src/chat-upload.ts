@@ -14,7 +14,7 @@ interface Begun {
 }
 
 /** One thing to send: on the web its bytes, on a phone the place they are kept. */
-interface Part {
+export interface Part {
   size: number;
   mime: string;
   blob?: Blob;
@@ -123,7 +123,7 @@ async function failure(response: Response, fallback: string): Promise<Error> {
 }
 
 /** Send one part to the address the service gave for it. */
-async function put(api: MuseApi, address: string, part: Part, name: string): Promise<void> {
+export async function put(api: MuseApi, address: string, part: Part, name: string): Promise<void> {
   const url = api.chatUrl(address);
   if (part.blob) {
     const sent = await fetch(url, {

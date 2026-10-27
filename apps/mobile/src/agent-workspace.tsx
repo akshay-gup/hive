@@ -13,6 +13,7 @@ import type {
   AgentTask,
   AgentWorkspace,
   CreateTaskInput,
+  Project,
 } from "../../../packages/domain/src/agent";
 import type { ChatNotice } from "../../../packages/domain/src/chat";
 import { useChat } from "./chat-context";
@@ -30,6 +31,20 @@ const asNotification = (notice: ChatNotice): AgentNotification => ({
   read: notice.read,
 });
 
+/** What the machine tells of the agent while the board, which the chat service keeps, comes separately. */
+type Machine = Omit<AgentWorkspace, "tasks" | "projects">;
+/** What there is to show of the agent before the machine has answered, or while it is asleep. */
+const NO_MACHINE: Machine = {
+  goals: [],
+  monitors: [],
+  ideas: [],
+  memories: [],
+  artifacts: [],
+  notifications: [],
+  identity: { name: "Hive", tone: "warm" },
+  worker: { running: false },
+};
+
 interface AgentContextValue {
   data?: AgentWorkspace;
   error: string;
@@ -46,11 +61,21 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
   const chat = useChat();
   // Which of the notices are the chat service's, since they are changed there.
   const chatNotices = useRef(new Set<string>());
+  // The last the machine said, shown while it is asleep.
+  const machine = useRef<Machine>(NO_MACHINE);
   const refresh = useCallback(async () => {
     const version = ++requestVersion.current;
     try {
-      const [next, notices] = await Promise.all([
-        api.request<AgentWorkspace>("/api/agent"),
+      const [board, rest, notices] = await Promise.all([
+        // The board is the chat service's, so it is there while the machine sleeps.
+        api.request<{ tasks: AgentTask[]; projects: Project[] }>("/chat/v1/work"),
+        api
+          .request<AgentWorkspace>("/api/agent")
+          .then(({ tasks: _tasks, projects: _projects, ...kept }) => {
+            machine.current = kept;
+            return kept;
+          })
+          .catch(() => ({ ...machine.current, worker: { running: false } })),
         // What people said to this person, from the chat service; the agent's own come with the workspace.
         api.chat
           ? api.request<ChatNotice[]>("/chat/v1/notifications").catch(() => [] as ChatNotice[])
@@ -58,6 +83,7 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
       ]);
       if (version === requestVersion.current) {
         chatNotices.current = new Set(notices.map((n) => n.id));
+        const next: AgentWorkspace = { ...rest, tasks: board.tasks, projects: board.projects };
         setData(
           notices.length
             ? {
@@ -105,14 +131,32 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
         document.removeEventListener("visibilitychange", poll);
     };
   }, [refresh]);
-  // A notice, a mention or a reply, that just arrived shows at once.
+  // A notice, a mention or a reply, that just arrived shows at once; so does a change to the board.
+  const boardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () =>
       chat.subscribe((frame) => {
-        if (frame.t === "event" && frame.type.startsWith("notification."))
-          void refresh().catch(() => {});
+        if (frame.t !== "event") return;
+        if (frame.type.startsWith("notification.")) void refresh().catch(() => {});
+        else if (frame.type === "task.changed" || frame.type === "project.changed") {
+          // Many changes arrive together while a task works: the board is read once for them.
+          if (boardTimer.current) return;
+          boardTimer.current = setTimeout(() => {
+            boardTimer.current = null;
+            api
+              .request<{ tasks: AgentTask[]; projects: Project[] }>("/chat/v1/work")
+              .then((board) => setData((prev) => (prev ? { ...prev, ...board } : prev)))
+              .catch(() => undefined);
+          }, 250);
+        }
       }),
-    [chat.subscribe, refresh],
+    [chat.subscribe, refresh, api],
+  );
+  useEffect(
+    () => () => {
+      if (boardTimer.current) clearTimeout(boardTimer.current);
+    },
+    [],
   );
   const mutate = useCallback(
     async <T,>(path: string, body: unknown): Promise<T> => {

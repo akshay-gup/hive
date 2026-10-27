@@ -16,6 +16,7 @@ import { AgentWatch } from "./agent-watch/watch.ts";
 import { createAuth } from "./auth.ts";
 import { BrowserService } from "./browser.ts";
 import { channelGate } from "./channel-gate.ts";
+import { BorrowedFiles } from "./chat-runner/attachments.ts";
 import { TaskBorrower } from "./chat-runner/borrow.ts";
 import { ChatRunnerHost } from "./chat-runner/host.ts";
 import { RunnerLink, type SocketFactory } from "./chat-runner/link.ts";
@@ -130,7 +131,7 @@ export async function createApp(
     cors({
       origin: (origin, c) =>
         origins.has(origin) ? origin : fileLink.test(c.req.path) ? "*" : undefined,
-      allowHeaders: ["Content-Type", "Authorization"],
+      allowHeaders: ["Content-Type", "Authorization", "X-Hive-Board"],
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       credentials: true,
     }),
@@ -454,7 +455,19 @@ export async function createApp(
             addNotes: async (owner, id, notes) => {
               for (const note of notes) await db.appendItem(owner, "tasks", id, "notes", note);
             },
+            addFiles: async (owner, id, files) => {
+              for (const file of files)
+                await db.appendItem(owner, "tasks", id, "attachments", file);
+            },
           },
+          files: new BorrowedFiles({
+            taskFiles: agent.taskFiles,
+            files: agent.files,
+            origin: () => link.origin,
+            workspaceOf: (task, owner) => agent.workspaceOf(task, owner),
+            fetcher: options.chatRunner?.fetcher,
+            log: (line) => console.log(line),
+          }),
           prepare: async (start) => {
             await vouchFor(agent, start.owner);
             if (start.channel) await standInFor(agent, start.channel);
@@ -473,6 +486,7 @@ export async function createApp(
         agent.board = board;
         host = new ChatRunnerHost({
           tasks: borrower,
+          outcome: (task) => agent.outcome(task),
           work,
           board,
           send: (frame) => link.send(frame),

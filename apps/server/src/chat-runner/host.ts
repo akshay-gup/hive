@@ -1,3 +1,4 @@
+import type { AgentTask } from "../../../../packages/domain/src/agent.ts";
 import { WATCH_STOP_TEXT, type WatchMode } from "../../../../packages/domain/src/agent-watch.ts";
 import type {
   PromptChoice,
@@ -48,6 +49,8 @@ export interface HostDeps {
   maxRuns?: number;
   /** The tasks the room lends this machine. */
   tasks?: TaskBorrower;
+  /** A person finished a task: do what that calls for here. */
+  outcome?: (task: AgentTask) => Promise<void>;
   /** The board's requests to the chat service, and its answers. */
   work?: WorkLink;
   /** How the agent changes the board in a run. */
@@ -183,6 +186,20 @@ export class ChatRunnerHost {
       case "task.stop":
       case "task.ended":
         this.deps.tasks?.onFrame(frame);
+        return;
+      case "task.outcome":
+        void this.deps
+          .outcome?.(frame.task)
+          .then(() =>
+            this.deps.send({
+              t: "task.outcome.done",
+              taskId: frame.task.id,
+              at: frame.task.updatedAt,
+            }),
+          )
+          .catch((error) =>
+            this.log(`could not finish the outcome of ${frame.task.id}: ${String(error)}`),
+          );
         return;
       case "work.result":
       case "work.ask":

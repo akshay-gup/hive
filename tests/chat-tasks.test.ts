@@ -130,7 +130,11 @@ const machine = async (
       addNotes: async (owner, id, notes) => {
         for (const note of notes) await db.appendItem(owner, "tasks", id, "notes", note);
       },
+      addFiles: async (owner, id, files) => {
+        for (const file of files) await db.appendItem(owner, "tasks", id, "attachments", file);
+      },
     },
+    files: { take: async (_owner, _id, files) => files, drop: async () => undefined },
     prepare: async () => undefined,
     run: () => void m.worker.tick(),
     abort: (id) => m.worker.abort(id),

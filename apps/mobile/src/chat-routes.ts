@@ -1,9 +1,9 @@
 /**
  * Which of the app's calls the chat service answers, and what it calls them. The channel screens were
  * written to speak to the workspace server (`/api/agent/channels/...`); the chat service has the same
- * things under `/v1`, so those calls are sent there without each screen knowing. What belongs to the
- * agent (a channel's tasks, its threads with the agent, its working folder) stays with the workspace
- * server. A path that starts with `/chat/` is the chat service's own and goes there as it is.
+ * things under `/v1`, so those calls are sent there without each screen knowing. The board (projects and
+ * tasks) is the chat service's too. What belongs to the agent (its threads with it, its working folder, its
+ * goals and memory) stays with the workspace server. A path that starts with `/chat/` is the chat service's own and goes there as it is.
  */
 const CHANNEL_PARTS =
   /^(members|managers|archive|footprint|mentionable|read|messages|since|threads|files)$/;
@@ -23,8 +23,8 @@ export function chatPathOf(path: string): string | null {
   if (part[3] === "channels") {
     if (part.length === 4) return to("/v1/channels");
     if (part.length === 5) return to(`/v1/channels/${part[4]}`);
-    // `/channels/:id/members` and the others the chat service has; tasks, the agent's threads and its
-    // folder are not among them.
+    // `/channels/:id/members` and the others the chat service has; the agent's threads and its folder are
+    // not among them.
     if (
       part.length === 6 &&
       CHANNEL_PARTS.test(part[5] ?? "") &&
@@ -41,6 +41,10 @@ export function chatPathOf(path: string): string | null {
         .map((p) => `/${p}`)
         .join("")}`,
     );
+  // The board: `/tasks`, `/tasks/:id`, `/tasks/:id/notes`..., `/projects`, `/projects/people`...
+  if (part[3] === "tasks" || part[3] === "projects") {
+    return to(`/v1/${part.slice(3).join("/")}`);
+  }
   if (part[3] === "dms" && part.length <= 5) return to(`/v1/dms${part[4] ? `/${part[4]}` : ""}`);
   if (part[3] === "notification-prefs" && part.length === 4) return to("/v1/notification-prefs");
   return null;

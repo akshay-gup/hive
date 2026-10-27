@@ -19,6 +19,21 @@ export interface BorrowDeps {
     remove(owner: string, id: string): Promise<void>;
     /** Add notes people wrote while it ran, for the agent to be told of. */
     addNotes(owner: string, id: string, notes: NonNullable<AgentTask["notes"]>): Promise<void>;
+    /** Add files people attached while it ran. */
+    addFiles(
+      owner: string,
+      id: string,
+      files: NonNullable<AgentTask["attachments"]>,
+    ): Promise<void>;
+  };
+  /** The task's files, which the room keeps: fetched for the run, and gone when it is over. */
+  files: {
+    take(
+      owner: string,
+      taskId: string,
+      files: NonNullable<AgentTask["attachments"]>,
+    ): Promise<NonNullable<AgentTask["attachments"]>>;
+    drop(owner: string, task: AgentTask): Promise<void>;
   };
   /** The person the task is for, and the channel it is kept in the folder of, made known here before it runs. */
   prepare: (start: TaskStart) => Promise<void>;
@@ -136,6 +151,15 @@ export class TaskBorrower {
             .catch((error) => this.log(`could not pass on a note: ${String(error)}`));
         return;
       }
+      case "task.files": {
+        const a = this.held.get(frame.taskId);
+        if (a && a.start.leaseId === frame.leaseId && !a.dropped)
+          void this.deps.files
+            .take(a.owner, frame.taskId, frame.files)
+            .then((kept) => this.deps.copies.addFiles(a.owner, frame.taskId, kept))
+            .catch((error) => this.log(`could not pass on a file: ${String(error)}`));
+        return;
+      }
       case "task.stop": {
         const a = this.held.get(frame.taskId);
         if (a && a.start.leaseId === frame.leaseId) void this.letGo(a);
@@ -162,7 +186,14 @@ export class TaskBorrower {
     clearInterval(a.timer);
     if (this.held.get(a.start.task.id) === a) this.held.delete(a.start.task.id);
     this.deps.abort(a.start.task.id);
-    await this.deps.copies.remove(a.owner, a.start.task.id).catch(() => undefined);
+    await this.clear(a.owner, a.start.task.id);
+  }
+
+  /** Its copy and its files go from the machine. */
+  private async clear(owner: string, taskId: string) {
+    const copy = await this.deps.copies.get(owner, taskId).catch(() => null);
+    if (copy) await this.deps.files.drop(owner, copy).catch(() => undefined);
+    await this.deps.copies.remove(owner, taskId).catch(() => undefined);
   }
 
   private beating() {
@@ -200,9 +231,11 @@ export class TaskBorrower {
     }
     const owner = start.owner.id;
     await this.deps.prepare(start);
+    const attachments = await this.deps.files.take(owner, task.id, task.attachments ?? []);
     // The copy is what the worker runs: waiting, with the run's marks as the room has them.
     await this.deps.copies.put(owner, {
       ...task,
+      attachments,
       status: "queued",
       leaseId: null,
       leaseUntil: null,
@@ -272,6 +305,7 @@ export class TaskBorrower {
     this.give({ taskId: copy.id, leaseId: a.start.leaseId, patch });
     clearInterval(a.timer);
     this.held.delete(copy.id);
+    await this.deps.files.drop(owner, copy).catch(() => undefined);
     await this.deps.copies.remove(owner, copy.id).catch(() => undefined);
   }
 

@@ -147,6 +147,7 @@ export class ChatCore {
       publish: this.publishEvent,
       linkKey: options.linkKey ?? (() => undefined),
       workQueued,
+      taskVisible: async (owner, taskId) => void (await this.work.getTask(owner, taskId)),
       fileGone: (file) => {
         if (!file.messageId) return;
         const message = this.messages.get(file.messageId);
@@ -175,6 +176,30 @@ export class ChatCore {
       projects: this.projects,
       tasks: this.tasks,
       clock: options.clock ?? Date.now,
+      files: this.files,
+      fileLink: (fileId) => {
+        const workspace = options.workspaceId?.();
+        return workspace ? this.filing.taskFileLink(workspace, fileId) : null;
+      },
+      filesGone: workQueued,
+      channel: async (id) => {
+        const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", id);
+        return channel && channel.status !== "archived" ? channel : null;
+      },
+      discussion: async (channelId) => {
+        const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
+        const recent = this.messages
+          .since(channelId, Math.max(0, this.messages.lastSeq(channelId) - 15), 15)
+          .filter((m) => !m.deletedAt && m.body.trim());
+        if (!recent.length) return null;
+        const known = await this.access.byId();
+        const lines = recent.map((m) => {
+          const who =
+            m.authorKind === "agent" ? "Hive" : known.get(m.authorId)?.name?.trim() || "Someone";
+          return `${who}: ${m.body.trim().slice(0, 500)}`;
+        });
+        return { name: channel?.name ?? channelId, lines: lines.join("\n") };
+      },
       changed: ({ task, before, removed }) => {
         void this.workChanged("task.changed", task, removed);
         void this.agent.taskChanged(task, before, removed);
@@ -208,6 +233,7 @@ export class ChatCore {
       },
       workspaceId: () => options.workspaceId?.() ?? null,
       linkKey: options.linkKey ?? (() => undefined),
+      soon: workQueued,
       wake: () => {
         try {
           options.wake?.();
@@ -461,6 +487,36 @@ export class ChatCore {
     app.delete("/v1/tasks/:id", async (c) =>
       c.json(await this.work.deleteTask(owner(c), c.req.param("id"))),
     );
+    // A task's files: asked for room first (the task's limits), then sent to the address given, then put on the task.
+    app.post("/v1/tasks/:id/attachments/begin", async (c) => {
+      const id = c.req.param("id");
+      const checked = await this.work.beginAttachment(owner(c), id, await c.req.json());
+      return c.json(
+        await this.filing.beginTaskFile(owner(c), c.get("identity").workspaceId ?? "", id, checked),
+        201,
+      );
+    });
+    app.post("/v1/tasks/:id/attachments", async (c) => {
+      const { fileId } = z.object({ fileId: z.string().min(1).max(100) }).parse(await c.req.json());
+      return c.json(await this.work.addAttachment(owner(c), c.req.param("id"), fileId), 201);
+    });
+    app.delete("/v1/tasks/:id/attachments/:fileId", async (c) =>
+      c.json(await this.work.removeAttachment(owner(c), c.req.param("id"), c.req.param("fileId"))),
+    );
+    app.post("/v1/tasks/:id/accept", async (c) =>
+      c.json(await this.work.accept(owner(c), c.req.param("id"))),
+    );
+    app.post("/v1/tasks/:id/delegate", async (c) => {
+      const body = z
+        .object({
+          target: z.string().trim().min(1).max(80),
+          reason: z.string().trim().min(1).max(500).optional(),
+        })
+        .parse(await c.req.json());
+      return c.json(
+        await this.work.delegate(owner(c), c.req.param("id"), body.target, body.reason),
+      );
+    });
     app.post("/v1/tasks/:id/control", async (c) => {
       const { action } = z
         .object({ action: z.enum(["pause", "resume", "cancel", "retry"]) })

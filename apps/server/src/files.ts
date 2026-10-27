@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Artifact } from "../../../packages/domain/src/index.ts";
@@ -46,6 +46,11 @@ export class Files {
     await writeFile(join(directory, `${id}.pdf`), bytes, { mode: 0o600, flag: "wx" });
     await this.db.put(owner, "files", artifact);
     return this.signed(owner, artifact);
+  }
+  /** Let go of a file this machine imported for a task that has been given back. */
+  async discard(owner: string, id: string): Promise<void> {
+    await this.db.remove(owner, "files", id);
+    await rm(join(this.config.dataDir, "files", `${id}.pdf`), { force: true });
   }
   signed(owner: string, file: Artifact): Artifact {
     return { ...file, url: this.signPath(owner, `/api/files/${file.id}/content`) };

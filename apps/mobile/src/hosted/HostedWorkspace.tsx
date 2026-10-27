@@ -100,6 +100,31 @@ export function HostedWorkspace({
     return renewing.current;
   }, [api, control, onLost]);
 
+  // The agent changes the board, which the chat service keeps, for the person in the app's own chat with it
+  // through a ticket the chat service gives here and the machine is sent with each request.
+  const [boardTicket, setBoardTicket] = useState<string | undefined>();
+  useEffect(() => {
+    if (!api.chat) return;
+    let live = true;
+    const get = () =>
+      api
+        .request<{ ticket: string }>("/chat/v1/work/ticket")
+        .then(({ ticket }) => {
+          if (!live) return;
+          api.boardTicket = ticket;
+          setBoardTicket(ticket);
+        })
+        .catch(() => undefined);
+    void get();
+    // A ticket lasts half an hour; it is made again well before.
+    const timer = setInterval(() => void get(), 20 * 60_000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+      api.boardTicket = undefined;
+    };
+  }, [api]);
+
   useEffect(() => {
     if (api.chat) api.chat.renew = renewChat;
     // A chat token lasts ten minutes; it is made again with a few to spare.
@@ -142,7 +167,10 @@ export function HostedWorkspace({
     <HostedContext.Provider value={hosted}>
       <CopilotKitProvider
         runtimeUrl={`${opened.url}/api/copilotkit`}
-        headers={{ Authorization: `Bearer ${opened.token}` }}
+        headers={{
+          Authorization: `Bearer ${opened.token}`,
+          ...(boardTicket ? { "X-Hive-Board": boardTicket } : {}),
+        }}
       >
         <WorkspaceApp
           api={api}

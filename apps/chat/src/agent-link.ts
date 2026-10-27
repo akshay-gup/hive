@@ -60,8 +60,9 @@ const CONTEXT_REPLIES = 40;
 const CONTEXT_PEOPLE = 50;
 /** How long a file's address works for the machine to fetch it. */
 const FILE_LINK_MS = 5 * 60_000;
-/** The least between two calls for the machine to be woken. */
+/** The least between two calls for the machine to be woken, and how long that grows to while it does not come. */
 const WAKE_EVERY_MS = 30_000;
+const WAKE_EVERY_MAX_MS = 10 * 60_000;
 
 export interface AgentLinkDeps {
   store: RecordStore;
@@ -92,6 +93,8 @@ export interface AgentLinkDeps {
   linkKey: () => string | undefined;
   /** Ask for the agent's machine to be started. */
   wake: () => void;
+  /** There is work to look at soon (a task came up, or is due later): the room's upkeep is to run. */
+  soon: () => void;
   clock: () => number;
 }
 
@@ -107,6 +110,8 @@ export class AgentLink {
   private maxTasks: number = TASK_LIMITS.defaultMaxTasks;
   private pumping: Promise<void> = Promise.resolve();
   private lastWake = 0;
+  /** Wakes asked for since the machine last connected: each waits longer than the one before. */
+  private wakes = 0;
   /** What the room asked the machine for and has no answer to yet. */
   private readonly asking = new Map<
     string,
@@ -202,6 +207,16 @@ export class AgentLink {
       }
       case "task.end":
         return this.taskEnd(frame);
+      case "task.outcome.done": {
+        const pending = await this.deps.store.get<{ id: string; at: string }>(
+          "system",
+          "outcomes",
+          frame.taskId,
+        );
+        if (pending?.at === frame.at)
+          await this.deps.store.remove("system", "outcomes", frame.taskId);
+        return;
+      }
       case "work.call":
         return this.workCall(frame);
       case "work.answer": {
@@ -236,6 +251,7 @@ export class AgentLink {
 
   private async hello(frame: Extract<RunnerFrame, { t: "hello" }>) {
     const { runs, tasks, store } = this.deps;
+    this.wakes = 0;
     if (frame.capacity) {
       this.maxRuns = frame.capacity.maxRuns;
       this.maxTasks = frame.capacity.maxTasks ?? TASK_LIMITS.defaultMaxTasks;
@@ -276,6 +292,7 @@ export class AgentLink {
       resumeTasks: keepTasks,
       watch: await this.watchMode(),
     });
+    await this.sendOutcomes();
     await this.pump();
   }
 
@@ -289,6 +306,7 @@ export class AgentLink {
     if (ended) this.deps.taskTouched(ended, false);
     this.send({ t: "task.ended", taskId: frame.taskId, leaseId: frame.leaseId });
     await this.pump();
+    if (this.deps.tasks.nextScheduledMs() !== null) this.deps.soon();
   }
 
   private async say(frame: Extract<RunnerFrame, { t: "run.say" }>) {
@@ -668,7 +686,7 @@ export class AgentLink {
       const sent = this.send({
         t: "task.start",
         start: {
-          task,
+          task: this.withFileLinks(task),
           leaseId,
           owner: {
             id: owner.id,
@@ -698,8 +716,10 @@ export class AgentLink {
 
   private wakeMachine() {
     const now = this.deps.clock();
-    if (now - this.lastWake < WAKE_EVERY_MS) return;
+    const gap = Math.min(WAKE_EVERY_MS * 2 ** Math.max(0, this.wakes - 1), WAKE_EVERY_MAX_MS);
+    if (now - this.lastWake < gap) return;
     this.lastWake = now;
+    this.wakes++;
     this.deps.wake();
   }
 
@@ -925,8 +945,40 @@ export class AgentLink {
       const added = (task.notes ?? []).filter((n) => !known.has(n.id));
       if (added.length)
         this.send({ t: "task.note", taskId: task.id, leaseId: lease, notes: added });
+      const had = new Set((before?.attachments ?? []).map((a) => a.id));
+      const files = (this.withFileLinks(task).attachments ?? []).filter((a) => !had.has(a.id));
+      if (files.length) this.send({ t: "task.files", taskId: task.id, leaseId: lease, files });
     }
+    // A person finished it: the machine has things to do about that (a goal's milestone, a notice).
+    if (!removed && task.status === "succeeded" && before?.status !== "succeeded")
+      await this.deps.store.put("system", "outcomes", { id: task.id, at: task.updatedAt });
+    if (!removed) await this.sendOutcomes();
     if (!removed) await this.pump();
+    if (!removed && (this.deps.tasks.hasActive() || this.deps.tasks.nextScheduledMs() !== null))
+      this.deps.soon();
+  }
+
+  /** The task with the address of each of its files, below the origin the machine reaches the room at. */
+  private withFileLinks(task: AgentTask): AgentTask {
+    const workspace = this.deps.workspaceId();
+    if (!task.attachments?.length || !workspace) return task;
+    return {
+      ...task,
+      attachments: task.attachments.map((file) => {
+        const path = this.deps.work.fileLink(file.id);
+        return path ? { ...file, url: `/w/${workspace}${path}` } : file;
+      }),
+    };
+  }
+
+  /** Tell the machine of tasks people finished, until it says it has done what they call for. */
+  private async sendOutcomes() {
+    const { store, tasks } = this.deps;
+    for (const { id, at } of await store.list<{ id: string; at: string }>("system", "outcomes")) {
+      const task = tasks.get(id);
+      if (!task) await store.remove("system", "outcomes", id);
+      else if (task.updatedAt === at && !this.send({ t: "task.outcome", task })) return;
+    }
   }
 
   /**

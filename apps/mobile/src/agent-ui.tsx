@@ -523,17 +523,30 @@ export function TaskDetail({ taskId }: { taskId: string }) {
   const guest = guestRole || (!!task && !canChangeTask(task, data?.projects ?? []));
   useEffect(() => {
     let active = true;
-    void api
-      .request<{
-        task: AgentTask;
-        events: RunEvent[];
-        artifacts: AgentArtifact[];
-        files: Artifact[];
-        browsers: BrowserSession[];
-      }>(`/api/agent/tasks/${taskId}`)
-      .then((result) => {
+    // The task is the chat service's; what its runs did (steps, files made, browser windows) is the
+    // machine's, asked for through the chat service while the machine is awake.
+    type RunHistory = {
+      awake: boolean;
+      events?: RunEvent[];
+      artifacts?: AgentArtifact[];
+      files?: Artifact[];
+      browsers?: BrowserSession[];
+    };
+    void Promise.all([
+      api.request<{ task: AgentTask }>(`/api/agent/tasks/${taskId}`),
+      api
+        .request<RunHistory>(`/chat/v1/tasks/${taskId}/run`)
+        .catch((): RunHistory => ({ awake: false })),
+    ])
+      .then(([board, run]) => {
         if (active) {
-          setDetail(result);
+          setDetail({
+            task: board.task,
+            events: run.events ?? [],
+            artifacts: run.artifacts ?? [],
+            files: run.files ?? [],
+            browsers: run.browsers ?? [],
+          });
           setError("");
         }
       })
