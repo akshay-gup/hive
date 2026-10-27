@@ -62,3 +62,33 @@ export function useBrowserBack({
     window.history.pushState(want, "");
   }, [section, hasDetail]);
 }
+
+let sheets = 0;
+
+/**
+ * A page that opens over the screen (a sheet) is one entry in the browser's history while it is open:
+ * Back shuts it, and shutting it with its own button takes the entry away again.
+ */
+export function useBackToClose(onClose: () => void) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const mine = ++sheets;
+    const entry = { ...((window.history.state as object | null) ?? { hive: 1 }), sheet: mine };
+    window.history.pushState(entry, "");
+    let byBack = false;
+    const onPop = () => {
+      if ((window.history.state as { sheet?: number } | null)?.sheet === mine) return;
+      byBack = true;
+      close.current();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // Shut by its own button, not by Back: the entry it made is still the top one.
+      if (!byBack && (window.history.state as { sheet?: number } | null)?.sheet === mine)
+        window.history.back();
+    };
+  }, []);
+}

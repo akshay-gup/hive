@@ -26,6 +26,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBackToClose } from "./browser-history";
 import { LiquidTrack } from "./liquid-track";
 import {
   colors,
@@ -913,6 +914,7 @@ export function Sheet({
   /** For a short form, which does not need the usual width. */
   narrow?: boolean;
 }) {
+  useBackToClose(onClose);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const compact = width < 600;
