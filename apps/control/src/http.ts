@@ -60,12 +60,31 @@ export async function retryingFetch(
 export async function waitUntilAnswering(
   url: string,
   workspaceId: string,
-  options: { waitSeconds: number; pollMs?: number; build?: string; agentSeconds?: number },
+  options: {
+    waitSeconds: number;
+    pollMs?: number;
+    build?: string;
+    agentSeconds?: number;
+    /**
+     * How many times to ask at most before giving up for now with an error that says to try again. A
+     * Worker may make only 50 requests in one go on the free plan, so a wait that polls for minutes
+     * has to be cut into rounds; the timer starts the next one.
+     */
+    maxChecks?: number;
+  },
 ): Promise<void> {
   const until = Date.now() + options.waitSeconds * 1000;
   let last = "no answer";
   let agentUntil = 0;
-  while (Date.now() < until) {
+  let reported = "";
+  for (let checks = 0; Date.now() < until; checks++) {
+    if (options.maxChecks !== undefined && checks >= options.maxChecks)
+      throw new ProvisionError(
+        `${url} is still starting (${last})`,
+        "The workspace is still starting.",
+        false,
+        true,
+      );
     try {
       const response = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(5000) });
       if (response.ok) {
@@ -88,12 +107,21 @@ export async function waitUntilAnswering(
         else if (!health.chatRunner || health.chatRunner.connected) return;
         else {
           agentUntil ||= Date.now() + (options.agentSeconds ?? 60) * 1000;
-          if (Date.now() >= agentUntil) return;
+          // In rounds there is no minute to wait in, so the last check of a round lets it in.
+          if (
+            Date.now() >= agentUntil ||
+            (options.maxChecks !== undefined && checks + 1 >= options.maxChecks)
+          )
+            return;
           last = "its agent has not connected yet";
         }
       } else last = `status ${response.status}`;
     } catch (error) {
       last = error instanceof Error ? error.message : String(error);
+    }
+    if (last !== reported) {
+      reported = last;
+      console.log(`[Hive control] waiting for ${workspaceId}: ${last}`);
     }
     await sleep(options.pollMs ?? 2000);
   }

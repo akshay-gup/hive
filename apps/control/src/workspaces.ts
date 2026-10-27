@@ -536,15 +536,17 @@ export class WorkspaceService {
           { status: "ready", url, step: null, leaseUntil: 0, updatedAt: new Date().toISOString() },
         );
       } catch (error) {
-        // No room at the provider is not a failure yet: the lease is let go below, and the timer
-        // starts it again each minute, until it has waited long enough.
+        // No room at the provider, or a machine still starting, is not a failure yet: the lease is
+        // let go below, and the timer starts it again each minute, until it has waited long enough.
         const waiting =
           error instanceof ProvisionError &&
-          error.capacity &&
+          (error.capacity || error.starting) &&
           Date.now() - since < CAPACITY_WAIT_MS;
         console.error(
           waiting
-            ? `[Hive control] no room for ${id} yet, trying again: ${this.describe(error)}`
+            ? error instanceof ProvisionError && error.starting
+              ? `[Hive control] ${id} is still starting, checking again: ${this.describe(error)}`
+              : `[Hive control] no room for ${id} yet, trying again: ${this.describe(error)}`
             : `[Hive control] could not start ${id}: ${this.describe(error)}`,
         );
         // Only a copy that had the workspace says it failed; one that never got it has nothing to say.

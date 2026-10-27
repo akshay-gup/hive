@@ -71,6 +71,8 @@ export class ProvisionError extends Error {
     readonly userMessage = "We could not start this workspace. Try again in a minute.",
     /** The provider has no room for it right now, which time may mend: worth trying again for a while. */
     readonly capacity = false,
+    /** The machine exists and is still starting, and this call ran out of checks (see `maxChecks`): try again for a while. */
+    readonly starting = false,
   ) {
     super(message);
     this.name = "ProvisionError";
