@@ -41,6 +41,8 @@ export class TaskWorker {
       leaseMs?: number;
       pollMs?: number;
       settled?: (owner: string, task: AgentTask) => Promise<void>;
+      /** Told when a run is over and its outcome is settled: the task as it now stands. */
+      finished?: (owner: string, task: AgentTask) => Promise<void>;
       /** A run that has done nothing for this long is stopped and started again. Default 20 minutes. */
       stallMs?: number;
       /** How long a stopped run gets to wind down before it is let go of. Default 60 seconds. */
@@ -216,6 +218,7 @@ export class TaskWorker {
           })
           .catch((error) => backgroundFailure("record task error", error));
         if (this.options.settled) await this.options.settled(owner, stopped);
+        if (this.options.finished) await this.options.finished(owner, stopped);
       }
       return;
     }
@@ -385,5 +388,6 @@ export class TaskWorker {
     }
     const settled = await this.db.get<AgentTask>(owner, "tasks", taskId);
     if (settled && this.options.settled) await this.options.settled(owner, settled);
+    if (settled && this.options.finished) await this.options.finished(owner, settled);
   }
 }

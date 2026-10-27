@@ -11,6 +11,7 @@ import type { AgentService } from "../engine/service.ts";
 import { type ChatOrigin, stripMention } from "../opencode/agui.ts";
 import type { PermissionTracker, TrackerReplyDeps } from "../opencode/approvals.ts";
 import { RunRecord } from "../opencode/run-record.ts";
+import type { TaskBorrower } from "./borrow.ts";
 import { buildRunContext, fetchRunFiles } from "./context.ts";
 import { prepareRun, threadIdFor } from "./stubs.ts";
 
@@ -44,6 +45,10 @@ export interface HostDeps {
   channelFiles: Pick<ChannelFiles, "read">;
   /** How many runs may go at once. */
   maxRuns?: number;
+  /** The tasks the room lends this machine. */
+  tasks?: TaskBorrower;
+  /** How many tasks may go at once. */
+  maxTasks?: number;
   /** The name the agent goes by in the chat. */
   name?: string;
   /** The channels this machine keeps something for, and a way to take it all away for one that is deleted. */
@@ -122,9 +127,11 @@ export class ChatRunnerHost {
       t: "hello",
       v: 1,
       identity: { name: this.deps.name ?? "Hive" },
-      capacity: { maxRuns: this.deps.maxRuns ?? 2 },
+      capacity: { maxRuns: this.deps.maxRuns ?? 2, maxTasks: this.deps.maxTasks ?? 3 },
       active: [...this.runs.values()].map((r) => ({ runId: r.runId, n: r.n })),
+      ...(this.deps.tasks ? { tasks: this.deps.tasks.leases() } : {}),
     });
+    this.deps.tasks?.onOpen();
     for (const frame of this.finals.values()) this.deps.send(frame);
     // The room says which of the channels kept here are gone, whenever they were deleted.
     void this.reportStandIns();
@@ -165,10 +172,17 @@ export class ChatRunnerHost {
 
   onFrame(frame: RoomFrame) {
     switch (frame.t) {
+      case "task.start":
+      case "task.note":
+      case "task.stop":
+      case "task.ended":
+        this.deps.tasks?.onFrame(frame);
+        return;
       case "watch":
         this.deps.setWatchMode?.(frame.mode);
         return;
       case "welcome": {
+        this.deps.tasks?.onFrame(frame);
         this.deps.setWatchMode?.(frame.watch ?? "audit");
         // What the room does not want kept is stopped, and nothing more is said of it.
         const keep = new Set(frame.resume);
@@ -230,6 +244,7 @@ export class ChatRunnerHost {
   }
 
   stop() {
+    this.deps.tasks?.stop();
     if (this.beat) clearInterval(this.beat);
     this.beat = null;
     for (const run of this.runs.values()) {

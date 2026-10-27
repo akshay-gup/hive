@@ -81,6 +81,8 @@ export class ChatCore {
   readonly tasks: Tasks;
   readonly projects: Projects;
   readonly work: Work;
+  /** When each task running on the machine was last announced. */
+  private readonly touched = new Map<string, number>();
   readonly flags: AgentFlags;
   readonly agent: AgentLink;
   private readonly publishEvent: (event: ChatEvent) => void;
@@ -173,7 +175,10 @@ export class ChatCore {
       projects: this.projects,
       tasks: this.tasks,
       clock: options.clock ?? Date.now,
-      changed: ({ task, removed }) => void this.workChanged("task.changed", task, removed),
+      changed: ({ task, before, removed }) => {
+        void this.workChanged("task.changed", task, removed);
+        void this.agent.taskChanged(task, before, removed);
+      },
       projectChanged: (project, removed) =>
         void this.workChanged("project.changed", project, removed),
     });
@@ -193,6 +198,13 @@ export class ChatCore {
       edited: (message) => this.emit("message.edited", message, { channelId: message.channelId }),
       notifyEnd: (run, reply) => this.messaging.runEnded(run, reply),
       notifyAsk: (run, reply) => this.messaging.runAsked(run, reply),
+      taskTouched: (task, quiet) => {
+        // Progress comes often; the screen is told of it now and then, and of anything else at once.
+        const now = (options.clock ?? Date.now)();
+        if (quiet && now - (this.touched.get(task.id) ?? 0) < 3_000) return;
+        this.touched.set(task.id, now);
+        void this.workChanged("task.changed", task);
+      },
       workspaceId: () => options.workspaceId?.() ?? null,
       linkKey: options.linkKey ?? (() => undefined),
       wake: () => {

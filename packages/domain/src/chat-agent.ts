@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTask } from "./agent.ts";
+import type { AgentTask, TaskNote } from "./agent.ts";
 import { WATCH_STOP_TEXT, type WatchMode, watchFindingSchema } from "./agent-watch.ts";
 
 /**
@@ -267,6 +267,8 @@ export interface TaskStart {
   task: AgentTask;
   leaseId: string;
   owner: { id: string; email: string; name: string; role: string };
+  /** The channel the task is kept in the folder of, when it has one: the machine makes room for it. */
+  channel?: { id: string; name: string; topic: string; visibility: "public" | "private" };
 }
 
 export type RoomFrame =
@@ -279,6 +281,8 @@ export type RoomFrame =
       watch?: WatchMode;
     }
   | { t: "task.start"; start: TaskStart }
+  /** People added notes to a task the machine is working on: the agent is told of them. */
+  | { t: "task.note"; taskId: string; leaseId: string; notes: TaskNote[] }
   /** The task is no longer the machine's to work on (paused, cancelled, or the lease was lost): let go of it. */
   | { t: "task.stop"; taskId: string; leaseId: string }
   /** The room has the end of the task. */

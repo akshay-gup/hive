@@ -93,6 +93,8 @@ const date = () => new Date().toISOString();
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
 export class AgentService {
   readonly worker: TaskWorker;
+  /** Set by createApp: told when the worker is done with a task it was lent, so the task can be given back. */
+  taskFinished?: (owner: string, task: AgentTask) => Promise<void>;
   private maintenance?: ReturnType<typeof setInterval>;
   private refreshing = false;
   private channels?: ChannelManager;
@@ -135,6 +137,7 @@ export class AgentService {
     this.uploadRequests = new UploadRequests(db);
     this.worker = new TaskWorker(db, (owner, task, context) => this.execute(owner, task, context), {
       settled: (owner, task) => this.publishOutcome(owner, task),
+      finished: (owner, task) => this.taskFinished?.(owner, task) ?? Promise.resolve(),
       // In orchestrator mode the main process only runs orchestrator-channel tasks;
       // per-channel workers (spawned separately) claim their own channels.
       channelId: config.manageChannels ? ORCHESTRATOR_CHANNEL_ID : config.workerChannelId,

@@ -78,6 +78,55 @@ const lay = (data: Record<string, unknown>, patch: Record<string, unknown>) => {
   return next;
 };
 
+/** What a run may write of the task it holds: its own progress, never who it is for or where it is kept. */
+const RUN_FIELDS = new Set([
+  "state",
+  "plan",
+  "evidence",
+  "artifactIds",
+  "actionId",
+  "result",
+  "error",
+  "question",
+  "nextRunAt",
+  "interruptedAt",
+  "interruptions",
+  "runStartedAt",
+]);
+
+/** How a run can leave a task: done for now, waiting for a person, scheduled again, or stopped. */
+const END_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "in_review",
+  "waiting_approval",
+  "waiting_input",
+  "scheduled",
+  "paused",
+]);
+
+/**
+ * What the holder of a task's lease says, cut down to what it may change: the run's own fields, and which
+ * notes it has read. It cannot move the task to another project, rename it, change who made it or what it
+ * depends on, or add and take away notes: those are people's.
+ */
+function runPatch(patch: Record<string, unknown>, current: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) if (RUN_FIELDS.has(key)) out[key] = value;
+  const read = Array.isArray(patch.notes)
+    ? new Set(
+        (patch.notes as { id?: unknown; delivered?: unknown }[])
+          .filter((n) => n?.delivered === true)
+          .map((n) => String(n.id)),
+      )
+    : null;
+  if (read && Array.isArray(current.notes))
+    out.notes = (current.notes as { id: string; delivered?: boolean }[]).map((n) =>
+      read.has(n.id) ? { ...n, delivered: true } : n,
+    );
+  return out;
+}
+
 /** Statuses a task the worker takes may be in: it is waiting for the machine. */
 const DUE = "(status = 'queued' OR (status = 'scheduled' AND next_run_ms <= ?))";
 
@@ -271,7 +320,12 @@ export class Tasks {
       const now = this.clock();
       this.sql.run(
         "UPDATE tasks SET data = ?, lease_ms = ?, updated_ms = ? WHERE id = ?",
-        JSON.stringify(lay(JSON.parse(row.data), patch)),
+        JSON.stringify(
+          lay(
+            JSON.parse(row.data),
+            runPatch(patch, JSON.parse(row.data) as Record<string, unknown>),
+          ),
+        ),
         now,
         now,
         id,
@@ -299,19 +353,33 @@ export class Tasks {
       );
       if (!row) return null;
       const now = this.clock();
-      const status = options.requeue ? "queued" : String(patch.status ?? "failed");
-      const nextRun = typeof patch.nextRunAt === "string" ? Date.parse(patch.nextRunAt) : null;
+      const said = String(patch.status ?? "failed");
+      // A run that says it is still running, or something it may not, failed.
+      const status = options.requeue ? "queued" : END_STATUSES.has(said) ? said : "failed";
+      const data = JSON.parse(row.data) as Record<string, unknown>;
+      const own = options.requeue ? {} : runPatch(patch, data);
+      const nextRun =
+        typeof own.nextRunAt === "string" && !Number.isNaN(Date.parse(own.nextRunAt))
+          ? Date.parse(own.nextRunAt)
+          : null;
       this.sql.run(
         `UPDATE tasks SET status = ?, lease_id = NULL, acked = 0, lease_ms = NULL, updated_ms = ?, data = ?,
            next_run_ms = ?, interruptions = ? WHERE id = ?`,
-        status === "running" ? "queued" : status,
+        status,
         now,
-        JSON.stringify(lay(JSON.parse(row.data), options.requeue ? {} : patch)),
+        JSON.stringify(
+          lay(
+            data,
+            status === "failed" && !own.error && !options.requeue
+              ? { ...own, error: "The run ended badly" }
+              : own,
+          ),
+        ),
         options.requeue ? row.next_run_ms : nextRun,
         options.requeue
           ? row.interruptions + (options.stalled ? 1 : 0)
-          : "interruptions" in patch
-            ? Number(patch.interruptions) || 0
+          : "interruptions" in own
+            ? Number(own.interruptions) || 0
             : 0,
         id,
       );

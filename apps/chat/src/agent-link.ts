@@ -14,7 +14,11 @@ import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { RecordStore } from "../../../packages/chat-core/src/store.ts";
 import type { Tasks } from "../../../packages/chat-core/src/work.ts";
 import { TASK_LIMITS } from "../../../packages/chat-core/src/work.ts";
-import type { Channel } from "../../../packages/domain/src/agent.ts";
+import {
+  type AgentTask,
+  type Channel,
+  ORCHESTRATOR_CHANNEL_ID,
+} from "../../../packages/domain/src/agent.ts";
 import type { WatchMode } from "../../../packages/domain/src/agent-watch.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
 import {
@@ -78,6 +82,8 @@ export interface AgentLinkDeps {
   notifyEnd: (run: Run, reply: Message) => Promise<void>;
   /** The person who asked is told the agent is waiting for them (or anyone) to decide something. */
   notifyAsk: (run: Run, reply: Message) => Promise<void>;
+  /** A task the machine holds changed (taken, ended, cut off, or said how far it is): `quiet` for the last. */
+  taskTouched: (task: AgentTask, quiet: boolean) => void;
   workspaceId: () => string | null;
   linkKey: () => string | undefined;
   /** Ask for the agent's machine to be started. */
@@ -175,10 +181,12 @@ export class AgentLink {
         // Not the lease the room holds: the machine is told to let go of it.
         this.send({ t: "task.stop", taskId: frame.taskId, leaseId: frame.leaseId });
         return;
-      case "task.checkpoint":
-        if (!this.deps.tasks.checkpoint(frame.taskId, frame.leaseId, frame.patch))
-          this.send({ t: "task.stop", taskId: frame.taskId, leaseId: frame.leaseId });
+      case "task.checkpoint": {
+        const saved = this.deps.tasks.checkpoint(frame.taskId, frame.leaseId, frame.patch);
+        if (saved) this.deps.taskTouched(saved, true);
+        else this.send({ t: "task.stop", taskId: frame.taskId, leaseId: frame.leaseId });
         return;
+      }
       case "task.end":
         return this.taskEnd(frame);
       case "file.begin":
@@ -249,10 +257,11 @@ export class AgentLink {
   /** The machine is done with a task, or was cut off. Said again until the room says it has it. */
   private async taskEnd(frame: Extract<RunnerFrame, { t: "task.end" }>) {
     const { tasks } = this.deps;
-    tasks.end(frame.taskId, frame.leaseId, frame.patch, {
+    const ended = tasks.end(frame.taskId, frame.leaseId, frame.patch, {
       requeue: frame.requeue,
       stalled: frame.stalled,
     });
+    if (ended) this.deps.taskTouched(ended, false);
     this.send({ t: "task.ended", taskId: frame.taskId, leaseId: frame.leaseId });
     await this.pump();
   }
@@ -512,6 +521,10 @@ export class AgentLink {
         });
         continue;
       }
+      const home =
+        task.originChannelId && task.originChannelId !== ORCHESTRATOR_CHANNEL_ID
+          ? await this.deps.store.get<Channel>(SHARED_OWNER, "channels", task.originChannelId)
+          : null;
       const sent = this.send({
         t: "task.start",
         start: {
@@ -523,12 +536,23 @@ export class AgentLink {
             name: owner.name,
             role: owner.role ?? "member",
           },
+          ...(home
+            ? {
+                channel: {
+                  id: home.id,
+                  name: home.name,
+                  topic: home.topic ?? "",
+                  visibility: home.visibility ?? "public",
+                },
+              }
+            : {}),
         },
       });
       if (!sent) {
         tasks.end(task.id, leaseId, {}, { requeue: true });
         return;
       }
+      this.deps.taskTouched(task, false);
     }
   }
 
@@ -746,6 +770,23 @@ export class AgentLink {
       if (run.state === "sent") this.deps.runs.requeue(run.id);
     this.deps.tasks.requeueUnacked();
     await this.pump();
+  }
+
+  /**
+   * A person (or the agent's tool) changed a task: a machine holding it lets go if it was paused, stopped or
+   * taken away, is told of notes added, and a task that is due now is given out.
+   */
+  async taskChanged(task: AgentTask, before: AgentTask | null, removed = false): Promise<void> {
+    const lease = before?.leaseId;
+    if (lease && (removed || task.leaseId !== lease))
+      this.send({ t: "task.stop", taskId: task.id, leaseId: lease });
+    else if (lease && task.leaseId === lease) {
+      const known = new Set((before?.notes ?? []).map((n) => n.id));
+      const added = (task.notes ?? []).filter((n) => !known.has(n.id));
+      if (added.length)
+        this.send({ t: "task.note", taskId: task.id, leaseId: lease, notes: added });
+    }
+    if (!removed) await this.pump();
   }
 
   /**

@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import { z } from "zod";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
+import type { AgentTask } from "../../../packages/domain/src/agent.ts";
 import { emailDraftSchema, proposalSchema } from "../../../packages/domain/src/index.ts";
 import { ActionService } from "./actions.ts";
 import { makeRuntime } from "./agent.ts";
@@ -15,8 +16,10 @@ import { AgentWatch } from "./agent-watch/watch.ts";
 import { createAuth } from "./auth.ts";
 import { BrowserService } from "./browser.ts";
 import { channelGate } from "./channel-gate.ts";
+import { TaskBorrower } from "./chat-runner/borrow.ts";
 import { ChatRunnerHost } from "./chat-runner/host.ts";
 import { RunnerLink, type SocketFactory } from "./chat-runner/link.ts";
+import { standInFor, vouchFor } from "./chat-runner/stubs.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { agentRoutes } from "./engine/routes.ts";
@@ -32,6 +35,7 @@ import { GoogleAuth } from "./google-auth.ts";
 import type { JevAdapter } from "./jev/adapter.ts";
 import { createJevService } from "./jev/service.ts";
 import { publishLiveRuns } from "./live-runs.ts";
+import { backgroundFailure } from "./log.ts";
 import { ManagedSignIn } from "./managed.ts";
 import { HiveToolBridge } from "./opencode/hive-tools.ts";
 import {
@@ -428,7 +432,29 @@ export async function createApp(
           socket: options.chatRunner?.socket,
           log: (line) => console.log(line),
         });
+        const borrower = new TaskBorrower({
+          send: (frame) => link.send(frame),
+          copies: {
+            get: (owner, id) => db.get<AgentTask>(owner, "tasks", id),
+            put: async (owner, task) => void (await db.put(owner, "tasks", task)),
+            remove: (owner, id) => db.remove(owner, "tasks", id),
+            addNotes: async (owner, id, notes) => {
+              for (const note of notes) await db.appendItem(owner, "tasks", id, "notes", note);
+            },
+          },
+          prepare: async (start) => {
+            await vouchFor(agent, start.owner);
+            if (start.channel) await standInFor(agent, start.channel);
+            else await agent.ensureOrchestratorChannel(start.owner.id);
+          },
+          run: () =>
+            void agent.worker.tick().catch((error) => backgroundFailure("task worker", error)),
+          abort: (id) => agent.worker.abort(id),
+          log: (line) => console.log(line),
+        });
+        agent.taskFinished = (owner, task) => borrower.finished(owner, task);
         host = new ChatRunnerHost({
+          tasks: borrower,
           send: (frame) => link.send(frame),
           service: agent,
           launcher: shim,
