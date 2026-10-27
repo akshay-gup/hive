@@ -31,6 +31,11 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 
 - **Create tasks from a private channel.** The board tools are not offered in a private channel yet, though the chat service now holds both the channel's people and the project's and could compare them: the agent would ask which project, and warn once, with names, when the project can be seen by more people than the channel.
 - **A bell notice and a live update for agent flags.** Today the owner and admins see a count and a list.
+- **Fewer kernel-watch flags per read.** One `ls` of the database folder produced 27 flags, one per file the kernel saw. They should be grouped into one flag per command.
+- **A tool row that never finishes after a restart.** When a task is resumed after the machine restarted, the row for the tool that was running stays "running" in the task's history.
+- **The agent repeats a request it already did.** Asked in #general to add "Buy milk", then asked something else in the same channel, it added "Buy milk" again. Chat runs may need to know which earlier messages they have already answered.
+- **Board tools in chat runs can only create.** The agent can add to-dos but cannot list or read the board, so "what is on the board?" gets "I can't" (kept on purpose for now; the rules make a read call safe).
+- **A guest cannot create anything in General.** By the current rules, a guest sees no projects until invited to a channel; say so in the app instead of an empty screen.
 - **Pin or favourite projects.**
 - **A hint when no agent is connected.**
 - **Hide single tasks inside a project.**
