@@ -430,7 +430,7 @@ test("a private channel is found only by the people in it, whoever else is askin
     for (const [method, path, body] of hidden) {
       const response = await call(who, method, path, body);
       assert.equal(response.status, 404, `${who} ${method} ${path} ${response.status}`);
-      assert.match((await json(response)).error, /not found/i, `${who} ${method} ${path}`);
+      assert.match((await json(response)).error, /is not there/i, `${who} ${method} ${path}`);
     }
   // The people in it use all of it.
   for (const path of ["", "/members", "/mentionable"])

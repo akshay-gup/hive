@@ -1,4 +1,8 @@
-import { Archive, Hash, Lock, Plus, RefreshCw } from "lucide-react-native";
+import Archive from "lucide-react-native/dist/esm/icons/archive";
+import Hash from "lucide-react-native/dist/esm/icons/hash";
+import Lock from "lucide-react-native/dist/esm/icons/lock";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import RefreshCw from "lucide-react-native/dist/esm/icons/refresh-cw";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";

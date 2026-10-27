@@ -1,4 +1,7 @@
-import { BellRing, ChevronDown, ChevronRight, ChevronsUpDown } from "lucide-react-native";
+import BellRing from "lucide-react-native/dist/esm/icons/bell-ring";
+import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import ChevronsUpDown from "lucide-react-native/dist/esm/icons/chevrons-up-down";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -214,6 +217,8 @@ export function TaskSheet({
       accessibilityRole="button"
       accessibilityState={{ expanded: !collapsed.has(row.id) }}
       accessibilityLabel={`${row.label}, ${row.count}`}
+      // The row is 30 high, under the size of a thumb: the touch reaches a little beyond it.
+      hitSlop={{ top: 7, bottom: 7 }}
       onPress={() => toggle(row.id)}
       style={({ hovered }: WebPressState) => ({
         height: GROUP,

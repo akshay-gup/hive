@@ -2,7 +2,8 @@ import { DurableObject, type DurableObjectStorage } from "cloudflare:workers";
 import type { Sql } from "../../../packages/chat-core/src/sql.ts";
 import { verifyChatRunner } from "../../../packages/integrations/src/workspace-token.ts";
 import type { RunnerLink } from "./agent-link.ts";
-import { RUNNER_HEADER } from "./headers.ts";
+import { DeletedMarker } from "./deleted-marker.ts";
+import { INTERNAL_HEADER, RUNNER_HEADER } from "./headers.ts";
 import type { Peer } from "./realtime.ts";
 import { RoomLogic } from "./room-logic.ts";
 
@@ -79,9 +80,11 @@ async function hmacHex(key: string, text: string): Promise<string> {
 
 export class ChatRoom extends DurableObject<RoomEnv> {
   private readonly room: RoomLogic;
+  private readonly marker: DeletedMarker;
 
   constructor(ctx: ConstructorParameters<typeof DurableObject>[0], env: RoomEnv) {
     super(ctx, env);
+    this.marker = new DeletedMarker(ctx.storage);
     this.room = new RoomLogic(durableSql(ctx.storage), {
       purge: async () => {
         // The workspace's files in the bucket go first, while the room still knows which they are.
@@ -94,7 +97,15 @@ export class ChatRoom extends DurableObject<RoomEnv> {
             cursor = page.truncated ? page.cursor : undefined;
           } while (cursor);
         }
-        await ctx.storage.deleteAll();
+        await this.marker.wipe(async () => {
+          for (const socket of ctx.getWebSockets()) {
+            try {
+              socket.close(1008, "This workspace has been deleted");
+            } catch {
+              // Already closed.
+            }
+          }
+        });
       },
       peers: () => this.peers(),
       runner: () => this.runner(),
@@ -124,6 +135,8 @@ export class ChatRoom extends DurableObject<RoomEnv> {
   }
 
   async alarm(): Promise<void> {
+    // A deleted workspace has no upkeep: only its marker, which goes when it has done its work.
+    if (await this.marker.upkeep()) return;
     const { nextInMs } = await this.room.maintain();
     await this.ctx.storage.setAlarm(Date.now() + nextInMs);
   }
@@ -212,6 +225,11 @@ export class ChatRoom extends DurableObject<RoomEnv> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    // Nothing is answered for a deleted workspace, and a second delete has nothing left to do.
+    if (await this.marker.deleted())
+      return request.headers.get(INTERNAL_HEADER) === "purge"
+        ? Response.json({ ok: true })
+        : Response.json({ error: "This workspace has been deleted." }, { status: 404 });
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
       return this.room.fetch(request);
     if (request.headers.get(RUNNER_HEADER)) return this.acceptRunner(request);

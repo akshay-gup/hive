@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Hive — a little room for everything</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+    <!-- What shows while the app's script comes down, which on a slow connection is a while. The app replaces it when it starts. -->
+    <style id="first-paint">
+      body {
+        margin: 0;
+        background: #f4f6f5;
+      }
+      #first-paint {
+        margin: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #3d4642;
+      }
+      #first-paint b {
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.5px;
+      }
+      #first-paint i {
+        width: 22px;
+        height: 22px;
+        border: 3px solid #cfd8d3;
+        border-top-color: #2f6b4f;
+        border-radius: 50%;
+        animation: first-paint-spin 0.9s linear infinite;
+      }
+      @keyframes first-paint-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #first-paint i {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root">
+      <div id="first-paint" role="status" aria-live="polite">
+        <b>Hive</b>
+        <i aria-hidden="true"></i>
+        <span>Loading…</span>
+      </div>
+    </div>
+  </body>
+</html>

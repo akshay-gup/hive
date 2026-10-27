@@ -1,4 +1,5 @@
-import { Hash, ShieldCheck } from "lucide-react-native";
+import Hash from "lucide-react-native/dist/esm/icons/hash";
+import ShieldCheck from "lucide-react-native/dist/esm/icons/shield-check";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Channel } from "../../../packages/domain/src/agent";

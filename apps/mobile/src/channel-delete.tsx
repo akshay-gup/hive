@@ -1,4 +1,4 @@
-import { Archive } from "lucide-react-native";
+import Archive from "lucide-react-native/dist/esm/icons/archive";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { ChannelFootprint } from "../../../packages/domain/src/agent";

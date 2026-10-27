@@ -1,4 +1,8 @@
-import { Copy, LogOut, Share2, Trash2, UserMinus } from "lucide-react-native";
+import Copy from "lucide-react-native/dist/esm/icons/copy";
+import LogOut from "lucide-react-native/dist/esm/icons/log-out";
+import Share2 from "lucide-react-native/dist/esm/icons/share-2";
+import Trash2 from "lucide-react-native/dist/esm/icons/trash-2";
+import UserMinus from "lucide-react-native/dist/esm/icons/user-minus";
 import { useCallback, useEffect, useState } from "react";
 import { Platform, Share, Text, View } from "react-native";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent";

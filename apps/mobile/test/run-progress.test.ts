@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   CARD_TOOLS,
   formatElapsed,
+  interruptedTools,
   mergeItems,
   type ProgressStep,
   progressItems,
@@ -258,4 +259,17 @@ test("a page step carries the picture that was kept of it", () => {
   });
   const step = progressStep(call("a", "browse_web", { url: "https://example.com/a" }), page, false);
   assert.equal(step?.shot, "11111111-2222-3333-4444-555555555555");
+});
+
+test("a tool shown as running when the run started again after it is cut off, and one still going is not", () => {
+  const tool = (id: string, toolState: string) => ({ id, kind: "tool", title: "bash", toolState });
+  const status = (id: string, title: string) => ({ id, kind: "status", title });
+  const cut = interruptedTools([
+    status("s1", "Started working"),
+    tool("t1", "running"),
+    tool("t2", "completed"),
+    status("s2", "Resumed work"),
+    tool("t3", "running"),
+  ]);
+  assert.deepEqual([...cut], ["t1"]);
 });

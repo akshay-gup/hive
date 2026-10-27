@@ -1,11 +1,9 @@
-import {
-  FileText,
-  type LucideIcon,
-  MessageCircle,
-  PanelsTopLeft,
-  Shapes,
-  SquareCheck,
-} from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import MessageCircle from "lucide-react-native/dist/esm/icons/message-circle";
+import PanelsTopLeft from "lucide-react-native/dist/esm/icons/panels-top-left";
+import Shapes from "lucide-react-native/dist/esm/icons/shapes";
+import SquareCheck from "lucide-react-native/dist/esm/icons/square-check";
 import type { Section } from "../../../packages/domain/src";
 
 /**

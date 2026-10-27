@@ -1,12 +1,10 @@
-import {
-  Bot,
-  CalendarDays,
-  FileText,
-  Monitor,
-  Plus,
-  RefreshCw,
-  Settings2,
-} from "lucide-react-native";
+import Bot from "lucide-react-native/dist/esm/icons/bot";
+import CalendarDays from "lucide-react-native/dist/esm/icons/calendar-days";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import Monitor from "lucide-react-native/dist/esm/icons/monitor";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import RefreshCw from "lucide-react-native/dist/esm/icons/refresh-cw";
+import Settings2 from "lucide-react-native/dist/esm/icons/settings-2";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { type Channel, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";

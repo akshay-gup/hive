@@ -8,6 +8,7 @@ import { z } from "zod";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { AgentTask } from "../../../packages/domain/src/agent.ts";
+import { plainIssues } from "../../../packages/domain/src/friendly-issues.ts";
 import { emailDraftSchema, proposalSchema } from "../../../packages/domain/src/index.ts";
 import { ActionService } from "./actions.ts";
 import { makeRuntime } from "./agent.ts";
@@ -151,8 +152,7 @@ export async function createApp(
     }),
   );
   app.onError((error, c) => {
-    if (error instanceof z.ZodError)
-      return c.json({ error: error.issues.map((i) => i.message).join("; ") }, 422);
+    if (error instanceof z.ZodError) return c.json({ error: plainIssues(error.issues) }, 422);
     if (error instanceof AppError) return c.json({ error: error.message }, error.status);
     if (error.name === "PdfError" || error.name === "RecurringEventError")
       return c.json({ error: error.message }, 422);

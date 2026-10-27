@@ -1,4 +1,6 @@
-import { ChevronRight, Mail, Search } from "lucide-react-native";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import Mail from "lucide-react-native/dist/esm/icons/mail";
+import Search from "lucide-react-native/dist/esm/icons/search";
 import { useContext } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { z } from "zod";

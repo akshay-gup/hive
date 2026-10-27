@@ -968,3 +968,28 @@ test("those who may delete a channel are shown what is in it first, and others a
   };
   assert.equal(theirs.you.delete, false);
 });
+
+test("a request already answered in its thread is shown with its answer, so it is not done again", async () => {
+  const room = await make("max", "Design");
+  connectMachine();
+  await hello();
+  await post("max", room.id, "@hive add a to-do called Buy milk");
+  const first = started().at(-1);
+  await fromMachine({
+    t: "run.end",
+    runId: first?.run.id ?? "",
+    n: 1,
+    status: "done",
+    body: "Done: Buy milk is on the board.",
+    steps: [],
+  });
+  await post("max", room.id, "@hive and what is the topic here?");
+  const second = started().at(-1);
+  assert.deepEqual(
+    second?.run.thread.messages.map((m) => [m.author, m.body]),
+    [
+      ["Max", "@hive add a to-do called Buy milk"],
+      ["Hive", "Done: Buy milk is on the board."],
+    ],
+  );
+});

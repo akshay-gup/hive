@@ -8,19 +8,17 @@ import {
   useRenderTool,
   useRenderToolCall,
 } from "@copilotkit/react-native/headless";
-import {
-  ArrowDown,
-  ArrowUp,
-  FileText,
-  FolderOpen,
-  Lock,
-  Plus,
-  RotateCcw,
-  Square,
-  User,
-  Users,
-  X,
-} from "lucide-react-native";
+import ArrowDown from "lucide-react-native/dist/esm/icons/arrow-down";
+import ArrowUp from "lucide-react-native/dist/esm/icons/arrow-up";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import FolderOpen from "lucide-react-native/dist/esm/icons/folder-open";
+import Lock from "lucide-react-native/dist/esm/icons/lock";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import RotateCcw from "lucide-react-native/dist/esm/icons/rotate-ccw";
+import Square from "lucide-react-native/dist/esm/icons/square";
+import User from "lucide-react-native/dist/esm/icons/user";
+import Users from "lucide-react-native/dist/esm/icons/users";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   AppState,

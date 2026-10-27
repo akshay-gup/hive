@@ -1,4 +1,5 @@
-import { UserMinus, UserPlus } from "lucide-react-native";
+import UserMinus from "lucide-react-native/dist/esm/icons/user-minus";
+import UserPlus from "lucide-react-native/dist/esm/icons/user-plus";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type {

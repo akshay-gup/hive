@@ -21,6 +21,8 @@ declare module "cloudflare:workers" {
     getAlarm(): Promise<number | null>;
     deleteAlarm(): Promise<void>;
     deleteAll(): Promise<void>;
+    get<T = unknown>(key: string): Promise<T | undefined>;
+    put(key: string, value: unknown): Promise<void>;
   }
   export interface DurableObjectState {
     readonly id: { toString(): string; name?: string };

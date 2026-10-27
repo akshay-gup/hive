@@ -1,15 +1,13 @@
-import {
-  Bot,
-  ChevronDown,
-  Hash,
-  Lock,
-  LogOut,
-  Monitor,
-  Plus,
-  SquarePen,
-  User,
-  X,
-} from "lucide-react-native";
+import Bot from "lucide-react-native/dist/esm/icons/bot";
+import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
+import Hash from "lucide-react-native/dist/esm/icons/hash";
+import Lock from "lucide-react-native/dist/esm/icons/lock";
+import LogOut from "lucide-react-native/dist/esm/icons/log-out";
+import Monitor from "lucide-react-native/dist/esm/icons/monitor";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import SquarePen from "lucide-react-native/dist/esm/icons/square-pen";
+import User from "lucide-react-native/dist/esm/icons/user";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, Pressable, ScrollView, Text, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";

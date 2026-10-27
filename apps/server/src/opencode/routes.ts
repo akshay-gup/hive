@@ -133,7 +133,7 @@ export function opencodePermissionRoutes(deps: OpencodeShimDeps) {
     const channelId = c.req.param("channelId");
     const channels = await deps.service.listChannels(owner);
     if (!channels.some((channel) => channel.id === channelId))
-      return c.json({ error: "Channel not found" }, 404);
+      return c.json({ error: "That channel is not there, or you cannot see it." }, 404);
     return c.json({ channelId, rules: await deps.rules.channelRules(owner, channelId) });
   });
 
@@ -142,7 +142,7 @@ export function opencodePermissionRoutes(deps: OpencodeShimDeps) {
     const channelId = c.req.param("channelId");
     const channels = await deps.service.listChannels(owner);
     if (!channels.some((channel) => channel.id === channelId))
-      return c.json({ error: "Channel not found" }, 404);
+      return c.json({ error: "That channel is not there, or you cannot see it." }, 404);
     const parsed = rulesSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "Body must be { rules: string[] }" }, 400);
     const bad = invalidRuleLines(parsed.data.rules);
@@ -157,7 +157,7 @@ export function opencodePermissionRoutes(deps: OpencodeShimDeps) {
     const channelId = c.req.param("channelId");
     const channels = await deps.service.listChannels(owner);
     if (!channels.some((channel) => channel.id === channelId))
-      return c.json({ error: "Channel not found" }, 404);
+      return c.json({ error: "That channel is not there, or you cannot see it." }, 404);
     return c.json({ channelId, mode: await deps.rules.channelMode(owner, channelId) });
   });
 
@@ -166,7 +166,7 @@ export function opencodePermissionRoutes(deps: OpencodeShimDeps) {
     const channelId = c.req.param("channelId");
     const channels = await deps.service.listChannels(owner);
     if (!channels.some((channel) => channel.id === channelId))
-      return c.json({ error: "Channel not found" }, 404);
+      return c.json({ error: "That channel is not there, or you cannot see it." }, 404);
     const parsed = modeSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success || !isPermissionMode(parsed.data.mode))
       return c.json({ error: 'Body must be { mode: "ask" | "auto" }' }, 400);

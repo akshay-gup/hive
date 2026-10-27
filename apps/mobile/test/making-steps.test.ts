@@ -6,6 +6,7 @@ import {
   barFill,
   FLAVOR_SECONDS,
   flavorAt,
+  furthestStep,
   stepList,
 } from "../src/hosted/making-steps.ts";
 
@@ -130,4 +131,12 @@ test("the bar's clock restarts only when the step changes", () => {
   assert.equal(bar.since, 1_000);
   bar = advanceBar(bar, "machine", 12_000);
   assert.equal(bar.since, 12_000);
+});
+
+test("the step shown only moves forward, even when the control plane starts a round again", () => {
+  assert.equal(furthestStep(undefined, "address"), "address");
+  assert.equal(furthestStep("address", "machine"), "machine");
+  assert.equal(furthestStep("checking", "machine"), "checking");
+  assert.equal(furthestStep("starting", undefined), "starting");
+  assert.equal(furthestStep("starting", "teleporting"), "starting");
 });

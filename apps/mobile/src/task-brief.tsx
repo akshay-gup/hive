@@ -1,5 +1,7 @@
 import * as DocumentPicker from "expo-document-picker";
-import { FileText, Image as ImageIcon, Paperclip } from "lucide-react-native";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import ImageIcon from "lucide-react-native/dist/esm/icons/image";
+import Paperclip from "lucide-react-native/dist/esm/icons/paperclip";
 import { useState } from "react";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
 import {

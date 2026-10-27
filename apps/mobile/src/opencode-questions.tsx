@@ -1,4 +1,4 @@
-import { MessageCircleQuestion } from "lucide-react-native";
+import MessageCircleQuestion from "lucide-react-native/dist/esm/icons/message-circle-question";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { useGuest } from "./access";

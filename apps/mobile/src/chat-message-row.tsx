@@ -1,4 +1,10 @@
-import { Copy, MessageSquare, Pencil, RotateCcw, Smile, Trash2, X } from "lucide-react-native";
+import Copy from "lucide-react-native/dist/esm/icons/copy";
+import MessageSquare from "lucide-react-native/dist/esm/icons/message-square";
+import Pencil from "lucide-react-native/dist/esm/icons/pencil";
+import RotateCcw from "lucide-react-native/dist/esm/icons/rotate-ccw";
+import Smile from "lucide-react-native/dist/esm/icons/smile";
+import Trash2 from "lucide-react-native/dist/esm/icons/trash-2";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useState } from "react";
 import { Platform, Pressable, Share, Text, TextInput, View } from "react-native";
 import type { ChatReaction } from "../../../packages/domain/src/chat";

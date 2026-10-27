@@ -1,4 +1,5 @@
-import { Check, ExternalLink } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import ExternalLink from "lucide-react-native/dist/esm/icons/external-link";
 import { createContext, useContext, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, Text, View } from "react-native";
 import type { JevOption, JevPanel } from "../../../packages/domain/src/jev";

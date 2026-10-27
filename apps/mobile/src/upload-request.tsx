@@ -1,4 +1,7 @@
-import { Check, FolderOpen, Upload, X } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import FolderOpen from "lucide-react-native/dist/esm/icons/folder-open";
+import Upload from "lucide-react-native/dist/esm/icons/upload";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type {

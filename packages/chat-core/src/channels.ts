@@ -76,7 +76,7 @@ export class ChatChannels {
   async get(owner: string, channelId: string): Promise<ChannelView> {
     await this.access.assertChannel(owner, channelId);
     const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
-    if (!channel) throw new AppError("Channel not found", 404);
+    if (!channel) throw new AppError("That channel is not there, or you cannot see it.", 404);
     const prefs = await this.notificationPrefs(owner);
     return this.view(
       owner,
@@ -154,13 +154,13 @@ export class ChatChannels {
     const person = scope.person;
     if (person?.role === "guest") throw new AppError("A guest can't archive a channel", 403);
     const runs = person?.role === "owner" || person?.role === "admin";
-    if (!runs && !scope.allows(id)) throw new AppError("Channel not found", 404);
+    if (!runs && !scope.allows(id)) throw new AppError("That channel is not there, or you cannot see it.", 404);
     const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", id);
-    if (!channel) throw new AppError("Channel not found", 404);
+    if (!channel) throw new AppError("That channel is not there, or you cannot see it.", 404);
     if (isDm(channel))
       throw scope.allows(id)
         ? new AppError("A direct message can't be archived", 409)
-        : new AppError("Channel not found", 404);
+        : new AppError("That channel is not there, or you cannot see it.", 404);
     if (
       person &&
       !runs &&
@@ -178,7 +178,7 @@ export class ChatChannels {
       {},
       { status: "archived", updatedAt: this.now() },
     );
-    if (!updated) throw new AppError("Channel not found", 404);
+    if (!updated) throw new AppError("That channel is not there, or you cannot see it.", 404);
     return updated;
   }
 

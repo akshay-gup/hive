@@ -1,4 +1,7 @@
-import { BellOff, Check, Settings, X } from "lucide-react-native";
+import BellOff from "lucide-react-native/dist/esm/icons/bell-off";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import Settings from "lucide-react-native/dist/esm/icons/settings";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import type { AgentNotification } from "../../../packages/domain/src/agent";

@@ -1,4 +1,7 @@
-import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react-native";
+import ChevronLeft from "lucide-react-native/dist/esm/icons/chevron-left";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import Minus from "lucide-react-native/dist/esm/icons/minus";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
 import { useRef, useState } from "react";
 import { Text, View } from "react-native";
 import Pdf from "react-native-pdf";

@@ -101,7 +101,7 @@ export class TaskFiles {
   constructor(private readonly dataDir: string) {}
 
   private directory(taskId: string): string {
-    if (!/^[\w-]+$/.test(taskId)) throw new AppError("Task not found", 404);
+    if (!/^[\w-]+$/.test(taskId)) throw new AppError("That task is not there, or you cannot see it.", 404);
     return join(this.dataDir, "task-files", taskId);
   }
   private path(taskId: string, id: string): string {

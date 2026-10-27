@@ -53,7 +53,7 @@ export class ChannelPeople {
       channelId === ORCHESTRATOR_CHANNEL_ID
         ? null
         : await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
-    if (!channel || !canOpen(person, channel)) throw new AppError("Channel not found", 404);
+    if (!channel || !canOpen(person, channel)) throw new AppError("That channel is not there, or you cannot see it.", 404);
     return channel;
   }
 
@@ -296,7 +296,7 @@ export class ChannelPeople {
 
   private async entry(owner: string, channelId: string): Promise<ChannelDirectoryEntry> {
     const found = (await this.directory(owner)).find((entry) => entry.id === channelId);
-    if (!found) throw new AppError("Channel not found", 404);
+    if (!found) throw new AppError("That channel is not there, or you cannot see it.", 404);
     return found;
   }
 
@@ -307,7 +307,7 @@ export class ChannelPeople {
     for (let attempt = 0; attempt < 5; attempt++) {
       const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
       if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID || isDm(channel))
-        throw new AppError("Channel not found", 404);
+        throw new AppError("That channel is not there, or you cannot see it.", 404);
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
       if (isIn(person, channel)) return this.entry(owner, channelId);
       const now = new Date().toISOString();

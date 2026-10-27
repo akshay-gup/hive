@@ -1,4 +1,7 @@
-import { Archive, Hash, Lock, LogIn } from "lucide-react-native";
+import Archive from "lucide-react-native/dist/esm/icons/archive";
+import Hash from "lucide-react-native/dist/esm/icons/hash";
+import Lock from "lucide-react-native/dist/esm/icons/lock";
+import LogIn from "lucide-react-native/dist/esm/icons/log-in";
 import { useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { ChannelDirectoryEntry } from "../../../packages/domain/src/agent";

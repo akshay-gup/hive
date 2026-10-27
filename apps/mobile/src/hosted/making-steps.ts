@@ -9,10 +9,10 @@ export interface MakingStep {
 
 /** What making a workspace goes through, in the order the control plane reports it. */
 const steps: { key: MakingStepName; label: string; from: number }[] = [
-  { key: "address", label: "Finding a spot on the internet", from: 0.04 },
-  { key: "machine", label: "Unpacking a fresh machine", from: 0.14 },
-  { key: "starting", label: "Switching the lights on", from: 0.34 },
-  { key: "checking", label: "Saying hello", from: 0.72 },
+  { key: "address", label: "Getting an address for it", from: 0.04 },
+  { key: "machine", label: "Setting up its computer", from: 0.14 },
+  { key: "starting", label: "Starting it up", from: 0.34 },
+  { key: "checking", label: "Checking that it works", from: 0.72 },
 ];
 
 /** Where the bar stands when a step has just begun, and where it is heading. A step never fills past the next one's start. */
@@ -32,6 +32,20 @@ export function stepList(step: string | undefined): MakingStep[] {
     label,
     state: at < 0 ? "next" : index < at ? "done" : index === at ? "now" : "next",
   }));
+}
+
+/**
+ * The step to show: the furthest one seen. The control plane checks that a new workspace answers in
+ * rounds, and each round says the early steps again, so what it reports can go back a step; what
+ * the person sees only moves forward.
+ */
+export function furthestStep(
+  before: string | undefined,
+  step: string | undefined,
+): string | undefined {
+  const index = (name: string | undefined) =>
+    steps.findIndex((candidate) => candidate.key === name);
+  return index(step) >= index(before) ? step : before;
 }
 
 /**
@@ -68,14 +82,14 @@ export function advanceBar(state: BarState, step: string | undefined, now: numbe
   return { step, since, fill: Math.max(state.fill, barFill(step, (now - since) / 1000)) };
 }
 
-/** Said while waiting, a few seconds each. Nothing here is a claim about what the machine is doing. */
+/** Said while waiting, a few seconds each, in plain words. Nothing here is a claim about what the machine is doing right now. */
 const lines = [
-  "Plumping the cushions.",
-  "Tidying the honeycomb.",
-  "Teaching the agent where the good chairs are.",
-  "Hanging up the do-not-disturb sign.",
-  "Sharpening a few pencils.",
-  "Bees do not stop for much. This one is almost done.",
+  "This only happens once for each workspace.",
+  "Your workspace gets a computer of its own.",
+  "You can leave this page. The setup carries on.",
+  "Everything your team writes is kept in the workspace.",
+  "When it is ready you will be taken in.",
+  "The last step checks that it all works.",
 ];
 export const FLAVOR_SECONDS = 4;
 

@@ -1,4 +1,5 @@
-import { Check, ChevronDown } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { GENERAL_PROJECT_ID, type Project } from "../../../packages/domain/src/agent";

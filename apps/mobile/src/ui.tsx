@@ -1,12 +1,10 @@
-import {
-  ArrowUpRight,
-  Check,
-  ChevronRight,
-  type LucideIcon,
-  Plus,
-  Search,
-  X,
-} from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
+import ArrowUpRight from "lucide-react-native/dist/esm/icons/arrow-up-right";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import Search from "lucide-react-native/dist/esm/icons/search";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { type ComponentType, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -288,7 +286,7 @@ export function Button({
       accessibilityState={{ disabled: !!(disabled || busy), busy: !!busy }}
       onPress={onPress}
       // A small button is under the size of a thumb: the touch reaches a little beyond it.
-      hitSlop={small && !dense ? { top: 3, bottom: 3 } : undefined}
+      hitSlop={small && !dense ? { top: 4, bottom: 4, left: 5, right: 5 } : undefined}
       style={({ pressed, hovered }: WebPressState) => [
         s.button,
         primary ? s.primary : s.secondary,

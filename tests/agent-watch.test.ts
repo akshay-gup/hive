@@ -176,3 +176,32 @@ test("what OpenCode is told never to open is the machine's data, and only in the
   watch.setMode("audit");
   assert.deepEqual(watch.denyRules(), []);
 });
+
+test("what one command reads of the machine's data in a moment is one flag, with how many others", () => {
+  const { watch, sent } = watching();
+  for (const file of ["pg_wal", "global", "pg_xact", "base", "pg_multixact"])
+    watch.kernelRead({
+      path: `${dataDir}/postgres/${file}`,
+      cwd: "/home/hive",
+      comm: "ls",
+      exe: "/usr/bin/ls",
+      pid: 1,
+    });
+  assert.equal(sent.length, 0, "gathered for a moment first");
+  watch.releaseAll();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.source, "kernel");
+  assert.equal(sent[0]?.rule, "database");
+  assert.match(sent[0]?.target ?? "", /^\/data\/hive\/postgres\/pg_wal and 4 more$/);
+  // A later command is a flag of its own.
+  watch.kernelRead({
+    path: `${dataDir}/postgres/global`,
+    cwd: "/home/hive",
+    comm: "cat",
+    exe: "/usr/bin/cat",
+    pid: 2,
+  });
+  watch.releaseAll();
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1]?.target, `${dataDir}/postgres/global`);
+});

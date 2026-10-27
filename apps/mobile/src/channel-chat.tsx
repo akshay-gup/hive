@@ -1,4 +1,6 @@
-import { Maximize2, Minimize2, X } from "lucide-react-native";
+import Maximize2 from "lucide-react-native/dist/esm/icons/maximize-2";
+import Minimize2 from "lucide-react-native/dist/esm/icons/minimize-2";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,

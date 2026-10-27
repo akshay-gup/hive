@@ -1,4 +1,8 @@
-import { BellRing, Link2, MessageSquare, Paperclip, Pause } from "lucide-react-native";
+import BellRing from "lucide-react-native/dist/esm/icons/bell-ring";
+import Link2 from "lucide-react-native/dist/esm/icons/link-2";
+import MessageSquare from "lucide-react-native/dist/esm/icons/message-square";
+import Paperclip from "lucide-react-native/dist/esm/icons/paperclip";
+import Pause from "lucide-react-native/dist/esm/icons/pause";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import {

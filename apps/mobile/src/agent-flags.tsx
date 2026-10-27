@@ -1,4 +1,4 @@
-import { Check } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
 import { useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import {

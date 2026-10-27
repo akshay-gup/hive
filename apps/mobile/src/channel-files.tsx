@@ -1,14 +1,12 @@
-import {
-  ChevronLeft,
-  ChevronRight,
-  Copy,
-  Download,
-  ExternalLink,
-  Folder,
-  FolderOpen,
-  RefreshCw,
-  Upload,
-} from "lucide-react-native";
+import ChevronLeft from "lucide-react-native/dist/esm/icons/chevron-left";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import Copy from "lucide-react-native/dist/esm/icons/copy";
+import Download from "lucide-react-native/dist/esm/icons/download";
+import ExternalLink from "lucide-react-native/dist/esm/icons/external-link";
+import Folder from "lucide-react-native/dist/esm/icons/folder";
+import FolderOpen from "lucide-react-native/dist/esm/icons/folder-open";
+import RefreshCw from "lucide-react-native/dist/esm/icons/refresh-cw";
+import Upload from "lucide-react-native/dist/esm/icons/upload";
 import { useCallback, useEffect, useState } from "react";
 import { Image, Platform, Pressable, Share, Text, View } from "react-native";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";

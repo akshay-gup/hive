@@ -1,25 +1,23 @@
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import {
-  ArrowDownToLine,
-  ArrowUpRight,
-  CalendarDays,
-  Check,
-  CheckCheck,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Globe2,
-  HardDrive,
-  Inbox,
-  Link2,
-  Mail,
-  Plus,
-  ShieldCheck,
-  Sparkles,
-  Upload,
-} from "lucide-react-native";
+import ArrowDownToLine from "lucide-react-native/dist/esm/icons/arrow-down-to-line";
+import ArrowUpRight from "lucide-react-native/dist/esm/icons/arrow-up-right";
+import CalendarDays from "lucide-react-native/dist/esm/icons/calendar-days";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import CheckCheck from "lucide-react-native/dist/esm/icons/check-check";
+import ChevronLeft from "lucide-react-native/dist/esm/icons/chevron-left";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import Clock3 from "lucide-react-native/dist/esm/icons/clock-3";
+import Globe2 from "lucide-react-native/dist/esm/icons/earth";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import HardDrive from "lucide-react-native/dist/esm/icons/hard-drive";
+import Inbox from "lucide-react-native/dist/esm/icons/inbox";
+import Link2 from "lucide-react-native/dist/esm/icons/link-2";
+import Mail from "lucide-react-native/dist/esm/icons/mail";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import ShieldCheck from "lucide-react-native/dist/esm/icons/shield-check";
+import Sparkles from "lucide-react-native/dist/esm/icons/sparkles";
+import Upload from "lucide-react-native/dist/esm/icons/upload";
 import { useEffect, useState } from "react";
 import {
   Image,

@@ -3,6 +3,7 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from "
 import type { AgentTask, RunEvent } from "../../../packages/domain/src/agent";
 import { AssistantResponse } from "./assistant-response";
 import { ChannelFileCard } from "./file-card";
+import { interruptedTools } from "./run-progress";
 import { parseSharedFile } from "./tool-results";
 import { colors, ErrorNotice, fontSize, IconSlot, monoProps, radius, s } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -10,9 +11,9 @@ import { useWorkspace } from "./workspace";
 function publicText(text: string) {
   return text.replace(/^TASK_(?:COMPLETE|BLOCKED):\s*/gm, "");
 }
-function ToolActivity({ event }: { event: RunEvent }) {
+function ToolActivity({ event, cutOff }: { event: RunEvent; cutOff?: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const running = ["pending", "running"].includes(event.toolState ?? "");
+  const running = !cutOff && ["pending", "running"].includes(event.toolState ?? "");
   // A file the agent shared is shown as it is in a chat, not as the JSON it came back as.
   const sent = event.toolName === "send_file" ? parseSharedFile(event.detail) : null;
   const shared = sent && "channelId" in sent ? <ChannelFileCard sent={sent} /> : null;
@@ -35,14 +36,15 @@ function ToolActivity({ event }: { event: RunEvent }) {
           {running ? (
             <ActivityIndicator size="small" color={colors.primary} />
           ) : (
-            <Text style={s.small}>{event.toolState === "error" ? "!" : "✓"}</Text>
+            <Text style={s.small}>{cutOff || event.toolState === "error" ? "!" : "✓"}</Text>
           )}
         </IconSlot>
         <Text style={[s.text, { flex: 1, fontSize: fontSize.ui }]}>
           {event.toolName ?? event.title}
         </Text>
         <Text style={s.small}>
-          {event.toolState ?? "completed"} · {expanded ? "Hide" : "Details"}
+          {cutOff ? "interrupted" : (event.toolState ?? "completed")} ·{" "}
+          {expanded ? "Hide" : "Details"}
         </Text>
       </Pressable>
       {shared && <View style={{ padding: 12, paddingTop: 0 }}>{shared}</View>}
@@ -133,6 +135,7 @@ export function TaskRunView({ task }: { task: AgentTask }) {
   const entries = transcript.length
     ? events.filter((e) => !(e.kind === "step" && e.title === "Agent update"))
     : events;
+  const cut = interruptedTools(entries);
   return (
     <View style={{ gap: 16 }}>
       <View style={[s.row, { gap: 10 }]}>
@@ -173,7 +176,7 @@ export function TaskRunView({ task }: { task: AgentTask }) {
       >
         {entries.map((event) =>
           event.kind === "tool" ? (
-            <ToolActivity key={event.id} event={event} />
+            <ToolActivity key={event.id} event={event} cutOff={cut.has(event.id)} />
           ) : event.kind === "message" ? (
             <View key={event.id} style={{ gap: 6 }}>
               <Text style={[s.small, { fontWeight: "600" }]}>

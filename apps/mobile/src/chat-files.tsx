@@ -1,4 +1,6 @@
-import { File as FileIcon, FileText, Image as ImageIcon } from "lucide-react-native";
+import FileIcon from "lucide-react-native/dist/esm/icons/file";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import ImageIcon from "lucide-react-native/dist/esm/icons/image";
 import { useEffect, useState } from "react";
 import { Image, Linking, Platform, Pressable, Text, View } from "react-native";
 import type { ChatFile } from "../../../packages/domain/src/chat";

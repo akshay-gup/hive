@@ -1,23 +1,21 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
-import {
-  CalendarDays,
-  Check,
-  Clock3,
-  Download,
-  Edit3,
-  ExternalLink,
-  FileText,
-  Globe2,
-  Mail as MailIcon,
-  Reply,
-  RotateCw,
-  Save,
-  Send,
-  ShieldCheck,
-  Trash2,
-  X,
-} from "lucide-react-native";
+import CalendarDays from "lucide-react-native/dist/esm/icons/calendar-days";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import Clock3 from "lucide-react-native/dist/esm/icons/clock-3";
+import Download from "lucide-react-native/dist/esm/icons/download";
+import Globe2 from "lucide-react-native/dist/esm/icons/earth";
+import ExternalLink from "lucide-react-native/dist/esm/icons/external-link";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import MailIcon from "lucide-react-native/dist/esm/icons/mail";
+import Edit3 from "lucide-react-native/dist/esm/icons/pen-line";
+import Reply from "lucide-react-native/dist/esm/icons/reply";
+import RotateCw from "lucide-react-native/dist/esm/icons/rotate-cw";
+import Save from "lucide-react-native/dist/esm/icons/save";
+import Send from "lucide-react-native/dist/esm/icons/send";
+import ShieldCheck from "lucide-react-native/dist/esm/icons/shield-check";
+import Trash2 from "lucide-react-native/dist/esm/icons/trash-2";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useEffect, useState } from "react";
 import { Image, Linking, Platform, Text, View } from "react-native";
 import {

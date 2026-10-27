@@ -393,3 +393,24 @@ export function summarizeSteps(steps: readonly ProgressStep[], elapsedMs?: numbe
     return `Worked for ${formatElapsed(elapsedMs)}${missed}`;
   return `Worked through ${count(steps.length, "step")}${missed}`;
 }
+
+/**
+ * The tool calls of a task's run that were cut off: ones still shown as running although the run
+ * has started again since (the machine restarted, and the run went on in the same session), so they
+ * will never finish. Events are in the order they happened.
+ */
+export function interruptedTools(
+  events: readonly { id: string; kind: string; title: string; toolState?: string }[],
+): Set<string> {
+  const cut = new Set<string>();
+  let pending: string[] = [];
+  for (const event of events) {
+    if (event.kind === "tool" && ["pending", "running"].includes(event.toolState ?? ""))
+      pending.push(event.id);
+    else if (event.kind === "status" && /^(Started working|Resumed work)$/.test(event.title)) {
+      for (const id of pending) cut.add(id);
+      pending = [];
+    }
+  }
+  return cut;
+}

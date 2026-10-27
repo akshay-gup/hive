@@ -1,4 +1,6 @@
-import { LogOut, Plus, Trash2 } from "lucide-react-native";
+import LogOut from "lucide-react-native/dist/esm/icons/log-out";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import Trash2 from "lucide-react-native/dist/esm/icons/trash-2";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { WarmBee } from "../animated-bee";
@@ -65,12 +67,19 @@ export function WorkspacesScreen({
   const [joining, setJoining] = useState(false);
   const [link, setLink] = useState("");
   const [linkError, setLinkError] = useState("");
+  const [nameError, setNameError] = useState("");
   const empty = workspaces.length === 0;
   // Made or joined, a person is in as many as they are allowed: then there is nothing to add.
   const full = maxWorkspaces !== undefined && workspaces.length >= maxWorkspaces;
   const showCreate = !full && (creating || empty);
   const submit = () => {
-    if (name.trim()) onCreate(name.trim());
+    // A button that is switched off says nothing, so this one stays on and says what is missing.
+    if (!name.trim()) {
+      setNameError("Enter a name for your workspace.");
+      return;
+    }
+    setNameError("");
+    onCreate(name.trim());
   };
   const join = () => {
     const token = inviteTokenFrom(link);
@@ -154,14 +163,18 @@ export function WorkspacesScreen({
             <Field
               label="Workspace name"
               value={name}
-              onChangeText={setName}
+              onChangeText={(value) => {
+                setName(value);
+                if (value.trim()) setNameError("");
+              }}
               placeholder="Acme"
               maxLength={60}
               autoFocus={!empty}
               onSubmitEditing={submit}
             />
+            <ErrorNotice error={nameError} />
             <View style={[s.row, { gap: 10 }]}>
-              <Button primary busy={busy} disabled={!name.trim()} onPress={submit}>
+              <Button primary busy={busy} onPress={submit}>
                 Create workspace
               </Button>
               {!empty && (
@@ -194,7 +207,7 @@ export function WorkspacesScreen({
           />
           <ErrorNotice error={linkError} />
           <View style={[s.row, { gap: 10 }]}>
-            <Button primary disabled={!link.trim()} onPress={join}>
+            <Button primary onPress={join}>
               Join
             </Button>
             <Button onPress={() => setJoining(false)}>Cancel</Button>

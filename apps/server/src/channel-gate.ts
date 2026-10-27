@@ -64,7 +64,7 @@ const channelOfThread = async (
 async function memberGate(c: Context, owner: string, service: AgentService, scope: Scope) {
   const method = c.req.method;
   const path = pathOf(c);
-  const gone = () => new AppError("Channel not found", 404);
+  const gone = () => new AppError("That channel is not there, or you cannot see it.", 404);
   const channel = (id: unknown) => {
     if (typeof id === "string" && !scope.allows(decoded(id))) throw gone();
   };
@@ -112,7 +112,7 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
   const path = pathOf(c);
   const refuse = () => new AppError(NOT_FOR_GUESTS, 403);
   const channel = (id: string) => {
-    if (!scope.allows(decoded(id))) throw new AppError("Channel not found", 404);
+    if (!scope.allows(decoded(id))) throw new AppError("That channel is not there, or you cannot see it.", 404);
   };
   const body = () => bodyOf(c);
   const thread = async (threadId: unknown) => {

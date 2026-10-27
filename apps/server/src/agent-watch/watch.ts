@@ -34,6 +34,8 @@ export interface WatchDeps {
   /** Tell the chat service; false when it cannot be reached just now. */
   send: (frame: { t: "agent.flag"; finding: WatchFinding }) => boolean;
   log?: (line: string) => void;
+  /** How long the kernel's reads of one command are gathered into one flag. */
+  batchMs?: number;
 }
 
 /** The most a single run is marked for, and the most kept for a moment when the chat service is out of reach. */
@@ -41,6 +43,8 @@ const PER_RUN = 50;
 const KEPT = 100;
 /** How long a result waits for the kernel's word (it usually comes in a few hundred milliseconds). */
 const KERNEL_HOLD_MS = 500;
+/** One command that reads a folder makes the kernel report every file in it: they are one flag. */
+const KERNEL_BATCH_MS = 1500;
 
 /** What one run's watch is: the handler of its events, and the verdict on what it asks leave for. */
 export type RunWatch = ((event: OpenCodeEvent) => void) & {
@@ -141,6 +145,10 @@ export class AgentWatch {
         // If the run was stopped for it, the mark says so.
         if (run.onSerious?.({ callId, finding })) finding.action = "blocked";
       }
+      if (finding.source === "kernel") {
+        this.gather(`${run.runId ?? run.scope}:${found.rule}:${tool}`, finding);
+        return;
+      }
       if (seen.has(key) || seen.size >= PER_RUN) return;
       seen.add(key);
       this.report(finding);
@@ -228,7 +236,7 @@ export class AgentWatch {
       for (const entry of targets) entry.read(read);
       return;
     }
-    this.report({
+    this.gather(`machine:${found.rule}:${read.comm}`, {
       source: "kernel",
       scope: "machine",
       tool: read.comm.slice(0, 100),
@@ -239,6 +247,42 @@ export class AgentWatch {
       action: "marked",
       mode: this.mode,
     });
+  }
+
+  /** What the kernel saw, by command, waiting a moment for the rest of what one command read. */
+  private readonly gathering = new Map<
+    string,
+    { finding: WatchFinding; more: number; timer: ReturnType<typeof setTimeout> }
+  >();
+
+  /** One flag for what one command read in a moment: the first file, and how many others. */
+  private gather(key: string, finding: WatchFinding) {
+    const held = this.gathering.get(key);
+    if (held) {
+      held.more += 1;
+      // If any of them stopped the run, the flag says so.
+      if (finding.action === "blocked") held.finding.action = "blocked";
+      return;
+    }
+    const timer = setTimeout(() => this.releaseGathered(key), this.deps.batchMs ?? KERNEL_BATCH_MS);
+    (timer as { unref?: () => void }).unref?.();
+    this.gathering.set(key, { finding, more: 0, timer });
+  }
+
+  private releaseGathered(key: string) {
+    const held = this.gathering.get(key);
+    if (!held) return;
+    this.gathering.delete(key);
+    clearTimeout(held.timer);
+    const { finding, more } = held;
+    this.report(
+      more ? { ...finding, target: `${finding.target.slice(0, 460)} and ${more} more` } : finding,
+    );
+  }
+
+  /** Send now what is being gathered (a run has ended, or the machine is stopping, or a test is waiting). */
+  releaseAll() {
+    for (const key of [...this.gathering.keys()]) this.releaseGathered(key);
   }
 
   /** The kernel watch has stopped working, or is working again. */

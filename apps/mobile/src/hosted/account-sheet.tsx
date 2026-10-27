@@ -1,4 +1,5 @@
-import { LogOut, Trash2 } from "lucide-react-native";
+import LogOut from "lucide-react-native/dist/esm/icons/log-out";
+import Trash2 from "lucide-react-native/dist/esm/icons/trash-2";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { Button, Card, colors, ErrorNotice, SectionHeading, Sheet, s } from "../ui";

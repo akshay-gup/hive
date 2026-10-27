@@ -1,4 +1,4 @@
-import { Paperclip } from "lucide-react-native";
+import Paperclip from "lucide-react-native/dist/esm/icons/paperclip";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import type { Workspace } from "../../../packages/domain/src";

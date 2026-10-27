@@ -1,13 +1,11 @@
-import {
-  Archive,
-  Bell,
-  BellOff,
-  LogOut,
-  Trash2,
-  UserMinus,
-  UserPlus,
-  Users,
-} from "lucide-react-native";
+import Archive from "lucide-react-native/dist/esm/icons/archive";
+import Bell from "lucide-react-native/dist/esm/icons/bell";
+import BellOff from "lucide-react-native/dist/esm/icons/bell-off";
+import LogOut from "lucide-react-native/dist/esm/icons/log-out";
+import Trash2 from "lucide-react-native/dist/esm/icons/trash-2";
+import UserMinus from "lucide-react-native/dist/esm/icons/user-minus";
+import UserPlus from "lucide-react-native/dist/esm/icons/user-plus";
+import Users from "lucide-react-native/dist/esm/icons/users";
 import { useCallback, useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { ChannelPeopleView } from "../../../packages/domain/src/agent";

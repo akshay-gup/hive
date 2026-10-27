@@ -1,25 +1,31 @@
-import {
-  ArrowRight,
-  Bell,
-  CalendarDays,
-  ChevronDown,
-  ChevronRight,
-  CircleCheck,
-  FileText,
-  Globe2,
-  Lightbulb,
-  ListChecks,
-  Mail,
-  Pause,
-  Play,
-  Plus,
-  RefreshCw,
-  Settings,
-  Target,
-  X,
-} from "lucide-react-native";
+import ArrowRight from "lucide-react-native/dist/esm/icons/arrow-right";
+import Bell from "lucide-react-native/dist/esm/icons/bell";
+import CalendarDays from "lucide-react-native/dist/esm/icons/calendar-days";
+import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import CircleCheck from "lucide-react-native/dist/esm/icons/circle-check";
+import Globe2 from "lucide-react-native/dist/esm/icons/earth";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import Lightbulb from "lucide-react-native/dist/esm/icons/lightbulb";
+import ListChecks from "lucide-react-native/dist/esm/icons/list-checks";
+import Mail from "lucide-react-native/dist/esm/icons/mail";
+import Pause from "lucide-react-native/dist/esm/icons/pause";
+import Play from "lucide-react-native/dist/esm/icons/play";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import RefreshCw from "lucide-react-native/dist/esm/icons/refresh-cw";
+import Settings from "lucide-react-native/dist/esm/icons/settings";
+import Target from "lucide-react-native/dist/esm/icons/target";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useEffect, useState } from "react";
-import { Image, Linking, Pressable, Text, useWindowDimensions, View } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Pressable,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import type { Artifact, BrowserSession } from "../../../packages/domain/src";
 import type {
@@ -353,6 +359,7 @@ export function AgentActivityScreen() {
       accessibilityRole="button"
       accessibilityState={{ selected: onlyNeeds }}
       accessibilityLabel={onlyNeeds ? "Show all work" : "Show only what needs you"}
+      hitSlop={{ top: 8, bottom: 8 }}
       onPress={() => setOnlyNeeds((on) => !on)}
       style={{
         height: 28,
@@ -414,8 +421,15 @@ export function AgentActivityScreen() {
           onSelect={(task) => setSelectedId(task.id)}
         />
       )}
+      {(view === "list" || view === "timeline") && !tasks.length && !data && (
+        // Not read yet: the empty-board message here would say there is no work, which is not known.
+        <View style={[s.centred, { paddingVertical: 40 }]}>
+          <ActivityIndicator color={colors.primary} accessibilityLabel="Loading the work" />
+        </View>
+      )}
       {(view === "list" || view === "timeline") &&
         !tasks.length &&
+        !!data &&
         (projectTasks.length ? (
           <Empty
             icon={ListChecks}

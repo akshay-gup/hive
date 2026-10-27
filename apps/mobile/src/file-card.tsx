@@ -1,4 +1,9 @@
-import { Download, ExternalLink, Eye, EyeOff, FileX2, Globe } from "lucide-react-native";
+import Download from "lucide-react-native/dist/esm/icons/download";
+import ExternalLink from "lucide-react-native/dist/esm/icons/external-link";
+import Eye from "lucide-react-native/dist/esm/icons/eye";
+import EyeOff from "lucide-react-native/dist/esm/icons/eye-off";
+import FileX2 from "lucide-react-native/dist/esm/icons/file-x-2";
+import Globe from "lucide-react-native/dist/esm/icons/globe";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import {

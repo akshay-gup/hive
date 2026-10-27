@@ -206,7 +206,7 @@ test("a private channel is found only by the people in it, whoever else is askin
       );
       if (response.status === 404 && !path.includes("/tasks/")) {
         const error = (await json(response)).error as string;
-        assert.match(error, /not found/i, `${who} ${method} ${path}: ${error}`);
+        assert.match(error, /is not there/i, `${who} ${method} ${path}: ${error}`);
       }
     }
   // The people in it use all of it.

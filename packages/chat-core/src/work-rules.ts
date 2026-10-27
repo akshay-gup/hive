@@ -160,7 +160,7 @@ export class Work {
     this.ensureGeneral();
     const project = this.deps.projects.get(id);
     const person = (await this.deps.access.scope(owner)).person;
-    if (!project || !canViewProject(person, project)) throw new AppError("Project not found", 404);
+    if (!project || !canViewProject(person, project)) throw new AppError("That project is not there, or you cannot see it.", 404);
     return project;
   }
 
@@ -280,7 +280,7 @@ export class Work {
     this.ensureGeneral();
     const scope = await this.deps.access.scope(owner);
     const project = task.projectId ? this.deps.projects.get(task.projectId) : null;
-    if (!canSeeTask(scope, project)) throw new AppError("Task not found", 404);
+    if (!canSeeTask(scope, project)) throw new AppError("That task is not there, or you cannot see it.", 404);
     if (write && project && !canWorkInProject(scope.person, project))
       throw new AppError("You can look at this project but not change what is in it", 403);
   }
@@ -288,7 +288,7 @@ export class Work {
   /** The task, if the person may see it (and work on it, to change it). */
   async getTask(owner: string, id: string, write = false): Promise<AgentTask> {
     const task = this.deps.tasks.get(id);
-    if (!task) throw new AppError("Task not found", 404);
+    if (!task) throw new AppError("That task is not there, or you cannot see it.", 404);
     await this.assertTask(owner, task, write);
     return task;
   }
@@ -393,7 +393,7 @@ export class Work {
     await this.assertProjectWork(owner, projectId);
     const channelId = input.channelId ?? ORCHESTRATOR_CHANNEL_ID;
     if (channelId !== ORCHESTRATOR_CHANNEL_ID && !scope.allows(channelId))
-      throw new AppError("Channel not found", 404);
+      throw new AppError("That channel is not there, or you cannot see it.", 404);
     if (options.key) {
       const existing = this.deps.tasks.byKey(options.key);
       if (existing) return existing;

@@ -1,4 +1,7 @@
-import { ArrowUp, Paperclip, Square, X } from "lucide-react-native";
+import ArrowUp from "lucide-react-native/dist/esm/icons/arrow-up";
+import Paperclip from "lucide-react-native/dist/esm/icons/paperclip";
+import Square from "lucide-react-native/dist/esm/icons/square";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { activeMention, insertMention, matchPeople } from "../../../packages/domain/src/mentions";

@@ -1,4 +1,7 @@
-import { Eye, ListChecks, Lock, Plus } from "lucide-react-native";
+import Eye from "lucide-react-native/dist/esm/icons/eye";
+import ListChecks from "lucide-react-native/dist/esm/icons/list-checks";
+import Lock from "lucide-react-native/dist/esm/icons/lock";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
 import {
   createContext,
   type ReactNode,

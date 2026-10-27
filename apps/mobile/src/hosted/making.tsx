@@ -1,11 +1,18 @@
-import { Check } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 import { AnimatedBee } from "../animated-bee";
 import { colors, pageBee, radius, s } from "../ui";
 import { useStill } from "../use-still";
 import { Frame } from "./frame";
-import { advanceBar, type BarState, flavorAt, type MakingStep, stepList } from "./making-steps";
+import {
+  advanceBar,
+  type BarState,
+  flavorAt,
+  furthestStep,
+  type MakingStep,
+  stepList,
+} from "./making-steps";
 
 function StepRow({ step }: { step: MakingStep }) {
   const state = { done: "done", now: "in progress", next: "waiting" }[step.state];
@@ -48,8 +55,11 @@ function StepRow({ step }: { step: MakingStep }) {
  * plane says where it is, a bar that keeps creeping and never goes back, and a line or two of
  * company. The steps are there from the first frame, waiting, so only their marks change.
  */
-export function MakingScreen({ name, step }: { name: string; step?: string }) {
+export function MakingScreen({ name, step: reported }: { name: string; step?: string }) {
   const still = useStill();
+  const furthest = useRef<string | undefined>(undefined);
+  furthest.current = furthestStep(furthest.current, reported);
+  const step = furthest.current;
   const began = useRef(Date.now());
   const [now, setNow] = useState(Date.now());
   const [bar, setBar] = useState<BarState>(() =>
@@ -122,7 +132,7 @@ export function MakingScreen({ name, step }: { name: string; step?: string }) {
         {flavorAt((now - began.current) / 1000)}
       </Text>
       <Text style={[s.small, { textAlign: "center" }]}>
-        About a minute the first time. You will be taken in when it is ready.
+        It takes about 3 minutes the first time. You will be taken in when it is ready.
       </Text>
     </Frame>
   );

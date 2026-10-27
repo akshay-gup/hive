@@ -4,6 +4,7 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { z } from "zod";
+import { plainIssues } from "../../../packages/domain/src/friendly-issues.ts";
 import { type Account, Accounts, accountIdFor } from "./accounts.ts";
 import type { ControlConfig } from "./config.ts";
 import { HttpError } from "./errors.ts";
@@ -124,8 +125,7 @@ export function createControlApp(db: ControlStore, config: ControlConfig, deps: 
   app.use("*", (c, next) => (c.req.path.startsWith("/v1/gateway/") ? next() : limitBody(c, next)));
   app.onError((error, c) => {
     if (error instanceof HttpError) return c.json({ error: error.message }, error.status as 400);
-    if (error instanceof z.ZodError)
-      return c.json({ error: error.issues.map((i) => i.message).join("; ") }, 422);
+    if (error instanceof z.ZodError) return c.json({ error: plainIssues(error.issues) }, 422);
     if (error instanceof SyntaxError) return c.json({ error: "Invalid request data" }, 400);
     console.error(`[Hive control] ${error.name}: ${error.message}`);
     return c.json({ error: "Something went wrong. Try again." }, 500);

@@ -1,4 +1,7 @@
-import { Check, MessageCircleQuestion, ShieldCheck, X } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import MessageCircleQuestion from "lucide-react-native/dist/esm/icons/message-circle-question";
+import ShieldCheck from "lucide-react-native/dist/esm/icons/shield-check";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import type { PromptChoice, PromptState, RunPrompt } from "../../../packages/domain/src/chat-agent";

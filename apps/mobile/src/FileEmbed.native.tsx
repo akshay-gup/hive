@@ -1,4 +1,4 @@
-import { Play } from "lucide-react-native";
+import Play from "lucide-react-native/dist/esm/icons/play";
 import { Linking } from "react-native";
 import Pdf from "react-native-pdf";
 import { WebView } from "react-native-webview";

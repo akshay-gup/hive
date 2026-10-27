@@ -1,16 +1,14 @@
-import {
-  FileArchive,
-  FileAudio,
-  FileCode,
-  FileImage,
-  FileJson,
-  FileSpreadsheet,
-  FileText,
-  FileVideo,
-  File as GenericFile,
-  Globe,
-  type LucideIcon,
-} from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
+import GenericFile from "lucide-react-native/dist/esm/icons/file";
+import FileArchive from "lucide-react-native/dist/esm/icons/file-archive";
+import FileAudio from "lucide-react-native/dist/esm/icons/file-audio";
+import FileCode from "lucide-react-native/dist/esm/icons/file-code";
+import FileImage from "lucide-react-native/dist/esm/icons/file-image";
+import FileJson from "lucide-react-native/dist/esm/icons/file-json";
+import FileSpreadsheet from "lucide-react-native/dist/esm/icons/file-spreadsheet";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import FileVideo from "lucide-react-native/dist/esm/icons/file-video";
+import Globe from "lucide-react-native/dist/esm/icons/globe";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Linking, Platform, ScrollView, Text, View } from "react-native";
 import {

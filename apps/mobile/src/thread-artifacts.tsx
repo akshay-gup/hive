@@ -1,4 +1,5 @@
-import { ChevronRight, FileText } from "lucide-react-native";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Artifact, BrowserSession } from "../../../packages/domain/src";

@@ -1,4 +1,9 @@
-import { Check, ChevronDown, ChevronRight, ExternalLink, Minus, X } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
+import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
+import ExternalLink from "lucide-react-native/dist/esm/icons/external-link";
+import Minus from "lucide-react-native/dist/esm/icons/minus";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import type { BrowserSession } from "../../../packages/domain/src";

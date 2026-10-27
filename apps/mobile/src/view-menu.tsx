@@ -1,4 +1,5 @@
-import { Check, ChevronDown } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { colors, fontSize, radius, shadow } from "./theme";
@@ -34,6 +35,7 @@ export function ViewMenu<T extends string>({
         accessibilityRole="button"
         accessibilityLabel={`${label}: ${chosen?.label ?? ""}. Choose another`}
         accessibilityState={{ expanded: open }}
+        hitSlop={{ top: 4, bottom: 4 }}
         onPress={() => setOpen(!open)}
         style={{
           flexDirection: "row",

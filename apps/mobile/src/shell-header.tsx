@@ -1,4 +1,7 @@
-import { Bell, ChevronDown, FolderOpen, Menu } from "lucide-react-native";
+import Bell from "lucide-react-native/dist/esm/icons/bell";
+import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
+import FolderOpen from "lucide-react-native/dist/esm/icons/folder-open";
+import Menu from "lucide-react-native/dist/esm/icons/menu";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
@@ -118,6 +121,7 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
             accessibilityRole={section === "activity" && !desktop ? "button" : undefined}
             accessibilityLabel={section === "activity" && !desktop ? "Choose a project" : undefined}
             disabled={section !== "activity" || desktop}
+            hitSlop={{ top: 12, bottom: 12 }}
             onPress={onMenu}
           >
             <View style={[s.row, { gap: 4 }]}>

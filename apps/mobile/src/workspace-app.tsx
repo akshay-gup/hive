@@ -1,4 +1,7 @@
-import { AlertCircle, Check, Hash, X } from "lucide-react-native";
+import Check from "lucide-react-native/dist/esm/icons/check";
+import AlertCircle from "lucide-react-native/dist/esm/icons/circle-alert";
+import Hash from "lucide-react-native/dist/esm/icons/hash";
+import X from "lucide-react-native/dist/esm/icons/x";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,6 +20,7 @@ import { ActivityProjectsProvider } from "./activity-projects";
 import { AgentActivityScreen, AgentStatus, AppsScreen, GoalsScreen, IdeasScreen } from "./agent-ui";
 import { AgentWorkspaceProvider } from "./agent-workspace";
 import type { MuseApi } from "./api";
+import { useBrowserBack } from "./browser-history";
 import { ChannelChat } from "./channel-chat";
 import { ChatScreen, WorkspaceTools } from "./chat";
 import { ChatProvider } from "./chat-context";
@@ -92,6 +96,12 @@ export function WorkspaceApp({
   );
   const open = useCallback((next: Detail) => setDetail(next), []);
   const close = useCallback(() => setDetail(undefined), []);
+  useBrowserBack({
+    section,
+    hasDetail: !!detail,
+    goTo: (place) => setSection(place as Section),
+    closeDetail: close,
+  });
   const ask = useCallback((text: string) => {
     setPrompt({ id: Date.now(), text });
     setSection("chat");

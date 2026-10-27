@@ -31,6 +31,7 @@ import type { Channel, ChannelFootprint } from "../../../packages/domain/src/age
 import { WATCH_MODES } from "../../../packages/domain/src/agent-watch.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
 import { choiceSchema } from "../../../packages/domain/src/chat-agent.ts";
+import { plainIssues } from "../../../packages/domain/src/friendly-issues.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
 import { AgentLink, type RunnerLink } from "./agent-link.ts";
 import { Filing } from "./filing.ts";
@@ -405,8 +406,7 @@ export class ChatCore {
   private routes() {
     const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
     app.onError((error, c) => {
-      if (error instanceof z.ZodError)
-        return c.json({ error: error.issues.map((i) => i.message).join("; ") }, 422);
+      if (error instanceof z.ZodError) return c.json({ error: plainIssues(error.issues) }, 422);
       if (error instanceof AppError) return c.json({ error: error.message }, error.status);
       if (error instanceof SyntaxError) return c.json({ error: "Invalid request data" }, 400);
       console.error(`[Hive chat] ${error.name}: ${error.message}`);

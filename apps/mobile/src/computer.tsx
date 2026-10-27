@@ -1,4 +1,9 @@
-import { FileText, FolderOpen, Globe2, Monitor, Plus, RefreshCw } from "lucide-react-native";
+import Globe2 from "lucide-react-native/dist/esm/icons/earth";
+import FileText from "lucide-react-native/dist/esm/icons/file-text";
+import FolderOpen from "lucide-react-native/dist/esm/icons/folder-open";
+import Monitor from "lucide-react-native/dist/esm/icons/monitor";
+import Plus from "lucide-react-native/dist/esm/icons/plus";
+import RefreshCw from "lucide-react-native/dist/esm/icons/refresh-cw";
 import { useEffect, useState } from "react";
 import { AppState, Image, Pressable, Text, View } from "react-native";
 import type { BrowserSession } from "../../../packages/domain/src";

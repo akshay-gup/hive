@@ -794,10 +794,22 @@ export class AgentLink {
         .slice(-CONTEXT_REPLIES);
       before = [...(root && !root.deletedAt ? [root] : []), ...replies];
     } else {
-      before = messages.page(run.channelId, {
-        before: trigger.seq,
-        limit: CONTEXT_BEFORE,
-      }).messages;
+      before = messages
+        .page(run.channelId, {
+          before: trigger.seq,
+          limit: CONTEXT_BEFORE,
+        })
+        .messages.flatMap((m) => {
+          // The agent answers in a thread under the message, which the channel's own list does not
+          // show: without its answer an earlier request looks undone, and it would be done again.
+          const answer =
+            m.authorKind !== "agent" && m.replyCount > 0
+              ? messages
+                  .replies(m.id, { limit: 50 })
+                  .find((r) => r.authorKind === "agent" && !r.deletedAt && r.body.trim())
+              : undefined;
+          return answer ? [m, answer] : [m];
+        });
     }
     // The agent's empty replies (a run that did not get far) say nothing.
     const context = before

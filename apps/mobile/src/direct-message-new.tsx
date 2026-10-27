@@ -1,4 +1,4 @@
-import { User } from "lucide-react-native";
+import User from "lucide-react-native/dist/esm/icons/user";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ChannelView, DirectMessagePerson } from "../../../packages/domain/src/agent";
