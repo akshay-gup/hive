@@ -46,6 +46,7 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **Back leaves the app.** Screens do not add browser history, so the Back button goes to the page before Hive instead of the previous screen.
 - **Raw validation text reaches people** ("Too big: expected string to have <=64 characters" for a long invitation link), and "Project not found" is shown for a project one may not see.
 - **Unexplained shorthand:** "Needs you", "3/3" beside a monitor, ages like "44m", "Computer · take control", "Delegate" and "Computer" in the left bar.
+- **Any member can change a team goal.** Goals are kept on the machine and open to everyone in the workspace except guests, so a member can pause or finish a goal someone else made. Say whether goals should have an owner, as projects do.
 - **Pin or favourite projects.**
 - **A hint when no agent is connected.**
 - **Hide single tasks inside a project.**
