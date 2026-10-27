@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
 import type { Config } from "../../apps/server/src/config.ts";
 import { createStore } from "../../apps/server/src/db.ts";
+import { localBoard } from "./local-task.ts";
 import {
   generateWorkspaceKeys,
   signWorkspaceToken,
@@ -43,6 +44,8 @@ export async function managedWorkspace<P extends Record<string, TestPerson>>(
     managed: { workspaceId, controlPublicKey: keys.publicKey },
   };
   const server = await createApp(db, config);
+  // The board is the chat service's; here the machine's own copies of tasks stand in for it.
+  server.agent.board = localBoard(server.agent);
   const sessions = new Map<Who, string>();
   const signIn = async (who: Who) => {
     const person = people[who];

@@ -98,6 +98,12 @@ export async function createApp(
     prepare: (owner, input, connectionId) => workspace.prepare(owner, input, connectionId),
     connected: (owner) => workspace.connected(owner),
     connection: (owner) => workspace.connection(owner),
+    taskStatus: (owner, taskId): Promise<string | null> =>
+      agent.board
+        .forPerson(owner)
+        .call<{ status: string }>("task.get", { taskId })
+        .then((task) => task.status)
+        .catch(() => null),
   });
   const browser = new BrowserService(db, config, auth, files);
   const agent = new AgentService(
@@ -468,6 +474,8 @@ export async function createApp(
             fetcher: options.chatRunner?.fetcher,
             log: (line) => console.log(line),
           }),
+          ready: () => agent.recovered,
+          connection: async (owner) => (await workspace.connection(owner))?.id ?? null,
           prepare: async (start) => {
             await vouchFor(agent, start.owner);
             if (start.channel) await standInFor(agent, start.channel);
@@ -572,9 +580,16 @@ export async function createApp(
     const body = z
       .object({ hash: z.string(), decision: z.enum(["approve", "deny"]) })
       .parse(await c.req.json());
-    return c.json(
-      await actions.decide(c.get("owner"), c.req.param("id"), body.hash, body.decision),
-    );
+    const owner = c.get("owner");
+    const decided = await actions.decide(owner, c.req.param("id"), body.hash, body.decision);
+    // The task waiting on the review carries on; if this cannot be said now, the board looks again when the
+    // review would have run out.
+    if (decided.taskId && decided.status !== "awaiting_review")
+      await agent.board
+        .forPerson(owner)
+        .call("review.decided", { taskId: decided.taskId, actionId: decided.id })
+        .catch((error) => console.error(`[Hive] could not tell the board of a review: ${String(error)}`));
+    return c.json(decided);
   });
   app.get("/api/drafts", async (c) => c.json(await db.list(c.get("owner"), "drafts")));
   app.post("/api/drafts", async (c) => {

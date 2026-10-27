@@ -45,6 +45,9 @@ const NO_MACHINE: Machine = {
   worker: { running: false },
 };
 
+/** How long the board is trusted to be as last read, with nothing from the chat service saying otherwise. */
+const BOARD_RECHECK_MS = 30_000;
+
 interface AgentContextValue {
   data?: AgentWorkspace;
   error: string;
@@ -63,44 +66,61 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
   const chatNotices = useRef(new Set<string>());
   // The last the machine said, shown while it is asleep.
   const machine = useRef<Machine>(NO_MACHINE);
-  const refresh = useCallback(async () => {
-    const version = ++requestVersion.current;
-    try {
-      const [board, rest, notices] = await Promise.all([
-        // The board is the chat service's, so it is there while the machine sleeps.
-        api.request<{ tasks: AgentTask[]; projects: Project[] }>("/chat/v1/work"),
-        api
-          .request<AgentWorkspace>("/api/agent")
-          .then(({ tasks: _tasks, projects: _projects, ...kept }) => {
-            machine.current = kept;
-            return kept;
-          })
-          .catch(() => ({ ...machine.current, worker: { running: false } })),
-        // What people said to this person, from the chat service; the agent's own come with the workspace.
-        api.chat
-          ? api.request<ChatNotice[]>("/chat/v1/notifications").catch(() => [] as ChatNotice[])
-          : Promise.resolve([] as ChatNotice[]),
-      ]);
-      if (version === requestVersion.current) {
-        chatNotices.current = new Set(notices.map((n) => n.id));
-        const next: AgentWorkspace = { ...rest, tasks: board.tasks, projects: board.projects };
-        setData(
-          notices.length
-            ? {
-                ...next,
-                notifications: [...next.notifications, ...notices.map(asNotification)].sort(
-                  (a, b) => b.createdAt.localeCompare(a.createdAt),
-                ),
-              }
-            : next,
-        );
-        setError("");
+  // The board as last read, and when: it is read again when the chat service says it changed, after what this
+  // person does, and now and then in case a message was missed.
+  const board = useRef<{ tasks: AgentTask[]; projects: Project[]; at: number } | undefined>(
+    undefined,
+  );
+  const readBoard = useCallback(
+    () =>
+      api.request<{ tasks: AgentTask[]; projects: Project[] }>("/chat/v1/work").then((read) => {
+        board.current = { ...read, at: Date.now() };
+        return board.current;
+      }),
+    [api],
+  );
+  const refresh = useCallback(
+    async (options: { board?: boolean } = {}) => {
+      const version = ++requestVersion.current;
+      try {
+        const [shown, rest, notices] = await Promise.all([
+          // The board is the chat service's, so it is there while the machine sleeps.
+          options.board === false && board.current ? board.current : readBoard(),
+          api
+            .request<AgentWorkspace>("/api/agent")
+            .then(({ tasks: _tasks, projects: _projects, ...kept }) => {
+              machine.current = kept;
+              return kept;
+            })
+            .catch(() => ({ ...machine.current, worker: { running: false } })),
+          // What people said to this person, from the chat service; the agent's own come with the workspace.
+          api.chat
+            ? api.request<ChatNotice[]>("/chat/v1/notifications").catch(() => [] as ChatNotice[])
+            : Promise.resolve([] as ChatNotice[]),
+        ]);
+        if (version === requestVersion.current) {
+          chatNotices.current = new Set(notices.map((n) => n.id));
+          const next: AgentWorkspace = { ...rest, tasks: shown.tasks, projects: shown.projects };
+          setData(
+            notices.length
+              ? {
+                  ...next,
+                  notifications: [...next.notifications, ...notices.map(asNotification)].sort(
+                    (a, b) => b.createdAt.localeCompare(a.createdAt),
+                  ),
+                }
+              : next,
+          );
+          setError("");
+        }
+      } catch (e) {
+        if (version === requestVersion.current)
+          setError(e instanceof Error ? e.message : String(e));
+        throw e;
       }
-    } catch (e) {
-      if (version === requestVersion.current) setError(e instanceof Error ? e.message : String(e));
-      throw e;
-    }
-  }, [api]);
+    },
+    [api, readBoard],
+  );
   useEffect(() => {
     const visible = () =>
       AppState.currentState !== "background" &&
@@ -110,7 +130,9 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
     const poll = () => {
       if (!visible() || polling) return;
       polling = true;
-      void refresh()
+      // The chat service says when the board changes; it is read in between only in case a message was missed.
+      const stale = !board.current || Date.now() - board.current.at > BOARD_RECHECK_MS;
+      void refresh({ board: stale })
         .catch(() => {})
         .finally(() => {
           polling = false;
@@ -143,14 +165,13 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
           if (boardTimer.current) return;
           boardTimer.current = setTimeout(() => {
             boardTimer.current = null;
-            api
-              .request<{ tasks: AgentTask[]; projects: Project[] }>("/chat/v1/work")
-              .then((board) => setData((prev) => (prev ? { ...prev, ...board } : prev)))
+            readBoard()
+              .then((read) => setData((prev) => (prev ? { ...prev, ...read } : prev)))
               .catch(() => undefined);
           }, 250);
         }
       }),
-    [chat.subscribe, refresh, api],
+    [chat.subscribe, refresh, readBoard],
   );
   useEffect(
     () => () => {

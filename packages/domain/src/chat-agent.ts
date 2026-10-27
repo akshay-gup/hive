@@ -144,6 +144,16 @@ export const WORK_OPS = [
   "project.update",
   "project.delete",
   "board",
+  /** One task, as the person may see it. */
+  "task.get",
+  /** Pause, resume, cancel or retry a task. */
+  "task.control",
+  /** Which of these task ids the person may see (the machine holds things that name tasks, and shows only those). */
+  "tasks.visible",
+  /** A review the agent prepared for a task has been decided: the task is to carry on. */
+  "review.decided",
+  /** A goal was paused: its tasks the person may work on are paused. */
+  "goal.pause",
 ] as const;
 export type WorkOp = (typeof WORK_OPS)[number];
 

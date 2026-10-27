@@ -25,6 +25,8 @@ interface Options {
     targetVersion?: string;
   }>;
   connected: (owner: string) => Promise<boolean>;
+  /** Where the task a review is for stands (the board keeps tasks); null if it cannot be said. */
+  taskStatus?: (owner: string, taskId: string) => Promise<string | null>;
   connection?: (owner: string) => Promise<{ id: string; account: string } | null>;
   now?: () => number;
 }
@@ -114,8 +116,8 @@ export class ActionService {
       throw new AppError("This proposal changed. Open its latest review before deciding.", 409);
     if (proposal.status !== "awaiting_review") return proposal;
     if (decision === "approve" && proposal.taskId) {
-      const task = await this.db.get<{ status: string }>(owner, "tasks", proposal.taskId);
-      if (!task || !["running", "waiting_approval"].includes(task.status))
+      const status = await this.options.taskStatus?.(owner, proposal.taskId);
+      if (!status || !["running", "waiting_approval"].includes(status))
         throw new AppError(
           "Resume the task before approving this action. Cancelled tasks cannot execute.",
           409,

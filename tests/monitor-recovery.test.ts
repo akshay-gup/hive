@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import { createApp } from "../apps/server/src/app.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import type { AgentNotification, AgentTask, Monitor } from "../packages/domain/src/agent.ts";
+import { localBoard } from "./helpers/local-task.ts";
 
 let db: Store, server: Awaited<ReturnType<typeof createApp>>, directory: string, token: string;
 const owner = "local-user";
@@ -83,6 +84,7 @@ before(async () => {
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: ["http://localhost:8081"],
   });
+  server.agent.board = localBoard(server.agent);
   const session = await server.app.request("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -131,30 +133,6 @@ test("a page change stays alertable when the task outcome is lost after the base
   const found = await notifications();
   assert.equal(found.length, 1, "the No tables -> One table change should notify exactly once");
   assert.match(found[0].body, /One table at 7 pm/);
-});
-
-test("resuming a monitor fails without activating it when the task transition does not commit", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Resume availability");
-  await server.agent.worker.tick();
-  assert.equal(
-    (await read<Monitor>(`/monitors/${monitor.id}/control`, { action: "pause" })).status,
-    "paused",
-  );
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "paused");
-
-  // Another writer changes the task between the read and the CAS in controlMonitor().
-  const fault = loseNextTaskWrite((patch) => patch.status === "queued");
-  let response: Response;
-  try {
-    response = await request(`/monitors/${monitor.id}/control`, { action: "resume" });
-  } finally {
-    fault.restore();
-  }
-  assert.equal(fault.lost, 1);
-  assert.equal(response.status, 409, await response.clone().text());
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "paused");
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "paused");
 });
 
 test("the paused alert is delivered when the final failure outcome is lost", async () => {
@@ -207,106 +185,6 @@ test("the paused alert is delivered when the final failure outcome is lost", asy
   assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "active");
 });
 
-test("maintenance finishes a resume that stopped after the monitor was activated", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Interrupted resume");
-  await server.agent.worker.tick();
-  await read(`/monitors/${monitor.id}/control`, { action: "pause" });
-  const paused = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  assert.equal(paused?.status, "paused");
-
-  // The durable state left when a resume stops after activating the monitor, before queueing.
-  await db.compareAndSwap(
-    owner,
-    "tasks",
-    monitor.taskId,
-    { status: "paused" },
-    { state: { ...paused?.state, resumingMonitor: true } },
-  );
-  const current = await db.get<Monitor>(owner, "monitors", monitor.id);
-  assert.ok(current);
-  await db.put(owner, "monitors", { ...current, status: "active" });
-
-  await maintain();
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "queued");
-  await server.agent.worker.tick();
-  const task = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  assert.equal(task?.status, "scheduled");
-  assert.equal(task?.state.resumingMonitor, false);
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "active");
-});
-
-test("checking a watch retries once when its run finishes during the request", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Check during run");
-  await server.agent.worker.tick();
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "scheduled");
-
-  const fault = loseNextTaskWrite((patch) => patch.status === "queued");
-  let response: Response;
-  try {
-    response = await request(`/monitors/${monitor.id}/control`, { action: "check" });
-  } finally {
-    fault.restore();
-  }
-  assert.equal(fault.lost, 1);
-  assert.equal(response.status, 200, await response.clone().text());
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "queued");
-});
-
-test("a resume during outcome publication is not paused again by the failure reconcile", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Resume during publication");
-  await server.agent.worker.tick();
-  // A failure pause has committed on the task, but the monitor has not been paused yet.
-  const task = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  assert.ok(task);
-  await db.compareAndSwap(
-    owner,
-    "tasks",
-    task.id,
-    { status: "scheduled" },
-    {
-      status: "paused",
-      error: "Page unavailable",
-      state: {
-        ...task.state,
-        failures: 5,
-        notice: { title: "Watch needs attention", body: "Page unavailable", key: "race-paused" },
-      },
-    },
-  );
-  await db.compareAndSwap(
-    owner,
-    "monitors",
-    monitor.id,
-    { status: "active" },
-    { error: "Page unavailable" },
-  );
-
-  // The user resumes while publishOutcome() is sending the paused notice.
-  const originalInsert = db.insertIfAbsent.bind(db);
-  let resuming: Promise<Response> | undefined;
-  db.insertIfAbsent = (async (o: string, kind: string, value: { id: string }) => {
-    if (!resuming && kind === "notifications") {
-      resuming = Promise.resolve(request(`/monitors/${monitor.id}/control`, { action: "resume" }));
-      await resuming;
-    }
-    return originalInsert(o, kind, value);
-  }) as Store["insertIfAbsent"];
-  try {
-    await (
-      server.agent as unknown as { publishOutcome(o: string, t: AgentTask): Promise<void> }
-    ).publishOutcome(owner, task);
-  } finally {
-    db.insertIfAbsent = originalInsert;
-  }
-  const resumed = await resuming;
-  assert.equal(resumed?.status, 200, await resumed?.clone().text());
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "active");
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "queued");
-});
-
 test("a resume finished by maintenance during the request still succeeds", async () => {
   await read("/sample-page", { text: "No tables available" });
   const monitor = await createMonitor("Resume with maintenance");
@@ -346,172 +224,6 @@ test("a resume finished by maintenance during the request still succeeds", async
   assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "queued");
 });
 
-test("two overlapping resume requests both leave the watch active", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Double resume");
-  await server.agent.worker.tick();
-  await read(`/monitors/${monitor.id}/control`, { action: "pause" });
-
-  // A second resume runs to completion right after the first one marks the task.
-  const originalCas: CompareAndSwap = db.compareAndSwap.bind(db);
-  let second: Promise<Response> | undefined;
-  db.compareAndSwap = (async (o, kind, id, expected, patch) => {
-    const saved = await originalCas(o, kind, id, expected, patch);
-    const state = patch.state as { resumingMonitor?: boolean } | undefined;
-    if (!second && saved && kind === "tasks" && state?.resumingMonitor === true) {
-      second = Promise.resolve(request(`/monitors/${monitor.id}/control`, { action: "resume" }));
-      await second;
-    }
-    return saved;
-  }) as CompareAndSwap;
-  let first: Response;
-  try {
-    first = await request(`/monitors/${monitor.id}/control`, { action: "resume" });
-  } finally {
-    db.compareAndSwap = originalCas;
-  }
-  const secondResponse = await second;
-  assert.equal(secondResponse?.status, 200, await secondResponse?.clone().text());
-  assert.equal(first.status, 200, await first.clone().text());
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "active");
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "queued");
-});
-
-test("a leftover resume marker does not keep a failing watch running", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Leftover marker");
-  await server.agent.worker.tick();
-  // The task is paused directly, then a resume stops right after marking it.
-  await read(`/tasks/${monitor.taskId}/control`, { action: "pause" });
-  const paused = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  await db.compareAndSwap(
-    owner,
-    "tasks",
-    monitor.taskId,
-    { status: "paused" },
-    { state: { ...paused?.state, resumingMonitor: true } },
-  );
-  await read(`/tasks/${monitor.taskId}/control`, { action: "resume" });
-
-  const restorePage = failPage();
-  try {
-    await server.agent.worker.tick();
-    for (let failure = 2; failure <= 5; failure++) {
-      await makeDue(monitor.taskId);
-      await server.agent.worker.tick();
-    }
-  } finally {
-    restorePage();
-  }
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "paused");
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "paused");
-  await maintain();
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "paused");
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "paused");
-});
-
-test("a leftover resume marker does not undo a later task pause", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Leftover marker pause");
-  await server.agent.worker.tick();
-  await read(`/tasks/${monitor.taskId}/control`, { action: "pause" });
-  const paused = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  await db.compareAndSwap(
-    owner,
-    "tasks",
-    monitor.taskId,
-    { status: "paused" },
-    { state: { ...paused?.state, resumingMonitor: true } },
-  );
-  await read(`/tasks/${monitor.taskId}/control`, { action: "resume" });
-  await server.agent.worker.tick();
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "scheduled");
-
-  // A later task pause stops after pausing the task, before it reaches the monitor.
-  await db.compareAndSwap(
-    owner,
-    "tasks",
-    monitor.taskId,
-    { status: "scheduled" },
-    { status: "paused", leaseId: null, leaseUntil: null },
-  );
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "active");
-  await maintain();
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "paused");
-});
-
-test("a stop during a resume keeps the watch stopped", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Stop during resume");
-  await server.agent.worker.tick();
-  await read(`/monitors/${monitor.id}/control`, { action: "pause" });
-
-  // The user stops the watch right after the resume marks the task.
-  const originalCas: CompareAndSwap = db.compareAndSwap.bind(db);
-  let stopping: Promise<Response> | undefined;
-  db.compareAndSwap = (async (o, kind, id, expected, patch) => {
-    const saved = await originalCas(o, kind, id, expected, patch);
-    const state = patch.state as { resumingMonitor?: boolean } | undefined;
-    if (!stopping && saved && kind === "tasks" && state?.resumingMonitor === true) {
-      stopping = Promise.resolve(request(`/monitors/${monitor.id}/control`, { action: "stop" }));
-      await stopping;
-    }
-    return saved;
-  }) as CompareAndSwap;
-  let response: Response;
-  try {
-    response = await request(`/monitors/${monitor.id}/control`, { action: "resume" });
-  } finally {
-    db.compareAndSwap = originalCas;
-  }
-  assert.equal((await stopping)?.status, 200);
-  assert.equal(response.status, 409, await response.clone().text());
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "stopped");
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "cancelled");
-});
-
-test("a resume from the task screen is not paused again by a stale failure reconcile", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Task screen resume");
-  await server.agent.worker.tick();
-  const restorePage = failPage();
-  try {
-    for (let failure = 1; failure <= 5; failure++) {
-      await makeDue(monitor.taskId);
-      await server.agent.worker.tick();
-    }
-  } finally {
-    restorePage();
-  }
-  const stale = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  assert.equal(stale?.status, "paused");
-  assert.ok(stale?.error);
-  await read(`/tasks/${monitor.taskId}/control`, { action: "resume" });
-
-  // A failure reconcile that read the paused task before the resume finishes afterwards.
-  const originalGet = db.get.bind(db);
-  let served = false;
-  db.get = (async (o: string, kind: string, id: string) => {
-    if (!served && kind === "tasks" && id === monitor.taskId) {
-      served = true;
-      return stale;
-    }
-    return originalGet(o, kind, id);
-  }) as Store["get"];
-  try {
-    await (
-      server.agent as unknown as { publishOutcome(o: string, t: AgentTask): Promise<void> }
-    ).publishOutcome(owner, stale);
-  } finally {
-    db.get = originalGet;
-  }
-  assert.ok(served);
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "active");
-  await server.agent.worker.tick();
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "scheduled");
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "active");
-});
-
 test("a stop during a check keeps the watch stopped", async () => {
   await read("/sample-page", { text: "No tables available" });
   const monitor = await createMonitor("Stop during check");
@@ -548,64 +260,4 @@ test("a stop during a check keeps the watch stopped", async () => {
   assert.equal(response.status, 409, await response.clone().text());
   assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "stopped");
   assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "cancelled");
-});
-
-test("a check does not revive a task cancelled from the task screen", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Cancel during check");
-  await server.agent.worker.tick();
-
-  // The check arrives after the task is cancelled, before the cancel reaches the monitor.
-  const originalCas: CompareAndSwap = db.compareAndSwap.bind(db);
-  let checking: Response | undefined;
-  db.compareAndSwap = (async (o, kind, id, expected, patch) => {
-    if (!checking && kind === "monitors" && patch.status === "stopped") {
-      db.compareAndSwap = originalCas;
-      checking = await request(`/monitors/${monitor.id}/control`, { action: "check" });
-    }
-    return originalCas(o, kind, id, expected, patch);
-  }) as CompareAndSwap;
-  try {
-    await read(`/tasks/${monitor.taskId}/control`, { action: "cancel" });
-  } finally {
-    db.compareAndSwap = originalCas;
-  }
-  assert.equal(checking?.status, 409, await checking?.clone().text());
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "stopped");
-  assert.equal((await db.get<AgentTask>(owner, "tasks", monitor.taskId))?.status, "cancelled");
-});
-
-test("a check keeps the baseline from a run that finishes during the request", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await createMonitor("Baseline during check");
-  await server.agent.worker.tick();
-  const before = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  assert.equal(before?.status, "scheduled");
-  await read("/sample-page", { text: "One table at 7 pm" });
-
-  // A whole scheduled run completes between the check's read and its requeue.
-  const originalCas: CompareAndSwap = db.compareAndSwap.bind(db);
-  let ran: AgentTask | null = null;
-  db.compareAndSwap = (async (o, kind, id, expected, patch) => {
-    if (!ran && kind === "tasks" && patch.status === "queued" && expected.status === "scheduled") {
-      db.compareAndSwap = originalCas;
-      await makeDue(monitor.taskId);
-      await server.agent.worker.tick();
-      ran = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-    }
-    return originalCas(o, kind, id, expected, patch);
-  }) as CompareAndSwap;
-  try {
-    await read(`/monitors/${monitor.id}/control`, { action: "check" });
-  } finally {
-    db.compareAndSwap = originalCas;
-  }
-  const finished = ran as AgentTask | null;
-  const afterRun = finished?.state.lastHash;
-  assert.equal(finished?.status, "scheduled");
-  assert.ok(afterRun);
-  assert.notEqual(afterRun, before?.state.lastHash);
-  const task = await db.get<AgentTask>(owner, "tasks", monitor.taskId);
-  assert.equal(task?.status, "queued");
-  assert.equal(task?.state.lastHash, afterRun);
 });

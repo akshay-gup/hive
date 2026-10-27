@@ -150,29 +150,6 @@ test("binding a client-known thread id is idempotent", async () => {
   assert.equal(resolved.channelId, ORCHESTRATOR_CHANNEL_ID);
 });
 
-test("tasks delegated from a thread form its work queue", async () => {
-  const channel = await read<Channel>("/channels", { name: "Queued work" }, 201);
-  const first = await read<ChannelThread>(`/channels/${channel.id}/threads`, {}, 201);
-  const other = await read<ChannelThread>(`/channels/${channel.id}/threads`, {}, 201);
-  const task = await read<AgentTask>(
-    "/tasks",
-    {
-      prompt: "Research thread queue",
-      channelId: channel.id,
-      threadId: first.threadId,
-    },
-    201,
-  );
-  assert.equal(task.threadId, first.threadId);
-  const queue = await read<AgentTask[]>(`/threads/${first.threadId}/tasks`);
-  assert.deepEqual(
-    queue.map((t) => t.id),
-    [task.id],
-  );
-  const otherQueue = await read<AgentTask[]>(`/threads/${other.threadId}/tasks`);
-  assert.deepEqual(otherQueue, []);
-});
-
 test("renaming a thread updates its display name only", async () => {
   const channel = await read<Channel>("/channels", { name: "Renames" }, 201);
   const thread = await read<ChannelThread>(`/channels/${channel.id}/threads`, {}, 201);

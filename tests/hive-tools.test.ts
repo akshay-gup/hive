@@ -8,6 +8,7 @@ import { createStore } from "../apps/server/src/db.ts";
 import { conversationTools } from "../apps/server/src/engine/tools.ts";
 import { HiveToolBridge } from "../apps/server/src/opencode/hive-tools.ts";
 import type { AgentTask } from "../packages/domain/src/agent.ts";
+import { localBoard } from "./helpers/local-task.ts";
 
 let directory: string,
   db: Awaited<ReturnType<typeof createStore>>,
@@ -47,7 +48,13 @@ test("MCP exposes shared tools and creates five real manual timeline tasks in th
       state: {},
       forwardedProps: {},
     },
-    { signal: abort.signal, requestKey: "test-run", channelId: channel.id },
+    {
+      signal: abort.signal,
+      requestKey: "test-run",
+      channelId: channel.id,
+      // The board is the chat service's; here the machine's own copies of tasks stand in for it.
+      work: localBoard(server.agent).forPerson("alice"),
+    },
   );
   const bridge = new HiveToolBridge("http://localhost:8787/api/hive-tools");
   const lease = bridge.lease(tools, abort.signal);

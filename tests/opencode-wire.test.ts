@@ -10,6 +10,7 @@ import { createStore } from "../apps/server/src/db.ts";
 import { WATCH_DOWN_TEXT, WATCH_STOP_TEXT } from "../packages/domain/src/agent-watch.ts";
 import { encodeJevAction } from "../packages/domain/src/jev.ts";
 import { type FakeTurn, fakeOpencode } from "./helpers/fake-opencode.ts";
+import { detailOf, localBoard, localTask } from "./helpers/local-task.ts";
 
 /**
  * Hive against something that speaks OpenCode's HTTP API, with nothing stubbed on Hive's side: the
@@ -45,6 +46,7 @@ async function wired(
     ...adjust,
   };
   const server = await createApp(db, config);
+  server.agent.board = localBoard(server.agent);
   app = server.app;
   await server.opencode.start();
   const { token } = await server.auth.session();
@@ -151,9 +153,9 @@ test("a task runs as an OpenCode session, and the agent hands its work in for re
   const f = await wired(t, async ({ call, text }) => {
     await call("finish_task", { summary: `Done: ${text.split("\n")[0]}` });
   });
-  const task = await f.agent.createTask("owner", { prompt: "Plan my week", kind: "agent" });
+  const task = await localTask(f.agent, "owner", { prompt: "Plan my week", kind: "agent" });
   await f.agent.worker.tick();
-  const result = await f.agent.detail("owner", task.id);
+  const result = await detailOf(f.agent, "owner", task.id);
   assert.equal(result.task.status, "in_review", result.task.error ?? result.task.question);
   assert.match(String(result.task.result), /^Done: /);
   assert.deepEqual(f.opencode.prompts[0].model, { providerID: "openai", modelID: "fixture" });
@@ -224,7 +226,7 @@ test("a task whose session fails records why", async (t) => {
   const f = await wired(t, () => {
     throw new Error("No API key found for provider openai");
   });
-  const task = await f.agent.createTask("owner", { prompt: "Plan my week", kind: "agent" });
+  const task = await localTask(f.agent, "owner", { prompt: "Plan my week", kind: "agent" });
   await f.agent.worker.tick();
   const failed = await f.agent.getTask("owner", task.id);
   assert.equal(failed.status, "failed");
@@ -328,7 +330,7 @@ test("with refusing on, a task that reaches the machine's data fails with the re
   });
   dataDir = f.config.dataDir;
   f.watch.setMode("enforce");
-  const task = await f.agent.createTask("owner", { prompt: "Look around", kind: "agent" });
+  const task = await localTask(f.agent, "owner", { prompt: "Look around", kind: "agent" });
   await f.agent.worker.tick();
   const failed = await f.agent.getTask("owner", task.id);
   assert.equal(failed.status, "failed");
@@ -343,7 +345,7 @@ test("with refusing on and the machine's watch down, the person's own chat and a
   f.watch.kernelDown(true, "the kernel watch went quiet");
   const run = await f.chat("@hive hi");
   assert.equal(run.events.find((event) => event.type === "RUN_ERROR")?.message, WATCH_DOWN_TEXT);
-  const task = await f.agent.createTask("owner", { prompt: "Look around", kind: "agent" });
+  const task = await localTask(f.agent, "owner", { prompt: "Look around", kind: "agent" });
   await f.agent.worker.tick();
   const failed = await f.agent.getTask("owner", task.id);
   assert.equal(failed.status, "failed");

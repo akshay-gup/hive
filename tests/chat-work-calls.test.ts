@@ -208,3 +208,51 @@ test("a file attached to a task is kept by the room, reaches the agent while it 
   assert.equal(gone.status, 200);
   assert.equal(f.core.files.get(fileId), null);
 });
+
+test("only a person marks work done, and only work that is ready for review", async (t) => {
+  const f = await wired(t, ({ say }) => say("ok"));
+  const made = await f.core.work.createTask(people.max.id, {
+    kind: "agent",
+    prompt: "Draft the update",
+    input: {},
+  });
+  // Not handed in yet: nothing to mark done.
+  f.core.tasks.change(made.id, { status: "paused" });
+  const early = await f.call("max", "POST", `/v1/tasks/${made.id}/accept`, {});
+  assert.equal(early.status, 409);
+  f.core.tasks.change(made.id, { status: "in_review" });
+  const done = await f.call("max", "POST", `/v1/tasks/${made.id}/accept`, {});
+  assert.equal(done.status, 200);
+  assert.equal(f.core.tasks.get(made.id)?.status, "succeeded");
+});
+
+test("a task is handed to another channel the person can open, and stays in review if it was", async (t) => {
+  const f = await wired(t, ({ say }) => say("ok"));
+  const room = await f.channel("max", "Design");
+  const secret = await f.channel("mia", "Payroll", "private");
+  const made = await f.core.work.createTask(people.max.id, {
+    kind: "agent",
+    prompt: "Draft the update",
+    input: {},
+  });
+  f.core.tasks.change(made.id, { status: "in_review" });
+  const missing = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, { target: "nowhere" });
+  assert.equal(missing.status, 404);
+  // A channel the person cannot open is not one they are told exists.
+  const closed = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, { target: secret.id });
+  assert.equal(closed.status, 404);
+  const moved = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, {
+    target: room.id,
+    reason: "Design owns it",
+  });
+  assert.equal(moved.status, 200);
+  const task = f.core.tasks.get(made.id);
+  assert.deepEqual(
+    [task?.channelId, task?.delegatedTo, task?.status, task?.originChannelId],
+    [room.id, room.id, "in_review", "orchestrator"],
+  );
+  // An archived channel takes no work.
+  await f.call("max", "POST", `/v1/channels/${room.id}/archive`, {});
+  const archived = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, { target: room.id });
+  assert.equal(archived.status, 404);
+});

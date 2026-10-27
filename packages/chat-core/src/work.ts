@@ -9,6 +9,8 @@ export const TASK_LIMITS = {
   maxInterruptions: 3,
   /** Tasks the machine works on at once, unless it says. */
   defaultMaxTasks: 3,
+  /** A review the agent prepared lasts this long; a task waiting on one longer is looked at again. */
+  reviewMs: 31 * 60_000,
   /** The most a machine's report of progress may weigh. */
   maxPatchBytes: 200_000,
 } as const;
@@ -443,6 +445,25 @@ export class Tasks {
 
   hasActive(): boolean {
     return first(this.sql, "SELECT 1 FROM tasks WHERE lease_id IS NOT NULL LIMIT 1") !== undefined;
+  }
+
+  /** Tasks that have waited for a review longer than a review lasts: the review has run out. */
+  staleReviews(): string[] {
+    return this.sql
+      .all<{ id: string }>(
+        "SELECT id FROM tasks WHERE status = 'waiting_approval' AND lease_id IS NULL AND updated_ms < ?",
+        this.clock() - TASK_LIMITS.reviewMs,
+      )
+      .map((r) => r.id);
+  }
+
+  hasReviews(): boolean {
+    return (
+      first(
+        this.sql,
+        "SELECT 1 FROM tasks WHERE status = 'waiting_approval' AND lease_id IS NULL LIMIT 1",
+      ) !== undefined
+    );
   }
 }
 

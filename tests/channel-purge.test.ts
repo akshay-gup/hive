@@ -8,6 +8,7 @@ import type { Config } from "../apps/server/src/config.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import { channelWorkspaceDir } from "../apps/server/src/engine/threads.ts";
 import type { AgentMemory, AgentTask, Channel } from "../packages/domain/src/agent.ts";
+import { localTask } from "./helpers/local-task.ts";
 
 /**
  * What the agent's machine keeps for a channel it was mentioned in goes when the channel is deleted in the
@@ -60,7 +61,7 @@ async function keepSomething(id: string, createdBy: string) {
     join(folder, "threads", "chat-1.json"),
     JSON.stringify({ threadId: "chat-1", channelId: id, name: "t", createdAt: now() }),
   );
-  const task = await server.agent.createTask("shared", {
+  const task = await localTask(server.agent, "shared", {
     title: `Task of ${id}`,
     kind: "manual",
     channelId: id,

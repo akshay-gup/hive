@@ -585,6 +585,9 @@ export class Work {
       patch.status = input.status;
       patch.leaseId = null;
       patch.leaseUntil = null;
+      // A new watch's task waits until the watch is recorded; starting it ends that wait.
+      if (input.status === "queued" && task.state?.initializingMonitor)
+        patch.state = { ...task.state, initializingMonitor: false };
       if (input.status === "cancelled") {
         patch.result = "Stopped by you.";
         patch.error = null as unknown as undefined;
@@ -654,8 +657,14 @@ export class Work {
           : task.actionId
             ? "waiting_approval"
             : "queued";
+    // A watch that is started again starts counting its failures afresh.
+    const state =
+      task.kind === "monitor" && (action === "resume" || action === "retry")
+        ? { ...task.state, failures: 0, notice: null, initializingMonitor: false }
+        : undefined;
     return this.change(task, {
       status,
+      ...(state ? { state } : {}),
       leaseId: null,
       leaseUntil: null,
       error: null as unknown as undefined,
@@ -777,6 +786,47 @@ export class Work {
         }))
       : this.change(task, (current) => ({ notes: withNote(current) }), false);
     return (await this.present(owner, [saved]))[0] as AgentTask;
+  }
+
+  /** A goal was paused: its tasks that are still going, and that the person may work on, are paused. */
+  async pauseGoal(owner: string, goalId: string): Promise<{ paused: number }> {
+    let paused = 0;
+    for (const task of this.deps.tasks.all()) {
+      if (task.goalId !== goalId || TERMINAL.has(task.status) || task.status === "paused") continue;
+      try {
+        await this.control(owner, task.id, "pause");
+        paused++;
+      } catch {
+        // Not theirs to pause: left as it is.
+      }
+    }
+    return { paused };
+  }
+
+  /** Which of these ids are tasks the person may see. */
+  async visibleIds(owner: string, ids: string[]): Promise<string[]> {
+    const seen: string[] = [];
+    for (const id of ids.slice(0, 500)) {
+      const task = this.deps.tasks.get(id);
+      if (!task) continue;
+      try {
+        await this.assertTask(owner, task, false);
+        seen.push(id);
+      } catch {
+        // Not theirs to see: not said.
+      }
+    }
+    return seen;
+  }
+
+  /**
+   * The review of what a task prepared was decided (or ran out): the task carries on, and its run finds how it
+   * was decided. Only for the task and review it is waiting on.
+   */
+  async reviewDecided(owner: string, id: string, actionId: string): Promise<AgentTask> {
+    const task = await this.getTask(owner, id, true);
+    if (task.status !== "waiting_approval" || task.actionId !== actionId) return task;
+    return this.change(task, { status: "queued", leaseId: null, leaseUntil: null });
   }
 
   // Files

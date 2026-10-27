@@ -3,16 +3,10 @@ import { mkdir, rm } from "node:fs/promises";
 import { z } from "zod";
 import {
   Access,
-  canSeeTask,
-  canViewProject,
-  canWorkInProject,
   isDm,
   isIn,
   isPublic,
   managesChannel,
-  managesProject,
-  normalizeEmail,
-  projectFor,
   type Scope,
 } from "../../../../packages/chat-core/src/access.ts";
 import { ChannelPeople } from "../../../../packages/chat-core/src/channel-people.ts";
@@ -20,19 +14,14 @@ import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import {
   type AgentArtifact,
   type AgentIdentity,
+  type AgentMachineView,
   type AgentMemory,
   type AgentNotification,
   type AgentTask,
-  type AgentWorkspace,
-  addNoteSchema,
   type Channel,
   type ChannelThread,
   createChannelSchema,
-  createProjectSchema,
-  createTaskSchema,
-  deleteProjectSchema,
   type Evidence,
-  GENERAL_PROJECT_ID,
   type Goal,
   goalInputSchema,
   type Idea,
@@ -41,14 +30,7 @@ import {
   type NotificationPrefs,
   notificationPrefsSchema,
   ORCHESTRATOR_CHANNEL_ID,
-  type Project,
   type RunEvent,
-  type TaskAttachment,
-  type TaskNote,
-  type TaskStatus,
-  taskBriefLimits,
-  updateProjectSchema,
-  updateTaskSchema,
 } from "../../../../packages/domain/src/agent.ts";
 import type {
   ActionProposal,
@@ -64,21 +46,21 @@ import {
 } from "../../../../packages/domain/src/mentions.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
-import { type Board, noBoard } from "../chat-runner/work-link.ts";
+import { type Board, noBoard, type WorkClient } from "../chat-runner/work-link.ts";
 import type { Config } from "../config.ts";
 import type { Store } from "../db.ts";
 import type { Files } from "../files.ts";
 import { createJevService, type JevService } from "../jev/service.ts";
 import { backgroundFailure } from "../log.ts";
 import type { OpencodeTaskRuntime } from "../opencode/index.ts";
-import { requesterNames, withRequester } from "../requesters.ts";
+import { requesterNames } from "../requesters.ts";
 import type { WorkspaceService } from "../workspace.ts";
 import { inlineLimits, renderBrief } from "./brief.ts";
 import { ChannelFiles } from "./channel-files.ts";
 import { ChannelManager } from "./channels.ts";
 import { analyzeSpending } from "./finance.ts";
 import { executeTask } from "./task-executor.ts";
-import { inspectAttachment, type StagedFile, TaskFiles } from "./task-files.ts";
+import { type StagedFile, TaskFiles } from "./task-files.ts";
 import {
   channelWorkspaceDir,
   diskOwnerForChannel,
@@ -91,15 +73,22 @@ import { LostLeaseError, type TaskContext, TaskWorker } from "./worker.ts";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const date = () => new Date().toISOString();
-const terminal = new Set(["succeeded", "failed", "cancelled"]);
+const _terminal = new Set(["succeeded", "failed", "cancelled"]);
 /** How many of a task's latest steps the app is sent with its history. */
 const HISTORY_EVENTS = 400;
+/** How long the board's answer to which tasks a person may see is kept. */
+const VISIBILITY_MS = 10_000;
 export class AgentService {
   readonly worker: TaskWorker;
   /** Set by createApp: told when the worker is done with a task it was lent, so the task can be given back. */
   taskFinished?: (owner: string, task: AgentTask) => Promise<void>;
   /** Set by createApp: how the agent's tools change the board, which the chat service keeps. */
   board: Board = noBoard;
+  /** Which task ids the board last said a person may see. */
+  private readonly visibility = new Map<
+    string,
+    { at: number; checked: Set<string>; seen: Set<string> }
+  >();
   private maintenance?: ReturnType<typeof setInterval>;
   private refreshing = false;
   private channels?: ChannelManager;
@@ -148,8 +137,29 @@ export class AgentService {
       channelId: config.manageChannels ? ORCHESTRATOR_CHANNEL_ID : config.workerChannelId,
     });
   }
+  /**
+   * Tasks the room lent this machine that it was working when it stopped: what their runs reached is
+   * announced (once; the notices are keyed), and the copies go. The room has them back as interrupted and
+   * lends them again, so nothing here runs one on its own.
+   */
+  async recoverCopies() {
+    for (const { owner, value } of await this.db.scan<AgentTask>("tasks")) {
+      await this.publishOutcome(value.createdBy ?? owner, value).catch((error) =>
+        backgroundFailure("publish a lost run's outcome", error),
+      );
+      await this.taskFiles
+        .removeAll(value.id, this.workspaceOf(value, owner))
+        .catch((error) => backgroundFailure("remove a lost run's files", error));
+      await this.db.remove(owner, "tasks", value.id);
+    }
+  }
+  /** Settled once the copies a stop left behind are dealt with: tasks are not taken before. */
+  recovered: Promise<void> = Promise.resolve();
   start() {
-    this.worker.start();
+    this.recovered = this.recoverCopies().catch((error) =>
+      backgroundFailure("recover lent tasks", error),
+    );
+    void this.recovered.finally(() => this.worker.start());
     // In orchestrator mode the main process also manages per-channel workers.
     // (A channel worker itself never manages: workerChannelId is set there.)
     if (this.config.manageChannels && !this.config.workerChannelId) {
@@ -174,27 +184,6 @@ export class AgentService {
     if (this.refreshing) return;
     this.refreshing = true;
     try {
-      // Recover publications if the process exited after committing an outcome.
-      for (const { owner, value } of await this.db.scan<AgentTask>("tasks"))
-        await this.publishOutcome(value.createdBy ?? owner, value);
-      for (const { owner, value } of await this.db.scan<Monitor>("monitors"))
-        await this.activateMonitor(owner, value);
-      for (const { owner, value } of await this.db.scan<Idea>("ideas"))
-        if (
-          value.status === "accepted" &&
-          value.taskId &&
-          !(await this.db.get(owner, "tasks", value.taskId))
-        )
-          await this.decideIdea(owner, value.id, "accept").catch(async (error) => {
-            backgroundFailure("recover accepted idea", error);
-            await this.notify(
-              owner,
-              "Accepted idea needs attention",
-              "Open the idea again after making room for another task.",
-              undefined,
-              `idea-recovery:${value.id}`,
-            );
-          });
       for (const { owner, value } of await this.db.scan<{ id: string; lastIdeasAt?: string }>(
         "agent-settings",
       )) {
@@ -220,29 +209,8 @@ export class AgentService {
       name: "Hive",
       tone: "warm",
     });
-    await this.ensureDefaultProject(owner);
     // Maintenance works on shared records as the workspace itself, which has no orchestrator chat.
     if (owner !== SHARED_OWNER) await this.ensureOrchestratorChannel(owner);
-  }
-  /**
-   * Every task is in a project, so there is always one for work that names none: General, open to the
-   * whole team. Tasks from before there were projects to be in are put in it when it is made.
-   */
-  private async ensureDefaultProject(owner: string): Promise<void> {
-    const now = date();
-    const made = await this.db.insertIfAbsent<Project>(owner, "projects", {
-      id: GENERAL_PROJECT_ID,
-      name: "General",
-      description: "Where work goes when it is not in another project.",
-      access: "open",
-      members: [],
-      createdAt: now,
-      updatedAt: now,
-    });
-    if (!made) return;
-    for (const task of await this.db.list<AgentTask>(owner, "tasks"))
-      if (!task.projectId)
-        await this.db.put(owner, "tasks", { ...task, projectId: GENERAL_PROJECT_ID });
   }
   /** The orchestrator channel always exists: the fixed control-plane surface. */
   async ensureOrchestratorChannel(owner: string): Promise<Channel> {
@@ -635,133 +603,64 @@ export class AgentService {
     }
     return found;
   }
-  /** A thread's work queue: tasks delegated from it, in creation order. */
-  async threadTasks(owner: string, threadId: string): Promise<AgentTask[]> {
-    const tasks = await this.inVisibleProjects(
-      owner,
-      await this.db.list<AgentTask>(owner, "tasks"),
-    );
-    return tasks
-      .filter((t) => t.threadId === threadId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  }
-  /** What of these tasks is not in a project the person may not see. */
-  private async inVisibleProjects(owner: string, tasks: AgentTask[]): Promise<AgentTask[]> {
-    const person = (await this.access.scope(owner)).person;
-    if (!person) return tasks;
-    const projects = await this.projectsById(owner);
-    return tasks.filter((task) => {
-      const project = task.projectId ? projects.get(task.projectId) : undefined;
-      return !project || canViewProject(person, project);
-    });
-  }
-  /**
-   * Tasks visible in a channel: owned by it, or delegated elsewhere but requested here. Everyone
-   * sees a shared channel's work; the orchestrator is each person's own, so it lists theirs.
-   */
-  async channelTasks(owner: string, channelId: string): Promise<AgentTask[]> {
-    const tasks = await this.inVisibleProjects(
-      owner,
-      await this.db.list<AgentTask>(owner, "tasks"),
-    );
-    return tasks.filter(
-      (t) =>
-        ((t.channelId ?? ORCHESTRATOR_CHANNEL_ID) === channelId ||
-          (t.originChannelId ?? ORCHESTRATOR_CHANNEL_ID) === channelId) &&
-        (channelId !== ORCHESTRATOR_CHANNEL_ID || (t.createdBy ?? owner) === owner),
-    );
-  }
-  /**
-   * Hand a task to the orchestrator or another channel. The task keeps its
-   * origin channel so status stays visible where the work was requested.
-   * Only non-running tasks can be delegated; a worker mid-execution should
-   * checkpoint to waiting first.
-   */
-  async delegateTask(
-    owner: string,
-    id: string,
-    target: string,
-    reason?: string,
-  ): Promise<AgentTask> {
-    const task = await this.getTask(owner, id);
-    if (task.status === "running" && task.leaseId)
-      throw new AppError("Task is running; checkpoint it to waiting before delegating", 409);
-    if (target !== ORCHESTRATOR_CHANNEL_ID) {
-      const channel = await this.getChannel(owner, target);
-      if (
-        !channel ||
-        channel.status === "archived" ||
-        !(await this.access.scope(owner)).allows(target)
-      )
-        throw new AppError("Target channel not found", 404);
-    }
-    const updated: AgentTask = {
-      ...task,
-      originChannelId: task.originChannelId ?? task.channelId ?? ORCHESTRATOR_CHANNEL_ID,
-      channelId: target,
-      delegatedTo: target,
-      delegationReason: reason?.slice(0, 500),
-      // Paused work stays paused, and work waiting for review stays that way: moving it to another
-      // channel must not send it back to the agent.
-      status: task.status === "paused" || task.status === "in_review" ? task.status : "queued",
-      leaseId: null,
-      leaseUntil: null,
-      updatedAt: new Date().toISOString(),
-    };
-    await this.db.put(owner, "tasks", updated);
-    await this.touchChannel(owner, target, {
-      status: "active",
-      lastActiveAt: new Date().toISOString(),
-    });
-    return updated;
-  }
   /**
    * Whether a notice is this person's. One said to someone is theirs alone, and the result of a
    * task is for whoever started it. What has neither (the workspace's own) is everyone's.
    */
-  private noticeIsFor(
-    owner: string,
-    email: string | undefined,
-    note: AgentNotification,
-    tasks: Map<string, AgentTask>,
-  ): boolean {
+  private noticeIsFor(owner: string, email: string | undefined, note: AgentNotification): boolean {
     if (note.to) return !!email && note.to.includes(email);
-    const asker = note.taskId ? tasks.get(note.taskId)?.createdBy : undefined;
-    return !asker || asker === owner;
+    return !note.forUser || note.forUser === owner;
   }
   /**
-   * What a guest is shown of the work: the tasks of the channels they were added to, and what came
-   * of them. The goals, ideas, memories and notifications belong to the whole workspace.
+   * Which of these ids are tasks the person may see. The board is the chat service's, so it is asked, for the
+   * ids this machine holds things about and no more; if it cannot answer, none are shown.
    */
-  private async guestSnapshot(owner: string, scope: Scope): Promise<AgentWorkspace> {
-    const projects = await this.projectsById(owner);
-    const tasks = (await this.db.list<AgentTask>(owner, "tasks")).filter((task) =>
-      canSeeTask(scope, task.projectId ? projects.get(task.projectId) : null),
-    );
-    const ids = new Set(tasks.map((task) => task.id));
+  private async visibleTaskIds(owner: string, ids: (string | undefined)[]): Promise<Set<string>> {
+    const wanted = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+    if (!wanted.length) return new Set();
+    const known = this.visibility.get(owner);
+    const fresh = known && Date.now() - known.at < VISIBILITY_MS ? known : undefined;
+    const have = fresh ?? { at: Date.now(), checked: new Set<string>(), seen: new Set<string>() };
+    const ask = wanted.filter((id) => !have.checked.has(id));
+    if (ask.length) {
+      try {
+        const { ids: seen } = await this.board
+          .forPerson(owner)
+          .call<{ ids: string[] }>("tasks.visible", { ids: ask });
+        for (const id of ask) have.checked.add(id);
+        for (const id of seen) have.seen.add(id);
+        this.visibility.set(owner, have);
+      } catch {
+        // Not answered: nothing that names a task is shown, and it is asked again next time.
+      }
+    }
+    return new Set(wanted.filter((id) => have.seen.has(id)));
+  }
+  /** What a guest is shown: the notices, results and watches of tasks they may see, and nothing of the workspace's own. */
+  private async guestSnapshot(owner: string, scope: Scope): Promise<AgentMachineView> {
     const prefs = await this.notificationPrefs(owner);
     const [artifacts, identity, notices] = await Promise.all([
       this.db.list<AgentArtifact>(owner, "agent-artifacts"),
       this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
       this.db.list<AgentNotification>(owner, "notifications"),
     ]);
+    const visible = await this.visibleTaskIds(owner, [
+      ...artifacts.map((a) => a.taskId),
+      ...notices.map((n) => n.taskId),
+    ]);
     return {
-      tasks: await this.present(owner, tasks),
       goals: [],
-      projects: [...projects.values()]
-        .filter((project) => canViewProject(scope.person, project))
-        .map((project) => projectFor(scope.person, project)),
       monitors: [],
       ideas: [],
       memories: [],
-      artifacts: artifacts.filter((artifact) => !artifact.taskId || ids.has(artifact.taskId)),
+      artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
       // Only what was said to them: the rest is the workspace's.
       notifications: notices.filter(
         (note) =>
           this.wanted(prefs, note) &&
           (!note.channelId || scope.allows(note.channelId)) &&
-          (!note.taskId || ids.has(note.taskId)) &&
-          this.noticeIsFor(owner, scope.person?.email, note, new Map(tasks.map((t) => [t.id, t]))),
+          (!note.taskId || visible.has(note.taskId)) &&
+          this.noticeIsFor(owner, scope.person?.email, note),
       ),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: { running: this.worker.running, lastTickAt: this.worker.lastTickAt },
@@ -797,30 +696,26 @@ export class AgentService {
   ): Promise<{ reviews: A[]; receipts: E[] }> {
     const scope = await this.access.scope(owner);
     if (!scope.person) return { reviews, receipts };
-    const tasks = new Map((await this.db.list<AgentTask>(owner, "tasks")).map((t) => [t.id, t]));
-    const projects = await this.projectsById(owner);
+    const visible = await this.visibleTaskIds(
+      owner,
+      reviews.map((review) => review.taskId),
+    );
     const hidden = new Set(
-      reviews
-        .filter((review) => {
-          const task = review.taskId ? tasks.get(review.taskId) : undefined;
-          return task && !canSeeTask(scope, task.projectId ? projects.get(task.projectId) : null);
-        })
-        .map((review) => review.id),
+      reviews.filter((review) => review.taskId && !visible.has(review.taskId)).map((r) => r.id),
     );
     return {
       reviews: reviews.filter((review) => !hidden.has(review.id)),
       receipts: receipts.filter((receipt) => !receipt.actionId || !hidden.has(receipt.actionId)),
     };
   }
-  async snapshot(owner: string): Promise<AgentWorkspace> {
+  /** What the machine keeps of the agent, for the app to lay beside the board (which the chat service keeps). */
+  async snapshot(owner: string): Promise<AgentMachineView> {
     const scope = await this.access.scope(owner);
     if (scope.person?.role === "guest") return this.guestSnapshot(owner, scope);
     await this.ensure(owner);
-    const [tasks, goals, projects, monitors, ideas, memories, artifacts, notifications, identity] =
+    const [goals, monitors, ideas, memories, artifacts, notifications, identity] =
       await Promise.all([
-        this.db.list<AgentTask>(owner, "tasks"),
         this.db.list<Goal>(owner, "goals"),
-        this.db.list<Project>(owner, "projects"),
         this.db.list<Monitor>(owner, "monitors"),
         this.db.list<Idea>(owner, "ideas"),
         this.db.list<AgentMemory>(owner, "memories"),
@@ -835,35 +730,25 @@ export class AgentService {
         "worker-status",
         `tasks:${ORCHESTRATOR_CHANNEL_ID}`,
       ));
-    // What belongs to a private channel is shown to the people in it: its tasks, and what came of
-    // them, and what the agent learned there.
-    const projectOf = new Map(projects.map((project) => [project.id, project]));
-    const hidden = new Set(
-      tasks
-        .filter((task) => !canSeeTask(scope, task.projectId ? projectOf.get(task.projectId) : null))
-        .map((task) => task.id),
-    );
-    const byId = new Map(tasks.map((task) => [task.id, task]));
+    // What belongs to a task of a private channel or project is shown to those who may see the task.
+    const visible = await this.visibleTaskIds(owner, [
+      ...monitors.map((m) => m.taskId),
+      ...artifacts.map((a) => a.taskId),
+      ...notifications.map((n) => n.taskId),
+    ]);
     const prefs = await this.notificationPrefs(owner);
     return {
-      tasks: await this.present(
-        owner,
-        tasks.filter((task) => !hidden.has(task.id)),
-      ),
       goals: goals.filter((goal) => !goal.channelId || scope.allows(goal.channelId)),
-      projects: projects
-        .filter((project) => canViewProject(scope.person, project))
-        .map((project) => projectFor(scope.person, project)),
-      monitors: monitors.filter((monitor) => !monitor.taskId || !hidden.has(monitor.taskId)),
+      monitors: monitors.filter((monitor) => !monitor.taskId || visible.has(monitor.taskId)),
       ideas: ideas.filter((idea) => !idea.channelId || scope.allows(idea.channelId)),
       memories: memories.filter((memory) => !memory.channelId || scope.allows(memory.channelId)),
-      artifacts: artifacts.filter((artifact) => !artifact.taskId || !hidden.has(artifact.taskId)),
+      artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
       notifications: notifications.filter(
         (note) =>
           this.wanted(prefs, note) &&
-          (!note.taskId || !hidden.has(note.taskId)) &&
+          (!note.taskId || visible.has(note.taskId)) &&
           (!note.channelId || scope.allows(note.channelId)) &&
-          this.noticeIsFor(owner, scope.person?.email, note, byId),
+          this.noticeIsFor(owner, scope.person?.email, note),
       ),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: {
@@ -878,46 +763,6 @@ export class AgentService {
     const task = await this.db.get<AgentTask>(owner, "tasks", id);
     if (!task) throw new AppError("Task not found", 404);
     return task;
-  }
-  /**
-   * Tasks as a client sees them: who asked, who wrote each note and added each file, and a signed
-   * download link for each file. The names and links are for display and are never stored.
-   */
-  private async present(owner: string, tasks: AgentTask[]): Promise<AgentTask[]> {
-    const names = await requesterNames(
-      this.db,
-      tasks.flatMap((task) => [
-        task.createdBy,
-        ...(task.notes ?? []).map((note) => note.createdBy),
-        ...(task.attachments ?? []).map((file) => file.addedBy),
-      ]),
-    );
-    const nameOf = (id?: string) => (id ? names.get(id) : undefined);
-    return tasks.map((task) => {
-      const named = withRequester(task, names);
-      if (!named.notes?.length && !named.attachments?.length) return named;
-      return {
-        ...named,
-        ...(named.notes && {
-          notes: named.notes.map((note) => ({
-            ...note,
-            createdByName: nameOf(note.createdBy),
-            mine: note.createdBy === owner,
-          })),
-        }),
-        ...(named.attachments && {
-          attachments: named.attachments.map((file) => ({
-            ...file,
-            addedByName: nameOf(file.addedBy),
-            mine: file.addedBy === owner,
-            url: this.files.signPath(
-              owner,
-              `/api/agent/tasks/${task.id}/attachments/${file.id}/content`,
-            ),
-          })),
-        }),
-      };
-    });
   }
   /** What the machine keeps of a task's runs, for a person the chat service has checked may see the task. */
   async history(ask: { taskId: string; viewer: string; fileIds: string[]; browserIds: string[] }) {
@@ -937,485 +782,6 @@ export class AgentService {
       artifacts: await this.db.listWhere<AgentArtifact>(owner, "agent-artifacts", "taskId", id),
     };
   }
-  async detail(owner: string, id: string) {
-    const task = await this.getTask(owner, id);
-    const files = (await this.db.list<Artifact>(owner, "files")).filter((file) =>
-      task.artifactIds.includes(file.id),
-    );
-    const browsers = (await this.db.list<BrowserSession>(owner, "browsers")).filter((browser) =>
-      [task.state.browserId, task.state.sessionId].includes(browser.id),
-    );
-    return {
-      task: (await this.present(owner, [task]))[0],
-      files: files.map((file) => this.files.signed(owner, file)),
-      browsers: browsers.map((browser) => this.browser.decorate(owner, browser)),
-      events: (await this.db.listWhere<RunEvent>(owner, "run-events", "taskId", id)).sort(
-        (a, b) => a.date.localeCompare(b.date) || (a.sequence ?? 0) - (b.sequence ?? 0),
-      ),
-      artifacts: await this.db.listWhere<AgentArtifact>(owner, "agent-artifacts", "taskId", id),
-    };
-  }
-  async createTask(owner: string, raw: unknown, idempotencyKey?: string, held = false) {
-    const input = createTaskSchema.parse(raw);
-    if (input.goalId) await this.assertGoal(owner, input.goalId);
-    await this.ensureDefaultProject(owner);
-    // A guest is only in the projects they were named in, so there is no default for them.
-    if (!input.projectId && (await this.access.scope(owner)).person?.role === "guest")
-      throw new AppError("Choose one of the projects you were added to", 422);
-    const projectId = input.projectId ?? GENERAL_PROJECT_ID;
-    await this.assertProjectWork(owner, projectId);
-    const channelId = input.channelId ?? ORCHESTRATOR_CHANNEL_ID;
-    if (channelId !== ORCHESTRATOR_CHANNEL_ID && !(await this.getChannel(owner, channelId)))
-      throw new AppError("Channel not found", 404);
-    const id = idempotencyKey ? hash(`task:${idempotencyKey}`) : randomUUID();
-    const existing = await this.db.get<AgentTask>(owner, "tasks", id);
-    if (existing) return existing;
-    if (input.blockedBy.length) await this.checkBlockedBy(owner, id, input.blockedBy);
-    if (
-      (await this.db.list<AgentTask>(owner, "tasks")).filter(
-        (t) => !terminal.has(t.status) && (t.createdBy ?? owner) === owner,
-      ).length >= 100
-    )
-      throw new AppError("Finish or cancel some tasks before adding more", 409);
-    // Only the workflows that run as code have steps to start with, because the code ticks them off.
-    // What an agent does has none: its plan is the todo list the agent keeps as it works.
-    const titles =
-      input.kind === "document"
-        ? [
-            "Find the source document",
-            "Fill a new copy",
-            "Prepare a reply",
-            "Wait for your decision",
-            "Record the outcome",
-          ]
-        : input.kind === "monitor"
-          ? ["Check the source", "Compare with the last observation", "Report a meaningful change"]
-          : input.kind === "finance"
-            ? ["Validate transactions", "Calculate the summary", "Save your tracker"]
-            : [];
-    const isManual = input.kind === "manual";
-    if (!isManual && !input.prompt)
-      throw new AppError("A prompt is required for agent-executed tasks", 422);
-    if (input.startAt && input.dueAt && input.startAt > input.dueAt)
-      throw new AppError("startAt must not be after dueAt", 422);
-    const task: AgentTask = {
-      id,
-      title: input.title ?? input.prompt?.slice(0, 90) ?? "Untitled task",
-      prompt: input.prompt ?? "",
-      kind: input.kind,
-      goalId: input.goalId,
-      projectId,
-      priority: input.priority,
-      startAt: input.startAt ?? null,
-      dueAt: input.dueAt ?? null,
-      blockedBy: input.blockedBy,
-      labels: input.labels,
-      channelId,
-      originChannelId: channelId,
-      delegatedTo: null,
-      threadId: input.threadId,
-      createdBy: owner,
-      status: held ? "paused" : "queued",
-      plan: titles.map((title, i) => ({ id: String(i), title, status: "pending" })),
-      evidence: [],
-      input: input.input,
-      state: {
-        connectionId: (await this.workspace.connection(owner))?.id ?? null,
-        ...(held && input.kind === "monitor" ? { initializingMonitor: true } : {}),
-      },
-      createdAt: date(),
-      updatedAt: date(),
-      attempts: 0,
-      leaseId: null,
-      leaseUntil: null,
-      artifactIds: [],
-    };
-    await this.ensure(owner);
-    await this.db.insertIfAbsent(owner, "tasks", task);
-    await this.touchChannel(owner, channelId, {
-      status: "active",
-      lastActiveAt: new Date().toISOString(),
-    });
-    return (await this.db.get<AgentTask>(owner, "tasks", id)) ?? task;
-  }
-  async control(owner: string, id: string, action: "pause" | "resume" | "cancel" | "retry") {
-    const task = await this.getTask(owner, id);
-    if (action === "cancel" && task.status === "succeeded")
-      throw new AppError("This task is already complete", 409);
-    if (action === "retry" && task.status !== "failed")
-      throw new AppError("Only failed tasks can be retried", 409);
-    if (action === "resume" && task.status !== "paused")
-      throw new AppError("Only paused tasks can be resumed", 409);
-    // Finished work waits for a person, not for the worker: there is nothing to pause.
-    if (
-      action === "pause" &&
-      (terminal.has(task.status) || task.status === "paused" || task.status === "in_review")
-    )
-      return task;
-    const status =
-      action === "cancel"
-        ? "cancelled"
-        : action === "pause"
-          ? "paused"
-          : task.actionId
-            ? "waiting_approval"
-            : "queued";
-    if (action === "retry" && task.actionId) {
-      const a = await this.db.get<ActionProposal>(owner, "actions", task.actionId);
-      if (a && a.status !== "succeeded")
-        throw new AppError(
-          "Check the reviewed action before retrying; its outcome may be uncertain. Start a new task when reconciled.",
-          409,
-        );
-    }
-    const updated = await this.db.compareAndSwap<AgentTask>(
-      owner,
-      "tasks",
-      id,
-      { status: task.status, leaseId: task.leaseId ?? null },
-      {
-        status,
-        leaseId: null,
-        leaseUntil: null,
-        error: null,
-        updatedAt: date(),
-        result:
-          action === "cancel"
-            ? "Stopped by you."
-            : action === "pause"
-              ? "Paused. Resume when you're ready."
-              : "",
-        ...(task.kind === "monitor" && action === "resume"
-          ? { state: { ...task.state, failures: 0, notice: null, resumingMonitor: false } }
-          : {}),
-      },
-    );
-    if (!updated) throw new AppError("Task changed; refresh and try again", 409);
-    this.worker.abort(id);
-    if (task.kind === "monitor")
-      await this.db.compareAndSwap(
-        owner,
-        "monitors",
-        String(task.input.monitorId),
-        {},
-        {
-          status: action === "cancel" ? "stopped" : action === "pause" ? "paused" : "active",
-          nextCheckAt: date(),
-          // Clearing the error fences out a failure reconcile that read the task before this.
-          ...(action === "resume" || action === "retry" ? { error: null } : {}),
-        },
-      );
-    if (action === "cancel" && task.actionId) {
-      const proposal = await this.db.get<ActionProposal>(owner, "actions", task.actionId);
-      if (proposal?.status === "awaiting_review")
-        await this.actions.decide(owner, proposal.id, proposal.hash, "deny");
-    }
-    await this.db.put(owner, "run-events", {
-      id: randomUUID(),
-      taskId: id,
-      kind: "status",
-      date: date(),
-      title: `Task ${status}`,
-      detail: "Changed by you",
-    });
-    return updated;
-  }
-  /** Statuses a user or the agent may set directly on a worker-executed task. */
-  private static readonly userSettableWorkerStatuses: ReadonlySet<TaskStatus> = new Set([
-    "queued",
-    "paused",
-    "cancelled",
-  ]);
-  /** Manual (human) tasks move freely; they have no worker lifecycle. */
-  private static readonly manualStatuses: ReadonlySet<TaskStatus> = new Set([
-    "queued",
-    "running",
-    "paused",
-    "succeeded",
-    "failed",
-    "cancelled",
-  ]);
-  /**
-   * Hand a manual issue to the agent and queue it, so the worker claims it like any agent task. The
-   * description stays as written. Each run's brief is built from it, the notes and files on the
-   * task, and (unless the person declines) a snapshot of the channel discussion taken now.
-   */
-  private async assignToAgent(
-    task: AgentTask,
-    patch: Partial<AgentTask>,
-    channelContext: boolean,
-  ): Promise<void> {
-    if (task.kind !== "manual")
-      throw new AppError("Only manual issues can be assigned to the agent", 422);
-    const context = channelContext ? await this.channelContextForTask(task) : null;
-    const { discussion: _earlier, ...input } = task.input ?? {};
-    patch.kind = "agent";
-    patch.status = "queued";
-    patch.assignee = "agent";
-    patch.leaseId = null;
-    patch.leaseUntil = null;
-    patch.input = {
-      ...input,
-      ...(context ? { discussion: { channel: context.name, lines: context.lines } } : {}),
-    };
-  }
-
-  /** Take a ticket back from the agent: cancel any in-flight run and restore the manual issue. */
-  private unassignFromAgent(task: AgentTask, patch: Partial<AgentTask>): void {
-    if (task.assignee !== "agent" || task.kind === "manual")
-      throw new AppError("Task is not assigned to the agent", 422);
-    const active = [
-      "queued",
-      "paused",
-      "scheduled",
-      "running",
-      "waiting_approval",
-      "waiting_input",
-    ];
-    // Issues handed over before descriptions were kept as written had the original text set aside.
-    const { manualNotes, discussion: _discussion, ...restInput } = task.input ?? {};
-    patch.kind = "manual";
-    patch.assignee = null;
-    patch.prompt = typeof manualNotes === "string" ? manualNotes : task.prompt;
-    patch.input = restInput;
-    patch.leaseId = null;
-    patch.leaseUntil = null;
-    // A ticket pulled back mid-run is stopped. Work waiting for review goes back to the to-do
-    // column, still not accepted. An untouched ticket keeps its column.
-    patch.status =
-      task.status === "in_review"
-        ? "queued"
-        : active.includes(task.status)
-          ? "cancelled"
-          : task.status;
-  }
-
-  /** Recent channel discussion to ground an agent-assigned issue. Null when there is nothing useful. */
-  private async channelContextForTask(
-    task: AgentTask,
-  ): Promise<{ name: string; lines: string } | null> {
-    const channelId = task.channelId;
-    if (!channelId || channelId === ORCHESTRATOR_CHANNEL_ID) return null;
-    const [channel, transcript] = await Promise.all([
-      this.db.get<Channel>("shared", "channels", channelId).catch(() => null),
-      this.db
-        .get<{ messages?: { role?: string; name?: string; content?: unknown }[] }>(
-          "shared",
-          "conversations",
-          `channel:${channelId}`,
-        )
-        .catch(() => null),
-    ]);
-    const textOf = (content: unknown): string => {
-      if (typeof content === "string") return content;
-      if (Array.isArray(content))
-        return content
-          .filter(
-            (p) => typeof p === "object" && p !== null && (p as { type?: string }).type === "text",
-          )
-          .map((p) => String((p as { text?: string }).text ?? ""))
-          .join("");
-      return "";
-    };
-    const lines = (transcript?.messages ?? [])
-      .filter((m) => (m.role === "user" || m.role === "assistant") && textOf(m.content).trim())
-      .slice(-15)
-      .map((m) => {
-        const who = m.role === "user" ? m.name?.trim() || "Someone" : "Hive";
-        return `${who}: ${textOf(m.content).trim().slice(0, 500)}`;
-      });
-    if (!lines.length) return null;
-    return { name: channel?.name ?? channelId, lines: lines.join("\n") };
-  }
-
-  /**
-   * Update a task's fields. The agent uses this to manage the board, but only a person can mark a
-   * task done: the agent does the work, and whether it is good enough is their call.
-   */
-  async updateTask(
-    owner: string,
-    id: string,
-    raw: unknown,
-    by: "person" | "agent" = "person",
-  ): Promise<AgentTask> {
-    const input = updateTaskSchema.parse(raw);
-    if (by === "agent" && input.status === "succeeded")
-      throw new AppError(
-        "Only a person can mark a task done. Tell them it is ready and they will mark it done.",
-        403,
-      );
-    const task = await this.getTask(owner, id);
-    const patch: Partial<AgentTask> = {};
-    if (input.assignee !== undefined && input.assignee !== (task.assignee ?? null)) {
-      if (input.status !== undefined || input.prompt !== undefined)
-        throw new AppError("Cannot change assignee together with status or prompt", 422);
-      if (input.assignee === "agent")
-        await this.assignToAgent(task, patch, input.channelContext ?? true);
-      else this.unassignFromAgent(task, patch);
-    }
-    if (input.title !== undefined) patch.title = input.title;
-    if (input.prompt !== undefined) {
-      // A manual task's description may be cleared; an agent's instructions may not.
-      if (!input.prompt && task.kind !== "manual")
-        throw new AppError("A prompt is required for agent-executed tasks", 422);
-      patch.prompt = input.prompt;
-    }
-    if (input.priority !== undefined) patch.priority = input.priority;
-    if (input.goalId !== undefined) {
-      if (input.goalId) await this.assertGoal(owner, input.goalId);
-      patch.goalId = input.goalId ?? undefined;
-    }
-    if (input.projectId !== undefined) {
-      await this.assertProjectWork(owner, input.projectId);
-      patch.projectId = input.projectId;
-    }
-    const startAt = input.startAt !== undefined ? input.startAt : (task.startAt ?? null);
-    const dueAt = input.dueAt !== undefined ? input.dueAt : (task.dueAt ?? null);
-    if (startAt && dueAt && startAt > dueAt)
-      throw new AppError("startAt must not be after dueAt", 422);
-    if (input.startAt !== undefined) patch.startAt = input.startAt;
-    if (input.dueAt !== undefined) patch.dueAt = input.dueAt;
-    if (input.blockedBy !== undefined) {
-      await this.checkBlockedBy(owner, id, input.blockedBy);
-      patch.blockedBy = input.blockedBy;
-    }
-    if (input.labels !== undefined) patch.labels = input.labels;
-    if (input.status !== undefined && input.status !== task.status) {
-      const allowed =
-        task.kind === "manual"
-          ? AgentService.manualStatuses
-          : AgentService.userSettableWorkerStatuses;
-      if (!allowed.has(input.status))
-        throw new AppError(
-          task.kind === "manual"
-            ? `Manual tasks can move between ${[...AgentService.manualStatuses].join(", ")}`
-            : "Worker-executed tasks can only be queued, paused, or cancelled directly. Running belongs to the worker, and agent work is marked done by a person once it is ready for review",
-          422,
-        );
-      // Terminal tasks can be reopened; the worker picks up a requeued
-      // task as a fresh run and prior results stay as history.
-      patch.status = input.status;
-      patch.leaseId = null;
-      patch.leaseUntil = null;
-      if (input.status === "cancelled") {
-        patch.result = "Stopped by you.";
-        patch.error = null;
-      }
-    }
-    if (!Object.keys(patch).length) return task;
-    const updated = await this.db.compareAndSwap<AgentTask>(
-      owner,
-      "tasks",
-      id,
-      { status: task.status, leaseId: task.leaseId ?? null },
-      { ...patch, updatedAt: date() },
-    );
-    if (!updated) throw new AppError("Task changed; refresh and try again", 409);
-    if (patch.status && patch.status !== task.status) {
-      this.worker.abort(id);
-      await this.db.put(owner, "run-events", {
-        id: randomUUID(),
-        taskId: id,
-        kind: "status",
-        date: date(),
-        title: `Task ${patch.status}`,
-        detail: "Changed by you",
-      });
-    }
-    return updated;
-  }
-  private async checkBlockedBy(owner: string, id: string, blockedBy: string[]) {
-    const seen = new Set(blockedBy);
-    if (seen.has(id)) throw new AppError("A task cannot depend on itself", 422);
-    // A task the person may not see is not there to depend on: naming it must not tell them it exists.
-    const scope = await this.access.scope(owner);
-    const projects = await this.projectsById(owner);
-    for (const depId of seen) {
-      const dep = await this.db.get<AgentTask>(owner, "tasks", depId);
-      if (!dep || !canSeeTask(scope, dep.projectId ? projects.get(dep.projectId) : null))
-        throw new AppError(`Dependency not found: ${depId}`, 404);
-    }
-    // Cycle check: the task itself must be unreachable from its dependencies.
-    const stack = [...seen];
-    const visited = new Set<string>();
-    while (stack.length) {
-      const current = stack.pop() as string;
-      if (current === id) throw new AppError("Dependencies would create a cycle", 422);
-      if (visited.has(current)) continue;
-      visited.add(current);
-      const dep = await this.db.get<AgentTask>(owner, "tasks", current);
-      for (const next of dep?.blockedBy ?? []) stack.push(next);
-    }
-  }
-  /** Delete a task and drop it from other tasks' dependencies. */
-  async deleteTask(owner: string, id: string): Promise<{ deleted: string }> {
-    const task = await this.getTask(owner, id);
-    if (task.leaseId && (task.status === "running" || task.status === "waiting_approval"))
-      throw new AppError("Stop the task before deleting it", 409);
-    this.worker.abort(id);
-    await this.db.remove(owner, "tasks", id);
-    // Its files go too: the stored bytes and any copies left in the agent's workspace.
-    await this.taskFiles
-      .removeAll(id, this.workspaceOf(task, owner))
-      .catch((error) => backgroundFailure("remove task files", error));
-    for (const other of await this.db.list<AgentTask>(owner, "tasks"))
-      if (other.blockedBy.includes(id))
-        await this.db.put(owner, "tasks", {
-          ...other,
-          blockedBy: other.blockedBy.filter((dep) => dep !== id),
-          updatedAt: date(),
-        });
-    return { deleted: id };
-  }
-  /**
-   * Answer the question a task is waiting on. The answer joins the task's notes, so the agent keeps
-   * it in view on every later run, and the task is queued in the same statement: a worker can never
-   * pick it up without the answer.
-   */
-  async answer(
-    owner: string,
-    id: string,
-    answer: string,
-    fields?: Record<string, string | boolean>,
-  ) {
-    const task = await this.getTask(owner, id);
-    if (task.status !== "waiting_input")
-      throw new AppError("This task is not waiting for input", 409);
-    const next = await this.db.appendItem<AgentTask>(
-      owner,
-      "tasks",
-      id,
-      "notes",
-      this.newNote(owner, answer, "answer"),
-      {
-        where: { status: "waiting_input" },
-        merge: {
-          status: "queued",
-          question: null,
-          input: { ...task.input, ...(fields ? { fields } : {}) },
-          updatedAt: date(),
-        },
-      },
-    );
-    if (!next) throw new AppError("Task changed; refresh and try again", 409);
-    return next;
-  }
-  private newNote(owner: string, text: string, kind: TaskNote["kind"]): TaskNote {
-    return { id: randomUUID(), text, kind, createdAt: date(), createdBy: owner, delivered: false };
-  }
-  private async personName(owner: string): Promise<string> {
-    return (await requesterNames(this.db, [owner])).get(owner) ?? "Someone";
-  }
-  private async logInstruction(owner: string, taskId: string, title: string, detail: string) {
-    await this.db.put(owner, "run-events", {
-      id: randomUUID(),
-      taskId,
-      kind: "instruction",
-      date: date(),
-      title,
-      detail,
-    } satisfies RunEvent);
-  }
   /** The folder a task's runs work in, where its files are staged for the agent. */
   workspaceOf(task: AgentTask, owner: string): string {
     const channelId = task.originChannelId ?? ORCHESTRATOR_CHANNEL_ID;
@@ -1424,202 +790,6 @@ export class AgentService {
       diskOwnerForChannel(channelId, task.createdBy ?? owner),
       channelId,
     );
-  }
-  /** Where a task can be sent back from: the agent has stopped, and is waiting on or finished with the team. */
-  private static readonly sendBackFrom: ReadonlySet<TaskStatus> = new Set([
-    "in_review",
-    "waiting_input",
-    "failed",
-    "cancelled",
-    "succeeded",
-  ]);
-  /**
-   * Add a note to a task. Notes are the team's running instructions: every run reads all of them,
-   * and one added while the agent works is sent to its running session. With `run` the task also
-   * goes back to the agent (from review, a failure, a question, or done). The note and the new
-   * status land in one statement, so a worker never starts without the note.
-   */
-  async addNote(owner: string, id: string, raw: unknown): Promise<AgentTask> {
-    const input = addNoteSchema.parse(raw);
-    const task = await this.getTask(owner, id);
-    if (input.run) {
-      if (task.kind === "manual")
-        throw new AppError("Hand this task to the agent before sending it a note to run", 422);
-      if (task.kind !== "agent" && task.kind !== "plan")
-        throw new AppError("This kind of task does not take notes into a new run", 422);
-    }
-    const sendBack = Boolean(input.run) && AgentService.sendBackFrom.has(task.status);
-    // Running again after a failure or a stop is retrying: the same care applies as for a retry.
-    if (
-      sendBack &&
-      task.actionId &&
-      task.status !== "in_review" &&
-      task.status !== "waiting_input"
-    ) {
-      const action = await this.db.get<ActionProposal>(owner, "actions", task.actionId);
-      if (action && action.status !== "succeeded")
-        throw new AppError(
-          "Check the reviewed action before running this again; its outcome may be uncertain.",
-          409,
-        );
-    }
-    const note = this.newNote(
-      owner,
-      input.text,
-      sendBack && task.status === "waiting_input"
-        ? "answer"
-        : sendBack && task.status === "in_review"
-          ? "feedback"
-          : "note",
-    );
-    const max = taskBriefLimits.notes;
-    let saved = sendBack
-      ? await this.db.appendItem<AgentTask>(owner, "tasks", id, "notes", note, {
-          max,
-          where: { status: task.status, leaseId: task.leaseId ?? null },
-          merge: {
-            status: "queued",
-            error: null,
-            question: null,
-            leaseId: null,
-            leaseUntil: null,
-            updatedAt: date(),
-          },
-        })
-      : null;
-    // Not sent back, or the task moved on since it was read: the note is kept either way.
-    saved ??= await this.db.appendItem<AgentTask>(owner, "tasks", id, "notes", note, {
-      max,
-      merge: { updatedAt: date() },
-    });
-    if (!saved) {
-      if (!(await this.db.get(owner, "tasks", id))) throw new AppError("Task not found", 404);
-      throw new AppError(`A task can carry ${max} notes. Remove one first.`, 409);
-    }
-    const who = await this.personName(owner);
-    await this.logInstruction(
-      owner,
-      id,
-      `${who} ${note.kind === "feedback" ? "asked for changes" : note.kind === "answer" ? "answered" : "added a note"}`,
-      input.text,
-    );
-    return (await this.present(owner, [saved]))[0];
-  }
-  /** Take back a note before the agent has read it. Only its author can. */
-  async removeNote(owner: string, id: string, noteId: string): Promise<AgentTask> {
-    const task = await this.getTask(owner, id);
-    const note = task.notes?.find((entry) => entry.id === noteId);
-    if (!note) throw new AppError("Note not found", 404);
-    if (note.createdBy !== owner) throw new AppError("You can only remove your own notes", 403);
-    if (note.delivered)
-      throw new AppError(
-        "The agent has already read this note. Add a new note to change course.",
-        409,
-      );
-    const saved = await this.db.removeItem<AgentTask>(owner, "tasks", id, "notes", noteId, {
-      updatedAt: date(),
-    });
-    if (!saved) throw new AppError("Task not found", 404);
-    return (await this.present(owner, [saved]))[0];
-  }
-  private readonly attaching = new Map<string, Promise<unknown>>();
-  /** One at a time per task, so the size limits hold when several files arrive together. */
-  private async oneAtATime<T>(key: string, work: () => Promise<T>): Promise<T> {
-    const previous = this.attaching.get(key) ?? Promise.resolve();
-    const run = previous.then(work, work);
-    const tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.attaching.set(key, tail);
-    try {
-      return await run;
-    } finally {
-      if (this.attaching.get(key) === tail) this.attaching.delete(key);
-    }
-  }
-  /** Attach a file to a task: a PDF, an image, or a text, Markdown, CSV or JSON file. */
-  async addAttachment(
-    owner: string,
-    id: string,
-    upload: { name: string; bytes: Uint8Array },
-  ): Promise<AgentTask> {
-    const checked = inspectAttachment(upload.name, upload.bytes);
-    const saved = await this.oneAtATime(id, async () => {
-      const task = await this.getTask(owner, id);
-      const held = task.attachments ?? [];
-      if (held.length >= taskBriefLimits.attachments)
-        throw new AppError(
-          `A task can carry ${taskBriefLimits.attachments} files. Remove one first.`,
-          409,
-        );
-      if (
-        held.reduce((total, file) => total + file.size, 0) + upload.bytes.length >
-        taskBriefLimits.attachmentTotalBytes
-      )
-        throw new AppError(
-          `The files on a task can total ${taskBriefLimits.attachmentTotalBytes / (1024 * 1024)} MB. Remove one first.`,
-          413,
-        );
-      const attachment: TaskAttachment = {
-        id: randomUUID(),
-        name: checked.name,
-        mimeType: checked.mimeType,
-        size: upload.bytes.length,
-        addedAt: date(),
-        addedBy: owner,
-      };
-      // A PDF is also kept in Files, which checks that it opens and lets the agent's PDF tools read it.
-      if (checked.mimeType === "application/pdf")
-        attachment.fileId = (
-          await this.files.import(owner, checked.name, upload.bytes, "Attached to a task")
-        ).id;
-      await this.taskFiles.save(id, attachment.id, upload.bytes);
-      const next = await this.db.appendItem<AgentTask>(
-        owner,
-        "tasks",
-        id,
-        "attachments",
-        attachment,
-        { max: taskBriefLimits.attachments, merge: { updatedAt: date() } },
-      );
-      if (!next) {
-        await this.taskFiles.remove(id, attachment.id);
-        throw new AppError("Task not found", 404);
-      }
-      return { next, attachment };
-    });
-    await this.logInstruction(
-      owner,
-      id,
-      `${await this.personName(owner)} attached a file`,
-      saved.attachment.name,
-    );
-    return (await this.present(owner, [saved.next]))[0];
-  }
-  /** Take a file off a task. Only the person who attached it can. */
-  async removeAttachment(owner: string, id: string, attachmentId: string): Promise<AgentTask> {
-    const task = await this.getTask(owner, id);
-    const file = task.attachments?.find((entry) => entry.id === attachmentId);
-    if (!file) throw new AppError("File not found", 404);
-    if (file.addedBy !== owner) throw new AppError("You can only remove files you attached", 403);
-    const saved = await this.db.removeItem<AgentTask>(
-      owner,
-      "tasks",
-      id,
-      "attachments",
-      attachmentId,
-      { updatedAt: date() },
-    );
-    if (!saved) throw new AppError("Task not found", 404);
-    await this.taskFiles.remove(id, attachmentId);
-    return (await this.present(owner, [saved]))[0];
-  }
-  async attachmentContent(owner: string, id: string, attachmentId: string) {
-    const task = await this.getTask(owner, id);
-    const file = task.attachments?.find((entry) => entry.id === attachmentId);
-    if (!file) throw new AppError("File not found", 404);
-    return { file, bytes: await this.taskFiles.read(id, attachmentId) };
   }
   /**
    * The brief a run starts from, built from the task as it is now: notes and files can arrive
@@ -1665,34 +835,19 @@ export class AgentService {
       await this.db.patchItems(owner, "tasks", taskId, "notes", noteIds, { delivered: true });
   }
   /**
-   * A person's decision that the agent's work is done. This is the only way agent work reaches
-   * "succeeded": the agent hands work in for review and never closes a task itself.
+   * Throws, as if it were not there, unless the person may see the goal: a guest is shown none, and one
+   * made in a private channel is for the people in it. (The board is the chat service's and cannot tell;
+   * goals are kept here, so a goal a task is pointed at is checked here.)
    */
-  async accept(owner: string, id: string): Promise<AgentTask> {
-    const task = await this.getTask(owner, id);
-    if (task.status !== "in_review")
-      throw new AppError("Only work that is ready for review can be marked done", 409);
-    const updated = await this.db.compareAndSwap<AgentTask>(
-      owner,
-      "tasks",
-      id,
-      { status: "in_review" },
-      { status: "succeeded", error: null, updatedAt: date() },
-    );
-    if (!updated) throw new AppError("Task changed; refresh and try again", 409);
-    await this.db.put(owner, "run-events", {
-      id: randomUUID(),
-      taskId: id,
-      kind: "status",
-      date: date(),
-      title: "Marked done",
-      detail: `By ${await this.personName(owner)}`,
-    } satisfies RunEvent);
-    // The task is already done; a failure here is retried by maintenance.
-    await this.publishOutcome(owner, updated).catch((error) =>
-      backgroundFailure("publish accepted task", error),
-    );
-    return (await this.present(owner, [updated]))[0];
+  async assertGoal(owner: string, id: string): Promise<void> {
+    const goal = await this.db.get<Goal>(owner, "goals", id);
+    const scope = await this.access.scope(owner);
+    if (
+      !goal ||
+      scope.person?.role === "guest" ||
+      (goal.channelId && !scope.allows(goal.channelId))
+    )
+      throw new AppError("Goal not found", 404);
   }
   async createGoal(owner: string, raw: unknown, id?: string, channelId?: string) {
     const input = goalInputSchema.parse(raw);
@@ -1714,23 +869,17 @@ export class AgentService {
     owner: string,
     id: string,
     patch: { status?: Goal["status"]; milestones?: Goal["milestones"] },
+    board: WorkClient = this.board.forPerson(owner),
   ) {
     const goal = await this.db.get<Goal>(owner, "goals", id);
     if (!goal) throw new AppError("Goal not found", 404);
     const saved = await this.db.put(owner, "goals", { ...goal, ...patch });
+    // The goal's tasks are the board's: it pauses those the person may.
     if (patch.status === "paused")
-      for (const task of await this.db.list<AgentTask>(owner, "tasks"))
-        if (task.goalId === id && !terminal.has(task.status) && task.status !== "paused")
-          await this.control(owner, task.id, "pause");
+      await board.call("goal.pause", { goalId: id }).catch((error) => {
+        backgroundFailure("pause a goal's tasks", error);
+      });
     return saved;
-  }
-  /** The people a project can name: everyone who has signed in here, with the part they have in the workspace. */
-  async projectPeople(
-    owner: string,
-  ): Promise<{ email: string; name: string; role: "owner" | "admin" | "member" | "guest" }[]> {
-    if ((await this.access.scope(owner)).person?.role === "guest")
-      throw new AppError("A guest cannot see who is in the workspace", 403);
-    return [...(await this.access.known())].map(([email, who]) => ({ email, ...who }));
   }
   /** The channels this machine keeps something for because the chat service asked the agent in them. */
   async standInIds(): Promise<string[]> {
@@ -1763,149 +912,14 @@ export class AgentService {
     await rm(directory, { recursive: true, force: true });
     await this.db.remove(SHARED_OWNER, "channels", channelId);
   }
-  /** The workspace's projects by id: what a task is held against to know who may see it. */
-  private async projectsById(owner: string): Promise<Map<string, Project>> {
-    return new Map(
-      (await this.db.list<Project>(owner, "projects")).map((project) => [project.id, project]),
-    );
-  }
-  /**
-   * A project the person may see, as they are shown it. One they may not see is not there: a private
-   * project is its members' to know of.
-   */
-  private async visibleProject(owner: string, id: string): Promise<Project> {
-    const project = await this.db.get<Project>(owner, "projects", id);
-    const person = (await this.access.scope(owner)).person;
-    if (!project || !canViewProject(person, project)) throw new AppError("Project not found", 404);
-    return project;
-  }
-  /**
-   * Throws, as if it were not there, unless the person may see the goal: a guest is shown none, and one
-   * made in a private channel is for the people in it.
-   */
-  private async assertGoal(owner: string, id: string): Promise<void> {
-    const goal = await this.db.get<Goal>(owner, "goals", id);
-    const scope = await this.access.scope(owner);
-    if (
-      !goal ||
-      scope.person?.role === "guest" ||
-      (goal.channelId && !scope.allows(goal.channelId))
-    )
-      throw new AppError("Goal not found", 404);
-  }
-  /** Throws unless the person may put tasks in the project, or change what is in it. */
-  async assertProjectWork(owner: string, projectId: string): Promise<void> {
-    const project = await this.visibleProject(owner, projectId);
-    if (!canWorkInProject((await this.access.scope(owner)).person, project))
-      throw new AppError("You can look at this project but not change what is in it", 403);
-  }
-  /**
-   * Throws, as if it were not there, unless the person may see the task; and, to change it, unless the
-   * project it is in lets them work on it.
-   */
-  async assertTask(owner: string, task: AgentTask, write: boolean): Promise<void> {
-    const scope = await this.access.scope(owner);
-    const project = task.projectId
-      ? await this.db.get<Project>(owner, "projects", task.projectId)
-      : null;
-    if (!canSeeTask(scope, project)) throw new AppError("Task not found", 404);
-    if (write && project && !canWorkInProject(scope.person, project))
-      throw new AppError("You can look at this project but not change what is in it", 403);
-  }
-  async createProject(owner: string, raw: unknown): Promise<Project> {
-    const input = createProjectSchema.parse(raw);
-    const person = (await this.access.scope(owner)).person;
-    if (person?.role === "guest") throw new AppError("A guest cannot start a project", 403);
-    const project: Project = {
-      id: randomUUID(),
-      name: input.name,
-      description: input.description,
-      createdAt: date(),
-      updatedAt: date(),
-      access: input.access ?? "open",
-      // Who makes it runs it. Where there are no roles there is nobody to name.
-      members: person?.email ? [{ email: person.email, role: "admin" }] : [],
-      createdBy: owner,
-    };
-    return projectFor(person, await this.db.put(owner, "projects", project));
-  }
-  async updateProject(owner: string, id: string, raw: unknown): Promise<Project> {
-    const input = updateProjectSchema.parse(raw);
-    const scope = await this.access.scope(owner);
-    const project = await this.visibleProject(owner, id);
-    if (!managesProject(scope.person, project))
-      throw new AppError("Only a project admin can change this project", 403);
-    // Work that names no project goes here, so everyone has to be able to put it here.
-    if (id === GENERAL_PROJECT_ID && input.access && input.access !== "open")
-      throw new AppError("General stays open to everyone", 422);
-    let members = project.members;
-    if (input.members) {
-      const seen = new Set<string>();
-      members = input.members.filter((m) => {
-        const email = normalizeEmail(m.email);
-        if (seen.has(email)) return false;
-        seen.add(email);
-        return true;
-      });
-      // A project always has someone to run it, so it cannot be locked away from its own people.
-      if (scope.person && !members.some((m) => m.role === "admin"))
-        throw new AppError("A project needs at least one admin", 422);
-    }
-    const saved = await this.db.put(owner, "projects", {
-      ...project,
-      name: input.name ?? project.name,
-      description:
-        input.description !== undefined ? (input.description ?? undefined) : project.description,
-      access: input.access ?? project.access ?? "open",
-      members: members ?? [],
-      updatedAt: date(),
-    });
-    return projectFor(scope.person, saved);
-  }
-  /**
-   * Delete a project. Its tasks move to another project, General unless one is named, or are deleted
-   * with it. Everything is checked before anything is changed.
-   */
-  async deleteProject(
-    owner: string,
-    id: string,
-    raw: unknown = {},
-  ): Promise<{ deleted: string; moved: number; removed: number }> {
-    const input = deleteProjectSchema.parse(raw ?? {});
-    if (id === GENERAL_PROJECT_ID) throw new AppError("General cannot be deleted", 422);
-    const scope = await this.access.scope(owner);
-    const project = await this.visibleProject(owner, id);
-    if (!managesProject(scope.person, project))
-      throw new AppError("Only a project admin can delete this project", 403);
-    const inside = (await this.db.list<AgentTask>(owner, "tasks")).filter(
-      (task) => task.projectId === id,
-    );
-    if (input.deleteTasks) {
-      if (
-        inside.some((task) => task.leaseId && ["running", "waiting_approval"].includes(task.status))
-      )
-        throw new AppError("Stop the tasks that are running before deleting the project", 409);
-    } else {
-      const target = input.moveTo ?? GENERAL_PROJECT_ID;
-      if (target === id) throw new AppError("Move the tasks to another project", 422);
-      await this.assertProjectWork(owner, target);
-    }
-    const target = input.moveTo ?? GENERAL_PROJECT_ID;
-    await this.db.remove(owner, "projects", id);
-    if (input.deleteTasks) {
-      for (const task of inside) await this.deleteTask(owner, task.id);
-      return { deleted: id, moved: 0, removed: inside.length };
-    }
-    for (const task of inside)
-      await this.db.put(owner, "tasks", { ...task, projectId: target, updatedAt: date() });
-    return { deleted: id, moved: inside.length, removed: 0 };
-  }
   async createMonitor(
     owner: string,
     raw: unknown,
     idempotencyKey?: string,
     /** The private channel it is asked for in, which keeps it from the people who are not in it. */
     channelId?: string,
+    /** How the board is changed: as the run it is asked in, or as the person (in the app's own chat). */
+    board: WorkClient = this.board.forPerson(owner),
   ) {
     const input = monitorInputSchema.parse(raw);
     const url = new URL(input.url);
@@ -1918,20 +932,21 @@ export class AgentService {
     const id = idempotencyKey ? hash(`monitor:${idempotencyKey}`) : randomUUID();
     const existing = await this.db.get<Monitor>(owner, "monitors", id);
     if (existing) {
-      await this.activateMonitor(owner, existing);
+      await this.activateMonitor(board, existing);
       return existing;
     }
-    const task = await this.createTask(
-      owner,
+    // The watch's task is made waiting, so nothing runs it before the watch is recorded.
+    const task = await board.call<AgentTask>(
+      "task.create",
       {
         kind: "monitor",
         title: input.title,
         prompt: `Watch ${input.url} for ${input.condition}${input.value ? `: ${input.value}` : ""}`,
         input: { monitorId: id },
+        held: true,
         ...(channelId ? { channelId } : {}),
       },
       `monitor:${id}`,
-      true,
     );
     const monitor: Monitor = {
       id,
@@ -1942,130 +957,55 @@ export class AgentService {
       checks: 0,
     };
     await this.db.insertIfAbsent(owner, "monitors", monitor);
-    await this.activateMonitor(owner, monitor);
+    await this.activateMonitor(board, monitor);
     return monitor;
   }
-  private async activateMonitor(owner: string, monitor: Monitor) {
+  /** A new watch's task starts once the watch is recorded. */
+  private async activateMonitor(board: WorkClient, monitor: Monitor) {
     if (monitor.status !== "active") return null;
-    const task = await this.getTask(owner, monitor.taskId);
-    if (task.status !== "paused") return null;
-    if (task.state.resumingMonitor)
-      return this.db.compareAndSwap(
-        owner,
-        "tasks",
-        task.id,
-        { status: "paused", state: { resumingMonitor: true } },
-        {
-          status: "queued",
-          nextRunAt: date(),
-          leaseId: null,
-          leaseUntil: null,
-          error: null,
-          state: { ...task.state, resumingMonitor: false, failures: 0, notice: null },
-        },
-      );
-    if (!task.state.initializingMonitor) return null;
-    return this.db.compareAndSwap(
-      owner,
-      "tasks",
-      task.id,
-      { status: "paused", attempts: 0, state: { initializingMonitor: true } },
-      {
-        status: "queued",
-        state: { ...task.state, initializingMonitor: false },
-      },
-    );
+    const task = await board.call<AgentTask>("task.get", { taskId: monitor.taskId });
+    if (task.status !== "paused" || !task.state.initializingMonitor) return null;
+    return board.call("task.update", { taskId: task.id, status: "queued" });
   }
-  async controlMonitor(owner: string, id: string, action: "pause" | "resume" | "stop" | "check") {
+  async controlMonitor(
+    owner: string,
+    id: string,
+    action: "pause" | "resume" | "stop" | "check",
+    board: WorkClient = this.board.forPerson(owner),
+  ) {
     const monitor = await this.db.get<Monitor>(owner, "monitors", id);
     if (!monitor) throw new AppError("Monitor not found", 404);
     if (monitor.status === "stopped" && action !== "stop")
       throw new AppError("Create a new watch to restart this stopped monitor", 409);
     if (action === "pause" || action === "stop") {
-      const status = action === "pause" ? "paused" : "stopped";
       const saved = await this.db.put(owner, "monitors", {
         ...monitor,
-        status,
+        status: action === "pause" ? "paused" : "stopped",
         nextCheckAt: date(),
       });
-      const task = await this.getTask(owner, monitor.taskId);
-      await this.control(owner, task.id, action === "pause" ? "pause" : "cancel");
+      await board.call("task.control", {
+        taskId: monitor.taskId,
+        action: action === "pause" ? "pause" : "cancel",
+      });
       return saved;
     }
-    let monitorStatus = monitor.status;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const task = await this.getTask(owner, monitor.taskId);
-      if (task.status === "cancelled") break;
-      if (task.status === "paused") {
-        // Mark the paused task before activating the monitor so no worker can claim it in between.
-        const marked = await this.db.compareAndSwap(
-          owner,
-          "tasks",
-          task.id,
-          { status: "paused", leaseId: task.leaseId ?? null },
-          { state: { ...task.state, resumingMonitor: true } },
-        );
-        if (!marked) break;
-        const activated = await this.db.compareAndSwap<Monitor>(
-          owner,
-          "monitors",
-          id,
-          { status: monitor.status },
-          { status: "active", nextCheckAt: date(), error: null },
-        );
-        const saved = activated ?? (await this.db.get<Monitor>(owner, "monitors", id));
-        if (saved?.status === "active" && (await this.activateMonitor(owner, saved))) return saved;
-        const unmarked = await this.db.compareAndSwap(
-          owner,
-          "tasks",
-          task.id,
-          { status: "paused", state: { resumingMonitor: true } },
-          { state: { ...task.state, resumingMonitor: false } },
-        );
-        // Another request or maintenance may have finished this resume first.
-        if (!unmarked && saved?.status === "active") {
-          const latest = await this.getTask(owner, task.id);
-          if (["queued", "running", "scheduled"].includes(latest.status)) return saved;
-        }
-        if (activated)
-          await this.db.compareAndSwap(
-            owner,
-            "monitors",
-            id,
-            { status: "active" },
-            { status: monitor.status, error: monitor.error ?? null },
-          );
-        break;
-      }
-      // Only activate the monitor we read, so a concurrent stop is never undone.
-      const saved = await this.db.compareAndSwap<Monitor>(
-        owner,
-        "monitors",
-        id,
-        { status: monitorStatus },
-        { status: "active", nextCheckAt: date() },
-      );
-      if (!saved) break;
-      monitorStatus = "active";
-      this.worker.abort(task.id);
-      const queued = await this.db.compareAndSwap(
-        owner,
-        "tasks",
-        task.id,
-        // updatedAt fences out a whole run finishing in between, which would move the baseline.
-        { status: task.status, leaseId: task.leaseId ?? null, updatedAt: task.updatedAt },
-        {
-          status: "queued",
-          nextRunAt: date(),
-          leaseId: null,
-          leaseUntil: null,
-          error: null,
-          state: { ...task.state, failures: 0, notice: null },
-        },
-      );
-      if (queued) return saved;
-    }
-    throw new AppError("The watch changed while updating. Try again.", 409);
+    const task = await board.call<AgentTask>("task.get", { taskId: monitor.taskId });
+    if (task.status === "cancelled")
+      throw new AppError("Create a new watch to restart this stopped monitor", 409);
+    // Only the watch we read is made active, so a concurrent stop is never undone.
+    const saved = await this.db.compareAndSwap<Monitor>(
+      owner,
+      "monitors",
+      id,
+      { status: monitor.status },
+      { status: "active", nextCheckAt: date(), error: null },
+    );
+    if (!saved) throw new AppError("The watch changed while updating. Try again.", 409);
+    if (task.status === "paused")
+      await board.call("task.control", { taskId: task.id, action: "resume" });
+    else if (!["queued", "running"].includes(task.status))
+      await board.call("task.update", { taskId: task.id, status: "queued" });
+    return saved;
   }
   async refreshIdeas(owner: string) {
     const w = await this.workspace.snapshot(owner);
@@ -2156,7 +1096,13 @@ export class AgentService {
     await this.db.compareAndSwap(owner, "agent-settings", "identity", {}, { lastIdeasAt: date() });
     return this.db.list<Idea>(owner, "ideas");
   }
-  async decideIdea(owner: string, id: string, action: "accept" | "dismiss", prompt?: string) {
+  async decideIdea(
+    owner: string,
+    id: string,
+    action: "accept" | "dismiss",
+    prompt?: string,
+    board: WorkClient = this.board.forPerson(owner),
+  ) {
     let idea = await this.db.get<Idea>(owner, "ideas", id);
     if (!idea || (idea.channelId && !(await this.access.scope(owner)).allows(idea.channelId)))
       throw new AppError("Idea not found", 404);
@@ -2190,8 +1136,9 @@ export class AgentService {
       { title: idea.title, description: idea.reason },
       hash(`idea-goal:${id}`),
     );
-    const task = await this.createTask(
-      owner,
+    // Asked again, it is the same task: the board knows the key.
+    const task = await board.call<AgentTask>(
+      "task.create",
       {
         title: idea.title,
         prompt: idea.prompt,
@@ -2201,19 +1148,21 @@ export class AgentService {
       },
       `idea:${id}`,
     );
-    await this.db.compareAndSwap(
-      owner,
-      "ideas",
-      id,
-      { status: "new" },
-      { status: "accepted", taskId: task.id },
-    );
+    await this.db.put(owner, "ideas", { ...idea, status: "accepted", taskId: task.id });
     return this.db.get<Idea>(owner, "ideas", id);
+  }
+  /**
+   * How a person the chat service names (by their account) is known to the sessions here, where a signed-in
+   * person of a managed workspace is `acct:` and the account.
+   */
+  private signedInAs(person: string): string {
+    return this.config.managed && !person.startsWith("acct:") ? `acct:${person}` : person;
   }
   async notify(owner: string, title: string, body: string, taskId?: string, key?: string) {
     const value: AgentNotification = {
       id: key ? hash(key) : randomUUID(),
       taskId,
+      ...(taskId ? { forUser: this.signedInAs(owner) } : {}),
       title,
       body,
       createdAt: date(),
@@ -2414,9 +1363,20 @@ export class AgentService {
         : { plan: task.plan.map((s) => ({ ...s, status: "succeeded" as const })) }),
     };
   }
-  /** A person finished a task in the chat service: what that sets going here is done. */
+  /**
+   * A person finished a task, or stopped it, in the chat service: what that sets going here is done. A review
+   * the task was waiting on is declined, since nothing is waiting for it any more.
+   */
   async outcome(task: AgentTask) {
-    await this.publishOutcome(task.createdBy ?? SHARED_OWNER, task);
+    const owner = task.createdBy ?? SHARED_OWNER;
+    if (task.status === "cancelled" && task.actionId) {
+      const action = await this.db.get<ActionProposal>(owner, "actions", task.actionId);
+      if (action?.status === "awaiting_review")
+        await this.actions.decide(owner, action.id, action.hash, "deny").catch((error) =>
+          backgroundFailure("decline a stopped task's review", error),
+        );
+    }
+    await this.publishOutcome(owner, task);
   }
   private async publishOutcome(owner: string, task: AgentTask) {
     if (task.status === "succeeded") {
@@ -2427,7 +1387,14 @@ export class AgentService {
         task.id,
         `task-done:${task.id}`,
       );
-      if (task.goalId) {
+      // Only a goal the person who started the task may see counts it (the board cannot tell; goals are here).
+      if (
+        task.goalId &&
+        (await this.assertGoal(owner, task.goalId).then(
+          () => true,
+          () => false,
+        ))
+      ) {
         for (let attempt = 0; attempt < 8; attempt++) {
           const goal = await this.db.get<Goal>(owner, "goals", task.goalId);
           if (!goal || goal.milestones.some((m) => m.id === task.id)) break;

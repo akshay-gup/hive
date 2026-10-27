@@ -73,13 +73,20 @@ export function TaskThreadCard({ task }: { task: AgentTask }) {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
+    // What the task made is the machine's, asked for through the chat service while the machine is awake.
     void api
-      .request<{ artifacts: AgentArtifact[]; files: Artifact[]; browsers: BrowserSession[] }>(
-        `/api/agent/tasks/${task.id}`,
-      )
+      .request<{
+        artifacts?: AgentArtifact[];
+        files?: Artifact[];
+        browsers?: BrowserSession[];
+      }>(`/chat/v1/tasks/${task.id}/run`)
       .then((result) => {
         if (active) {
-          setDetail(result);
+          setDetail({
+            artifacts: result.artifacts ?? [],
+            files: result.files ?? [],
+            browsers: result.browsers ?? [],
+          });
           setError("");
         }
       })

@@ -14,17 +14,22 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **Model provider keys behind a proxy.** The agent would hold a placeholder, not the real key.
 - **Clear a run's work folder after a chat run.** Less left on disk for a later run to read.
 - **Personal chat history off the machine.** Each person's private chat with the agent is on the machine today.
-- **Move projects, tasks and goals into the chat service.** Would make private projects private from the agent. Left because of its size and the files that go with tasks; revisit if real secrecy is needed.
+- **Move goals, ideas, monitors, memories and notices into the chat service.** Projects and tasks are there now; these are still on the machine, and so is the history of a task's runs.
 - **A sandbox for channel runs only.** A real wall for other people's requests, at the cost of root for those runs. Only if we decide the agent need not always keep root.
 - **Mail and Google credentials.** The workspace's one connection is the whole team's by design, and the agent can read it.
 
 - **Bring the kernel watch to machines made before it.** It comes with the image (the audit package and a unit), so an older machine needs a new workspace; a step in the updater could install it.
 
+## The board in the chat service
+
+- **Recovery sweeps that read the board are gone.** The machine no longer scans for a monitor whose task was never started or an accepted idea whose task was never made; both are made again when the person asks again, and the idea or watch is shown as it is.
+- **Notices for a task's outcome are the machine's.** "Ready for your review" and the like are written where the run finished; the room could write them itself, which would show them while the machine sleeps.
+
 ## Product
 
 - **Keep a task's run history in the chat service (owed).** Today the app asks the machine for a task's steps, artifacts and browser windows, and the machine checks with the chat service that the person may see the task; none of it shows while the machine sleeps. The machine should send a trimmed copy of each run's steps to the chat service, as chat runs already do, so the history is there when the machine is off. We chose to ship the simpler way first and agreed this is to be done.
 
-- **Create tasks from a private channel.** The agent asks which project, and warns once, with names, when the project can be seen by more people than the channel. The chat service does the comparison from project data the machine sends one way, so the machine never learns a private channel's members.
+- **Create tasks from a private channel.** The board tools are not offered in a private channel yet, though the chat service now holds both the channel's people and the project's and could compare them: the agent would ask which project, and warn once, with names, when the project can be seen by more people than the channel.
 - **A bell notice and a live update for agent flags.** Today the owner and admins see a count and a list.
 - **Pin or favourite projects.**
 - **A hint when no agent is connected.**

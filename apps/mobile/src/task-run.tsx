@@ -101,12 +101,17 @@ export function TaskRunView({ task }: { task: AgentTask }) {
       if (pending) return;
       pending = true;
       try {
-        const detail = await api.request<{ task: AgentTask; events: RunEvent[] }>(
-          `/api/agent/tasks/${task.id}`,
-        );
+        // The task is the chat service's; the steps of its runs are the machine's, asked for through it.
+        const [board, run] = await Promise.all([
+          api.request<{ task: AgentTask }>(`/api/agent/tasks/${task.id}`),
+          api
+            .request<{ events?: RunEvent[] }>(`/chat/v1/tasks/${task.id}/run`)
+            .catch((): { events?: RunEvent[] } => ({})),
+        ]);
         if (active) {
-          setEvents(detail.events);
-          setSavedTask(detail.task);
+          // While the machine sleeps its steps are not there; what was shown stays.
+          if (run.events) setEvents(run.events);
+          setSavedTask(board.task);
           setError("");
         }
       } catch (e) {

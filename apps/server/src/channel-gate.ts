@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { Scope } from "../../../packages/chat-core/src/access.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
-import { type AgentTask, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent.ts";
+import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent.ts";
 import type { AgentService } from "./engine/service.ts";
 
 const NOT_FOR_GUESTS = "Guests can open only the channels they were added to";
@@ -73,30 +73,10 @@ async function memberGate(c: Context, owner: string, service: AgentService, scop
     const channelId = await channelOfThread(service, owner, decoded(id));
     if (channelId) channel(channelId);
   };
-  const task = async (id: string) => {
-    const found = await service.db.get<AgentTask>(owner, "tasks", decoded(id));
-    // To change one, the project it is in has to let the person work on it.
-    if (found) await service.assertTask(owner, found, method !== "GET");
-  };
-
   const match = (pattern: RegExp) => pattern.exec(path);
 
   const ofChannel = match(/^\/api\/agent\/channels\/([^/]+)(?:\/|$)/);
   if (ofChannel) return channel(ofChannel[1]);
-  if (method === "POST" && path === "/api/agent/tasks") {
-    const body = await bodyOf(c);
-    channel(body.channelId);
-    return channel(body.originChannelId);
-  }
-  const ofTask = match(/^\/api\/agent\/tasks\/([^/]+)(\/delegate)?$/);
-  if (ofTask) {
-    await task(ofTask[1]);
-    // Handing a task to a channel is putting it there.
-    if (ofTask[2] && method === "POST") channel((await bodyOf(c)).target);
-    return;
-  }
-  const underTask = match(/^\/api\/agent\/tasks\/([^/]+)\//);
-  if (underTask) return task(underTask[1]);
   if (method === "POST" && path === "/api/agent/threads/bind")
     return channel((await bodyOf(c)).channelId);
   const ofThread = match(/^\/api\/agent\/threads\/([^/]+)(?:\/|$)/);
@@ -141,16 +121,6 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     if (!channelId || channelId === ORCHESTRATOR_CHANNEL_ID) throw refuse();
     channel(channelId);
   };
-  /** A task of a channel they were added to, whether the work was asked for there or sent on from it. */
-  const task = async (id: string, write: boolean) => {
-    const found = await service.db.get<AgentTask>(owner, "tasks", decoded(id));
-    if (!found) throw new AppError("Task not found", 404);
-    await service.assertTask(owner, found, write);
-    // What an agent does goes on without anyone asking it, in the channel's workspace: a guest does
-    // not steer it. The board's own items, which nothing runs, are theirs to keep.
-    if (write && found.kind !== "manual") throw refuse();
-  };
-
   const match = (pattern: RegExp) => pattern.exec(path);
 
   if (path === "/api/auth/session" || path === "/api/auth/logout") return;
@@ -187,28 +157,7 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     throw refuse();
   }
 
-  if (method === "POST" && path === "/api/agent/tasks") {
-    // A guest keeps the board of a project they are in: the project says whether they may, when it is made.
-    const { channelId, projectId, kind } = await body();
-    if (kind !== "manual" || typeof projectId !== "string") throw refuse();
-    if (typeof channelId === "string") channel(channelId);
-    return;
-  }
-  const oneTask = match(/^\/api\/agent\/tasks\/([^/]+)$/);
-  if (oneTask) {
-    if (method === "GET") return task(oneTask[1], false);
-    if (method === "DELETE") return task(oneTask[1], true);
-    if (method === "PATCH") {
-      // Handing an item to the agent is starting work, not keeping the board.
-      if ((await body()).assignee) throw refuse();
-      return task(oneTask[1], true);
-    }
-    throw refuse();
-  }
-  const attachment = match(/^\/api\/agent\/tasks\/([^/]+)\/attachments\/[^/]+\/content$/);
-  if (method === "GET" && attachment) return task(attachment[1], false);
-
-  const ofThread = match(/^\/api\/agent\/threads\/([^/]+)(\/channel|\/tasks)?$/);
+  const ofThread = match(/^\/api\/agent\/threads\/([^/]+)(\/channel)?$/);
   if (ofThread) {
     if ((method === "PATCH" && !ofThread[2]) || (method === "GET" && ofThread[2]))
       return thread(ofThread[1]);

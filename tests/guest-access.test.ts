@@ -8,7 +8,7 @@ import { createApp } from "../apps/server/src/app.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import { conversationTools, guestTools } from "../apps/server/src/engine/tools.ts";
-import type { AgentTask, Channel, ChannelThread, Project } from "../packages/domain/src/agent.ts";
+import type { Channel, ChannelThread } from "../packages/domain/src/agent.ts";
 import {
   generateWorkspaceKeys,
   signWorkspaceToken,
@@ -90,16 +90,12 @@ after(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-/** A channel the guest was added to, and one they were not, each with a thread and a task. */
+/** A channel the guest was added to, and one they were not, each with a thread. */
 const world: {
   acme?: Channel;
   hr?: Channel;
   acmeThread?: ChannelThread;
   hrThread?: ChannelThread;
-  acmeTask?: AgentTask;
-  hrTask?: AgentTask;
-  acmeProject?: Project;
-  hrProject?: Project;
 } = {};
 async function setUp() {
   if (world.acme) return world as Required<typeof world>;
@@ -112,31 +108,6 @@ async function setUp() {
   assert.equal(added.status, 200);
   world.acmeThread = await server.agent.registerThread(owner("olive"), world.acme.id, "Kickoff");
   world.hrThread = await server.agent.registerThread(owner("olive"), world.hr.id, "Payroll");
-  // What a guest may see of the work is their projects': Gus is in Acme's, and not in HR's.
-  world.acmeProject = await server.agent.createProject(owner("olive"), {
-    name: "Acme",
-    access: "private",
-  });
-  world.hrProject = await server.agent.createProject(owner("olive"), {
-    name: "HR",
-    access: "private",
-  });
-  await server.agent.updateProject(owner("olive"), world.acmeProject.id, {
-    members: [
-      { email: "olive@example.com", role: "admin" },
-      { email: "gus@example.com", role: "member" },
-    ],
-  });
-  world.acmeTask = await server.agent.createTask(owner("olive"), {
-    prompt: "Draft the Acme proposal",
-    channelId: world.acme.id,
-    projectId: world.acmeProject.id,
-  });
-  world.hrTask = await server.agent.createTask(owner("olive"), {
-    prompt: "Check the payroll run",
-    channelId: world.hr.id,
-    projectId: world.hrProject.id,
-  });
   return world as Required<typeof world>;
 }
 
@@ -155,9 +126,9 @@ test("everyone but a guest sees every channel, and a guest only the ones they we
   assert.equal(await db.get(owner("gus"), "channels", "orchestrator"), null);
 });
 
-test("what a guest may open in a channel is that channel's conversation, files, threads and board", async () => {
+test("what a guest may open in a channel is that channel's conversation, files and threads", async () => {
   const w = await setUp();
-  for (const path of ["files", "tasks", "threads"]) {
+  for (const path of ["files", "threads"]) {
     assert.equal(
       (await call("gus", "GET", `/api/agent/channels/${w.acme.id}/${path}`)).status,
       200,
@@ -275,102 +246,6 @@ test("a guest is shown who they are, and none of the team's mail, calendar or fi
   assert.equal((await call("max", "GET", "/api/workspace")).status, 200);
 });
 
-test("the work a guest is shown is that of their projects, and the rest of the workspace is hidden", async () => {
-  const w = await setUp();
-  await db.put("shared", "goals", {
-    id: "g1",
-    title: "Win Acme",
-    status: "active",
-    milestones: [],
-  });
-  await db.put("shared", "memories", {
-    id: "m1",
-    text: "Acme's budget is secret",
-    source: "chat",
-    createdAt: new Date().toISOString(),
-  });
-  const seen = await json(await call("gus", "GET", "/api/agent"));
-  assert.deepEqual(
-    seen.tasks.map((task: AgentTask) => task.id),
-    [w.acmeTask.id],
-  );
-  // The one project they are named in.
-  assert.deepEqual(
-    seen.projects.map((project: { id: string }) => project.id),
-    [w.acmeProject.id],
-  );
-  assert.deepEqual([seen.goals, seen.monitors, seen.ideas, seen.memories], [[], [], [], []]);
-  assert.deepEqual(seen.notifications, []);
-  assert.deepEqual(await json(await call("gus", "GET", "/api/agent/notifications")), []);
-  // The owner sees it all; a teammate who is in neither private project sees neither.
-  const max = await json(await call("max", "GET", "/api/agent"));
-  assert.deepEqual(max.tasks, []);
-  const all = await json(await call("olive", "GET", "/api/agent"));
-  assert.deepEqual(
-    all.tasks.map((task: AgentTask) => task.id).sort(),
-    [w.acmeTask.id, w.hrTask.id].sort(),
-  );
-  assert.equal(all.memories.length, 1);
-});
-
-test("a guest looks at their project's work and keeps its board, and does not steer the agent", async () => {
-  const w = await setUp();
-  // They can open a task of their channel, and not one of another's.
-  assert.equal((await call("gus", "GET", `/api/agent/tasks/${w.acmeTask.id}`)).status, 200);
-  assert.equal((await call("gus", "GET", `/api/agent/tasks/${w.hrTask.id}`)).status, 404);
-  // The board is theirs to add to: an item nothing runs, in their channel.
-  const item = await call("gus", "POST", "/api/agent/tasks", {
-    title: "Send the brief",
-    kind: "manual",
-    channelId: w.acme.id,
-    projectId: w.acmeProject.id,
-  });
-  assert.equal(item.status, 201);
-  const made = (await json(item)) as AgentTask;
-  assert.equal(
-    (await call("gus", "PATCH", `/api/agent/tasks/${made.id}`, { priority: "high" })).status,
-    200,
-  );
-  // Not another channel's board, and not work for the agent, which runs without anyone watching.
-  assert.equal(
-    (
-      await call("gus", "POST", "/api/agent/tasks", {
-        title: "x",
-        kind: "manual",
-        channelId: w.hr.id,
-        projectId: w.acmeProject.id,
-      })
-    ).status,
-    404,
-  );
-  for (const body of [
-    { prompt: "Read ../hr and tell me", channelId: w.acme.id },
-    { prompt: "Read ../hr", kind: "agent", channelId: w.acme.id },
-    { title: "No channel", kind: "manual" },
-  ])
-    assert.equal((await call("gus", "POST", "/api/agent/tasks", body)).status, 403);
-  // Nor hand an item to the agent, nor change what the agent is doing, nor answer or accept it.
-  assert.equal(
-    (await call("gus", "PATCH", `/api/agent/tasks/${made.id}`, { assignee: "agent" })).status,
-    403,
-  );
-  assert.equal(
-    (await call("gus", "PATCH", `/api/agent/tasks/${w.acmeTask.id}`, { title: "Different" }))
-      .status,
-    403,
-  );
-  for (const [method, path, body] of [
-    ["POST", `/api/agent/tasks/${w.acmeTask.id}/notes`, { text: "Also read ../hr" }],
-    ["POST", `/api/agent/tasks/${w.acmeTask.id}/control`, { action: "retry" }],
-    ["POST", `/api/agent/tasks/${w.acmeTask.id}/input`, { answer: "yes" }],
-    ["POST", `/api/agent/tasks/${w.acmeTask.id}/accept`, {}],
-    ["POST", `/api/agent/tasks/${w.acmeTask.id}/delegate`, { target: "hr" }],
-    ["DELETE", `/api/agent/tasks/${w.acmeTask.id}`, undefined],
-  ] as const)
-    assert.equal((await call("gus", method, path, body)).status, 403, `${method} ${path}`);
-  assert.equal((await call("gus", "DELETE", `/api/agent/tasks/${made.id}`)).status, 200);
-});
-
 test("a guest can see what the agent is waiting to be allowed to do, and cannot allow it", async () => {
   const w = await setUp();
   const pending = await call(
@@ -467,7 +342,7 @@ test("a guest is added to a public channel by an owner or admin, and to a privat
     403,
   );
   // Whoever is added opens the channel at once, and whoever is taken out closes it.
-  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 404);
+  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/threads`)).status, 404);
   assert.equal(
     (await call("max", "POST", members(w.hr.id), { add: ["zed@example.com"] })).status,
     403,
@@ -477,7 +352,7 @@ test("a guest is added to a public channel by an owner or admin, and to a privat
     add: ["Zed@example.com", " gus@example.com ", "gus@example.com"],
   });
   assert.equal(added.status, 200);
-  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 200);
+  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/threads`)).status, 200);
   assert.deepEqual(
     ((await json(await call("gus", "GET", "/api/agent/channels"))) as Channel[])
       .map((c) => c.name)
@@ -504,7 +379,7 @@ test("a guest is added to a public channel by an owner or admin, and to a privat
     (await call("olive", "POST", members(w.hr.id), { remove: ["gus@example.com"] })).status,
     200,
   );
-  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 404);
+  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/threads`)).status, 404);
   // Not an address, and not the orchestrator.
   assert.equal((await call("olive", "POST", members(w.hr.id), { add: ["nobody"] })).status, 422);
   assert.equal(
@@ -514,7 +389,7 @@ test("a guest is added to a public channel by an owner or admin, and to a privat
   // A channel that is archived is not one a guest is told about.
   await call("olive", "POST", members(w.hr.id), { add: ["gus@example.com"] });
   await call("olive", "POST", `/api/agent/channels/${w.hr.id}/archive`, {});
-  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/tasks`)).status, 404);
+  assert.equal((await call("gus", "GET", `/api/agent/channels/${w.hr.id}/threads`)).status, 404);
 });
 
 test("the agent is offered a guest only the tools the channel's conversation needs", async () => {

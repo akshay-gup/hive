@@ -37,6 +37,10 @@ export interface BorrowDeps {
   };
   /** The person the task is for, and the channel it is kept in the folder of, made known here before it runs. */
   prepare: (start: TaskStart) => Promise<void>;
+  /** Settled when the machine is ready to take a task (copies a stop left behind are dealt with). */
+  ready?: () => Promise<void>;
+  /** The id of the workspace's Google connection, if it has one: a task is tied to the account it began with. */
+  connection?: (owner: string) => Promise<string | null>;
   /** Runs what is waiting in the machine's copies (the worker), now rather than at its next tick. */
   run: () => void;
   /** Stops a run of the worker's. */
@@ -98,8 +102,20 @@ export class TaskBorrower {
   /** How tasks ended, kept until the room confirms them. */
   private readonly finals = new Map<string, EndFrame>();
   private beat: ReturnType<typeof setInterval> | null = null;
+  /** What is being done about each task, one thing at a time: a task given back is gone before it is lent again. */
+  private readonly busy = new Map<string, Promise<unknown>>();
 
   constructor(private readonly deps: BorrowDeps) {}
+
+  private serial<T>(taskId: string, work: () => Promise<T>): Promise<T> {
+    const next = (this.busy.get(taskId) ?? Promise.resolve()).then(work, work);
+    this.busy.set(taskId, next);
+    const clear = () => {
+      if (this.busy.get(taskId) === next) this.busy.delete(taskId);
+    };
+    next.then(clear, clear);
+    return next;
+  }
 
   private log(line: string) {
     this.deps.log?.(`[chat-runner] ${line}`);
@@ -135,11 +151,12 @@ export class TaskBorrower {
     switch (frame.t) {
       case "welcome": {
         const keep = new Set(frame.resumeTasks ?? []);
-        for (const a of [...this.held.values()]) if (!keep.has(a.start.leaseId)) void this.letGo(a);
+        for (const a of [...this.held.values()])
+          if (!keep.has(a.start.leaseId)) void this.serial(a.start.task.id, () => this.letGo(a));
         return;
       }
       case "task.start":
-        void this.start(frame.start).catch((error) =>
+        void this.serial(frame.start.task.id, () => this.start(frame.start)).catch((error) =>
           this.log(`could not start task ${frame.start.task.id}: ${String(error)}`),
         );
         return;
@@ -162,7 +179,8 @@ export class TaskBorrower {
       }
       case "task.stop": {
         const a = this.held.get(frame.taskId);
-        if (a && a.start.leaseId === frame.leaseId) void this.letGo(a);
+        if (a && a.start.leaseId === frame.leaseId)
+          void this.serial(frame.taskId, () => this.letGo(a));
         return;
       }
       case "task.ended":
@@ -210,6 +228,7 @@ export class TaskBorrower {
   }
 
   private async start(start: TaskStart) {
+    await this.deps.ready?.();
     const { task, leaseId } = start;
     const known = this.held.get(task.id);
     if (known?.start.leaseId === leaseId) {
@@ -233,8 +252,13 @@ export class TaskBorrower {
     await this.deps.prepare(start);
     const attachments = await this.deps.files.take(owner, task.id, task.attachments ?? []);
     // The copy is what the worker runs: waiting, with the run's marks as the room has them.
+    const state =
+      task.state?.connectionId === undefined && this.deps.connection
+        ? { ...task.state, connectionId: await this.deps.connection(owner) }
+        : task.state;
     await this.deps.copies.put(owner, {
       ...task,
+      state,
       attachments,
       status: "queued",
       leaseId: null,
@@ -294,19 +318,22 @@ export class TaskBorrower {
    * The worker is done with the copy. If it ended the task (or needs a person), the task is given back with
    * how it ended; if the worker put it back in the queue (it was cut off), it is run again from the copy.
    */
-  async finished(owner: string, copy: AgentTask) {
-    const a = this.held.get(copy.id);
-    if (!a || a.dropped || a.owner !== owner) return;
-    if (!ENDED.has(copy.status)) {
-      this.deps.run();
-      return;
-    }
-    const patch = { ...this.changed(a, copy), status: copy.status };
-    this.give({ taskId: copy.id, leaseId: a.start.leaseId, patch });
-    clearInterval(a.timer);
-    this.held.delete(copy.id);
-    await this.deps.files.drop(owner, copy).catch(() => undefined);
-    await this.deps.copies.remove(owner, copy.id).catch(() => undefined);
+  finished(owner: string, copy: AgentTask): Promise<void> {
+    return this.serial(copy.id, async () => {
+      const a = this.held.get(copy.id);
+      if (!a || a.dropped || a.owner !== owner) return;
+      if (!ENDED.has(copy.status)) {
+        this.deps.run();
+        return;
+      }
+      const patch = { ...this.changed(a, copy), status: copy.status };
+      clearInterval(a.timer);
+      this.held.delete(copy.id);
+      // The copy and its files go before the room is told: it may lend the task again at once.
+      await this.deps.copies.remove(owner, copy.id).catch(() => undefined);
+      await this.deps.files.drop(owner, copy).catch(() => undefined);
+      this.give({ taskId: copy.id, leaseId: a.start.leaseId, patch });
+    });
   }
 
   /** Give the task back, with how it ended; said again until the room has it. */

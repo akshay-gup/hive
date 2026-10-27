@@ -198,12 +198,14 @@ export function conversationTools(
       description:
         "Hand a whole job to the durable server worker. It continues when the app closes and pauses for user input or approval. Use document for a selected email form, finance for imported CSV, plan for a goal plan, agent for other jobs.",
       parameters: createTaskSchema,
-      execute: async (args) =>
-        board.call(
+      execute: async (args) => {
+        if (args.goalId) await service.assertGoal(owner, args.goalId);
+        return board.call(
           "task.create",
           { ...args, ...(channelId ? { channelId, threadId: input.threadId } : {}) },
           key("task", args),
-        ),
+        );
+      },
     }),
     defineTool({
       name: "create_issue",
@@ -228,8 +230,9 @@ export function conversationTools(
         goalId: z.string().optional(),
         projectId: z.string().optional(),
       }),
-      execute: async (args) =>
-        board.call(
+      execute: async (args) => {
+        if (args.goalId) await service.assertGoal(owner, args.goalId);
+        return board.call(
           "task.create",
           {
             title: args.title,
@@ -246,7 +249,8 @@ export function conversationTools(
             ...(channelId ? { channelId, threadId: input.threadId } : {}),
           },
           key("issue", args),
-        ),
+        );
+      },
     }),
     defineTool({
       name: "update_task",
@@ -275,7 +279,10 @@ export function conversationTools(
         goalId: z.string().nullable().optional(),
         projectId: z.string().optional(),
       }),
-      execute: async ({ taskId, ...patch }) => board.call("task.update", { taskId, ...patch }),
+      execute: async ({ taskId, ...patch }) => {
+        if (patch.goalId) await service.assertGoal(owner, patch.goalId);
+        return board.call("task.update", { taskId, ...patch });
+      },
     }),
     defineTool({
       name: "delete_task",
@@ -445,7 +452,7 @@ export function conversationTools(
         "Schedule a public-page condition check requested by the user. The worker records observations and notifies on meaningful changes. Price checks detect explicit USD or dollar prices; no booking is performed.",
       parameters: monitorInputSchema,
       execute: async (args) =>
-        service.createMonitor(owner, args, key("watch", args), await privateChannel()),
+        service.createMonitor(owner, args, key("watch", args), await privateChannel(), board),
     }),
     defineTool({
       name: "remember_fact",

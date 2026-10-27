@@ -7,6 +7,13 @@ import { createApp } from "../apps/server/src/app.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import type { AgentNotification, AgentTask, Idea, Monitor } from "../packages/domain/src/agent.ts";
 import type { ActionProposal } from "../packages/domain/src/index.ts";
+import {
+  answerLocal,
+  controlLocal,
+  detailOf,
+  localBoard,
+  localTask,
+} from "./helpers/local-task.ts";
 
 let db: Store, server: Awaited<ReturnType<typeof createApp>>, directory: string;
 const owner = "workflow-user";
@@ -22,6 +29,7 @@ before(async () => {
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: [],
   });
+  server.agent.board = localBoard(server.agent);
   await server.workspace.ensureSample(owner, server.actions);
 });
 after(async () => {
@@ -34,7 +42,7 @@ async function documentTask() {
   const w = await server.workspace.snapshot(owner);
   const mail = w.mail.find((m) => m.attachments.length);
   assert.ok(mail);
-  const task = await server.agent.createTask(owner, {
+  const task = await localTask(server.agent, owner, {
     title: "Return school form",
     prompt: "Fill the school form and prepare a reply",
     kind: "document",
@@ -44,13 +52,13 @@ async function documentTask() {
   const waiting = await server.agent.getTask(owner, task.id);
   assert.equal(waiting.status, "waiting_input");
   assert.ok(Array.isArray(waiting.state.missingFields));
-  await server.agent.answer(owner, task.id, "Use these fictional test values", {
+  await answerLocal(server.agent, owner, task.id, "Use these fictional test values", {
     participant_name: "Test Student",
     guardian_name: "Test Guardian",
     permission_granted: true,
   });
   await server.agent.worker.tick();
-  const reviewed = await server.agent.detail(owner, task.id);
+  const reviewed = await detailOf(server.agent, owner, task.id);
   assert.equal(reviewed.task.status, "waiting_approval");
   assert.equal(reviewed.files.length, 1);
   assert.ok(reviewed.files[0].url);
@@ -71,12 +79,12 @@ test("document job runs without a client, waits for review, and resumes from its
     (await server.workspace.snapshot(owner)).mail.filter((m) => m.subject.startsWith("Re:")).length,
     0,
   );
-  await server.agent.control(owner, task.id, "pause");
+  await controlLocal(server.agent, owner, task.id, "pause");
   await assert.rejects(
     server.actions.decide(owner, action.id, action.hash, "approve"),
     /Resume the task/,
   );
-  await server.agent.control(owner, task.id, "resume");
+  await controlLocal(server.agent, owner, task.id, "resume");
   const receipt = await server.actions.decide(owner, action.id, action.hash, "approve");
   assert.equal(receipt.status, "succeeded");
   await server.agent.worker.tick();
@@ -125,12 +133,12 @@ test("ideas ignore sent replies while retaining unfinished incoming requests", a
   assert.ok(!ideas.some((idea) => idea.input.messageId === sent.id));
 });
 
-test("cancelling a task denies its pending action", async () => {
+test("a review for a task that was cancelled cannot be approved", async () => {
   const { task, action } = await documentTask();
-  await server.agent.control(owner, task.id, "cancel");
-  assert.equal(
-    (await server.actions.decide(owner, action.id, action.hash, "approve")).status,
-    "denied",
+  await controlLocal(server.agent, owner, task.id, "cancel");
+  await assert.rejects(
+    server.actions.decide(owner, action.id, action.hash, "approve"),
+    /Resume the task/,
   );
   await server.agent.worker.tick();
   assert.equal((await server.agent.getTask(owner, task.id)).status, "cancelled");

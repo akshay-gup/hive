@@ -1,3 +1,4 @@
+import type { RunnerLink } from "../../apps/chat/src/agent-link.ts";
 import { ChatCore, type ChatIdentity } from "../../apps/chat/src/core.ts";
 import type { ChatEvent } from "../../packages/chat-core/src/events.ts";
 import type { WorkspaceRole } from "../../packages/integrations/src/workspace-token.ts";
@@ -16,13 +17,24 @@ export interface TestPerson {
  */
 export async function chatWorld<P extends Record<string, TestPerson>>(
   people: P,
-  options: { limits?: ChatIdentity["limits"]; clock?: () => number } = {},
+  options: {
+    limits?: ChatIdentity["limits"];
+    clock?: () => number;
+    /** The agent's machine, if the test has one: what the room sends it goes here. */
+    runner?: () => RunnerLink | null;
+    /** The key and workspace the room signs addresses and tickets with. */
+    link?: { key: string; workspaceId: string };
+  } = {},
 ) {
   type Who = keyof P & string;
   const published: ChatEvent[] = [];
   const core = new ChatCore(memorySql(), {
     publish: (event) => published.push(event),
     clock: options.clock,
+    runner: options.runner,
+    ...(options.link
+      ? { linkKey: () => options.link?.key, workspaceId: () => options.link?.workspaceId ?? null }
+      : {}),
   });
   await core.syncPeople(
     Object.values(people).map((p) => ({ sub: p.id, email: p.email, name: p.name, role: p.role })),

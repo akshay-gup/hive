@@ -14,8 +14,8 @@ import type {
   Goal,
   Idea,
   Monitor,
-  RunEvent,
 } from "../packages/domain/src/agent.ts";
+import { controlLocal, localBoard, } from "./helpers/local-task.ts";
 
 let db: Store, server: Awaited<ReturnType<typeof createApp>>, directory: string, token: string;
 let config: Config;
@@ -44,6 +44,8 @@ before(async () => {
     allowedOrigins: ["http://localhost:8081"],
   };
   server = await createApp(db, config);
+  // The board is the chat service's: here it is played by the machine's own copies of the tasks.
+  server.agent.board = localBoard(server.agent);
   const session = await server.app.request("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -76,53 +78,8 @@ test("agent API requires a session and reports the actual worker state", async (
   assert.equal(workspace.identity.tone, "warm");
 });
 
-test("task detail and controls are shared with everyone who is signed in", async () => {
-  const task = await read<AgentTask>(
-    "/tasks",
-    { prompt: "Plan the week", owner: "other-user" },
-    201,
-  );
-  assert.equal(task.status, "queued");
-  // An agent's plan is the list it keeps as it works, so a task has no steps before that.
-  assert.deepEqual(task.plan, []);
-  // A teammate's task is the same workspace's task: visible, and open to the same controls.
-  const theirs = await server.agent.createTask("other-user", { prompt: "A teammate's task" });
-  assert.equal((await request(`/tasks/${theirs.id}`)).status, 200);
-  assert.equal((await request(`/tasks/${theirs.id}/input`, { answer: "Hello" })).status, 409);
-  const snapshot = await read<AgentWorkspace>("");
-  assert.ok(snapshot.tasks.some((item) => item.id === task.id));
-  assert.ok(snapshot.tasks.some((item) => item.id === theirs.id));
-  assert.equal((await server.agent.getTask("other-user", theirs.id)).status, "queued");
-  assert.equal(
-    (await read<AgentTask>(`/tasks/${theirs.id}/control`, { action: "cancel" })).status,
-    "cancelled",
-  );
-  assert.equal(
-    (await read<AgentTask>(`/tasks/${task.id}/control`, { action: "pause" })).status,
-    "paused",
-  );
-  assert.equal(
-    (await read<AgentTask>(`/tasks/${task.id}/control`, { action: "resume" })).status,
-    "queued",
-  );
-  assert.equal(
-    (await read<AgentTask>(`/tasks/${task.id}/control`, { action: "cancel" })).status,
-    "cancelled",
-  );
-  const detail = await read<{ task: AgentTask; events: RunEvent[]; artifacts: unknown[] }>(
-    `/tasks/${task.id}`,
-  );
-  assert.equal(detail.task.status, "cancelled");
-  assert.equal(detail.events.length, 3);
-  assert.deepEqual(detail.artifacts, []);
-});
-
 test("agent request validation rejects malformed input with useful JSON errors", async () => {
   for (const [path, body] of [
-    ["/tasks", { prompt: " " }],
-    ["/tasks", { prompt: "Plan", kind: "unknown" }],
-    ["/tasks/missing/control", { action: "delete" }],
-    ["/tasks/missing/input", { answer: " " }],
     ["/goals", { title: " " }],
     ["/goals/missing", { status: "unknown" }],
     ["/goals/missing", { milestones: [{ id: "one", title: "Step", done: "yes" }] }],
@@ -140,35 +97,38 @@ test("agent request validation rejects malformed input with useful JSON errors",
     assert.equal(response.status, 422, path);
     assert.equal(typeof (await response.json()).error, "string", path);
   }
-  const malformed = await server.app.request("/api/agent/tasks", {
-    method: "POST",
-    headers: headers(),
-    body: "{",
-  });
-  assert.equal(malformed.status, 400);
 });
 
-test("goal updates validate milestones and pausing a goal pauses its task", async () => {
+test("goal updates validate milestones and pausing a goal asks the board to pause its tasks", async () => {
   const goal = await read<Goal>("/goals", { title: "Travel", milestones: ["Choose dates"] }, 201);
-  const task = await read<AgentTask>("/tasks", { prompt: "Find dates", goalId: goal.id }, 201);
-  const saved = await read<Goal>(`/goals/${goal.id}`, {
-    status: "paused",
-    milestones: goal.milestones.map((milestone) => ({ ...milestone, done: true })),
-  });
-  assert.equal(saved.status, "paused");
-  assert.equal(saved.milestones[0].done, true);
-  assert.equal((await read<{ task: AgentTask }>(`/tasks/${task.id}`)).task.status, "paused");
-  // Goals are shared like tasks, so a teammate's goal can be updated and linked to.
+  const asked: unknown[] = [];
+  const board = server.agent.board;
+  server.agent.board = {
+    ...board,
+    forPerson: (who) => ({
+      call: async (op, args, key) => {
+        if (op === "goal.pause") {
+          asked.push(args);
+          return { paused: 0 } as never;
+        }
+        return board.forPerson(who).call(op, args, key);
+      },
+    }),
+  };
+  try {
+    const saved = await read<Goal>(`/goals/${goal.id}`, {
+      status: "paused",
+      milestones: goal.milestones.map((milestone) => ({ ...milestone, done: true })),
+    });
+    assert.equal(saved.status, "paused");
+    assert.equal(saved.milestones[0].done, true);
+    assert.deepEqual(asked, [{ goalId: goal.id }]);
+  } finally {
+    server.agent.board = board;
+  }
+  // Goals are shared, so a teammate's goal can be updated.
   const theirs = await server.agent.createGoal("other-user", { title: "A teammate's goal" });
   assert.equal((await request(`/goals/${theirs.id}`, { status: "completed" })).status, 200);
-  assert.equal(
-    (await request("/tasks", { prompt: "Link their goal", goalId: theirs.id })).status,
-    201,
-  );
-  assert.equal(
-    (await request("/tasks", { prompt: "Link a missing goal", goalId: "missing" })).status,
-    404,
-  );
 });
 
 test("memories can be edited and forgotten while identity changes persist", async () => {
@@ -232,6 +192,7 @@ test("idea dismissal survives refresh and concurrent acceptance creates one goal
     "dismissed",
   );
   const before = await read<AgentWorkspace>("");
+  const tasksBefore = (await db.list<AgentTask>("local-user", "tasks")).length;
   const results = await Promise.all([
     read<Idea>(`/ideas/${accepted.id}`, { action: "accept" }),
     read<Idea>(`/ideas/${accepted.id}`, { action: "accept" }),
@@ -240,9 +201,9 @@ test("idea dismissal survives refresh and concurrent acceptance creates one goal
   assert.equal(results[0].taskId, results[1].taskId);
   const after = await read<AgentWorkspace>("");
   assert.equal(after.goals.length, before.goals.length + 1);
-  assert.equal(after.tasks.length, before.tasks.length + 1);
+  assert.equal((await db.list<AgentTask>("local-user", "tasks")).length, tasksBefore + 1);
   assert.ok(results[0].taskId);
-  await read(`/tasks/${results[0].taskId}/control`, { action: "cancel" });
+  await controlLocal(server.agent, "local-user", results[0].taskId, "cancel");
 });
 
 test("sample monitor saves its baseline and deduplicates notifications for repeated changes", async () => {
@@ -262,10 +223,7 @@ test("sample monitor saves its baseline and deduplicates notifications for repea
       (item) => item.taskId === monitor.taskId,
     );
   await server.agent.worker.tick();
-  assert.equal(
-    (await read<{ task: AgentTask }>(`/tasks/${monitor.taskId}`)).task.status,
-    "scheduled",
-  );
+  assert.equal((await server.agent.getTask("local-user", monitor.taskId)).status, "scheduled");
   assert.equal((await notifications()).length, 0);
   for (const text of [
     "One table at 7 pm",

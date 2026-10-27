@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   type Access,
   canOpen,
@@ -378,7 +379,14 @@ export class AgentLink {
       let body: unknown;
       switch (frame.op) {
         case "task.create":
-          body = await work.createTask(actor, { ...args, ...home }, { key: frame.key });
+          {
+            const { held, ...fields } = args;
+            body = await work.createTask(
+              actor,
+              { ...fields, ...home },
+              { key: frame.key, held: held === true },
+            );
+          }
           break;
         case "task.update": {
           const { taskId, ...patch } = args;
@@ -398,6 +406,39 @@ export class AgentLink {
         }
         case "project.delete":
           body = await work.deleteProject(actor, String(args.projectId ?? ""));
+          break;
+        case "task.get":
+          body = (
+            await work.present(actor, [await work.getTask(actor, String(args.taskId ?? ""))])
+          )[0];
+          break;
+        case "task.control":
+          body = await work.control(
+            actor,
+            String(args.taskId ?? ""),
+            z.enum(["pause", "resume", "cancel", "retry"]).parse(args.action),
+          );
+          break;
+        case "tasks.visible":
+          body = {
+            ids: await work.visibleIds(
+              actor,
+              z
+                .array(z.string().max(100))
+                .max(500)
+                .parse(args.ids ?? []),
+            ),
+          };
+          break;
+        case "goal.pause":
+          body = await work.pauseGoal(actor, String(args.goalId ?? ""));
+          break;
+        case "review.decided":
+          body = await work.reviewDecided(
+            actor,
+            String(args.taskId ?? ""),
+            String(args.actionId ?? ""),
+          );
           break;
         case "board":
           body = {
@@ -949,8 +990,13 @@ export class AgentLink {
       const files = (this.withFileLinks(task).attachments ?? []).filter((a) => !had.has(a.id));
       if (files.length) this.send({ t: "task.files", taskId: task.id, leaseId: lease, files });
     }
-    // A person finished it: the machine has things to do about that (a goal's milestone, a notice).
-    if (!removed && task.status === "succeeded" && before?.status !== "succeeded")
+    // A person finished it or stopped it: the machine has things to do about that (a goal's milestone, a
+    // notice, declining a review it was waiting on).
+    if (
+      !removed &&
+      (task.status === "succeeded" || task.status === "cancelled") &&
+      before?.status !== task.status
+    )
       await this.deps.store.put("system", "outcomes", { id: task.id, at: task.updatedAt });
     if (!removed) await this.sendOutcomes();
     if (!removed) await this.pump();
@@ -997,8 +1043,20 @@ export class AgentLink {
     // A task the machine has not been heard of holding is cut off; it is tried again, a few times.
     const { tasks } = this.deps;
     for (const task of tasks.quiet(grace)) tasks.interrupt(task.id, task.leaseId);
+    // A review nobody decided has run out: the task goes back to the agent, which finds it so.
+    for (const id of tasks.staleReviews()) {
+      const saved = tasks.change(
+        id,
+        { status: "queued", updatedAt: new Date(now).toISOString() },
+        {
+          status: "waiting_approval",
+          leaseId: null,
+        },
+      );
+      if (saved) this.deps.taskTouched(saved, false);
+    }
     runs.prune();
     await this.pump();
-    return runs.hasActive() || tasks.hasActive() || tasks.hasDue();
+    return runs.hasActive() || tasks.hasActive() || tasks.hasDue() || tasks.hasReviews();
   }
 }

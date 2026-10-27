@@ -316,6 +316,8 @@ export interface AgentNotification {
   channelId?: string;
   /** Who it is for, by email address. Without it, it is the whole workspace's. */
   to?: string[];
+  /** The person a task's outcome is for (whoever started it), by id. */
+  forUser?: string;
   /** Who it is from, when a person did it: their name and address, as when they mentioned someone. */
   byName?: string;
   by?: string;
@@ -324,6 +326,8 @@ export interface AgentNotification {
   createdAt: string;
   read: boolean;
 }
+/** What the workspace's machine tells of the agent: everything but the board, which the chat service keeps. */
+export type AgentMachineView = Omit<AgentWorkspace, "tasks" | "projects">;
 export interface AgentIdentity {
   name: string;
   tone: "warm" | "concise" | "thoughtful";

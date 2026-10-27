@@ -11,6 +11,7 @@ import { channelWorkspaceDir, diskOwnerForChannel } from "../apps/server/src/eng
 import type { TaskContext } from "../apps/server/src/engine/worker.ts";
 import { runOpencodeTask } from "../apps/server/src/opencode/tasks.ts";
 import type { AgentTask } from "../packages/domain/src/agent.ts";
+import { localBoard, localFile, localNote, localTask } from "./helpers/local-task.ts";
 
 /**
  * The OpenCode task run, against a stand-in for the OpenCode session. These check our side of the
@@ -35,6 +36,7 @@ before(async () => {
     allowedOrigins: [],
   };
   server = await createApp(db, config);
+  server.agent.board = localBoard(server.agent);
 });
 after(async () => {
   await server?.agent?.stop();
@@ -159,14 +161,14 @@ async function run(
 }
 
 async function newTask(prompt = "Plan the offsite") {
-  const created = await server.agent.createTask(owner, { title: "Offsite", prompt });
+  const created = await localTask(server.agent, owner, { title: "Offsite", prompt });
   return { ...created, status: "running" as const, attempts: 1 };
 }
 
 test("the first prompt carries the task, the team's notes and the staged files, and the notes count as read", async () => {
   const task = await newTask();
-  await server.agent.addNote(owner, task.id, { text: "Budget is $5k" });
-  await server.agent.addAttachment(owner, task.id, { name: "wish.txt", bytes: text("a lake") });
+  await localNote(server.agent, owner, task.id, { text: "Budget is $5k" });
+  await localFile(server.agent, owner, task.id, { name: "wish.txt", bytes: text("a lake") });
   const fake = session();
   fake.reply((_prompt, index) => {
     if (index === 1) {
@@ -265,8 +267,8 @@ test("a note added while the agent works is sent to the same session, with the s
     if (index === 1) {
       // The agent is working. Meanwhile the team writes a note and adds a file. Both are on the
       // task before the run first looks, so they arrive as one update.
-      await server.agent.addNote("alice", task.id, { text: "Also check parking" });
-      await server.agent.addAttachment("alice", task.id, {
+      await localNote(server.agent, "alice", task.id, { text: "Also check parking" });
+      await localFile(server.agent, "alice", task.id, {
         name: "map.txt",
         bytes: text("north gate"),
       });
@@ -311,7 +313,7 @@ test("a note that arrives as the agent finishes is read before the run is closed
   const fake = session({ steer: { pollMs: 60_000, settleMs: 40 } });
   fake.reply(async (_prompt, index) => {
     if (index === 1) {
-      await server.agent.addNote("alice", task.id, { text: "Make it dog friendly" });
+      await localNote(server.agent, "alice", task.id, { text: "Make it dog friendly" });
       fake.say("m1", "TASK_COMPLETE: First answer");
       fake.idle();
     }
@@ -335,7 +337,7 @@ test("an idle report that lands just after an update is confirmed before the run
   const fake = session();
   fake.reply(async (_prompt, index) => {
     if (index === 1) {
-      await server.agent.addNote("alice", task.id, { text: "One more thing" });
+      await localNote(server.agent, "alice", task.id, { text: "One more thing" });
       fake.say("m1", "TASK_COMPLETE: First pass");
     }
     if (index === 2) {
@@ -357,7 +359,7 @@ test("an update the session absorbed before going idle does not hold the run up"
   const fake = session();
   fake.reply(async (_prompt, index) => {
     if (index === 1) {
-      await server.agent.addNote("alice", task.id, { text: "Small tweak" });
+      await localNote(server.agent, "alice", task.id, { text: "Small tweak" });
       fake.say("m1", "TASK_COMPLETE: Done with the tweak");
     }
     if (index === 2) fake.idle(); // taken up in the same turn: nothing else will happen
@@ -373,7 +375,7 @@ test("when an update cannot be sent the note stays unread and the run still ends
   const fake = session({ steer: { pollMs: 60_000, settleMs: 40 } });
   fake.reply(async (_prompt, index) => {
     if (index === 1) {
-      await server.agent.addNote("alice", task.id, { text: "Won't arrive" });
+      await localNote(server.agent, "alice", task.id, { text: "Won't arrive" });
       fake.say("m1", "TASK_COMPLETE: Finished");
       fake.idle();
     }
@@ -396,7 +398,7 @@ test("stopping the task ends the run at once, even between turns", async () => {
   const fake = session({ steer: { pollMs: 60_000, settleMs: 40 } });
   fake.reply(async (_prompt, index) => {
     if (index === 1) {
-      await server.agent.addNote("alice", task.id, { text: "A late note" });
+      await localNote(server.agent, "alice", task.id, { text: "A late note" });
       fake.say("m1", "TASK_COMPLETE: First");
       fake.idle();
     }
@@ -456,7 +458,7 @@ test("notes are only sent to a run that is going: nothing is sent once it has en
   });
   await run(fake, task);
   const sent = fake.prompts.length;
-  await server.agent.addNote("alice", task.id, { text: "After the fact" });
+  await localNote(server.agent, "alice", task.id, { text: "After the fact" });
   await sleep(80);
   assert.equal(fake.prompts.length, sent, "no watcher is left polling");
   assert.equal((await server.agent.getTask(owner, task.id)).notes?.[0].delivered, false);

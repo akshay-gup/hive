@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import type { RunAgentInput } from "@ag-ui/core";
+import type { ChatCore } from "../apps/chat/src/core.ts";
 import { createApp } from "../apps/server/src/app.ts";
+import { WorkLink } from "../apps/server/src/chat-runner/work-link.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import { conversationTools } from "../apps/server/src/engine/tools.ts";
@@ -15,10 +17,12 @@ import {
   signWorkspaceToken,
   type WorkspaceRole,
 } from "../packages/integrations/src/workspace-token.ts";
+import { chatWorld } from "./helpers/chat-world.ts";
 
 /**
  * The agent works for whoever asked, and its tools show and change only what that person could in the
- * app. Every tool is here, either run as someone who may not see or change the thing it is pointed at,
+ * app. The board is the chat service's: the tools ask it, as the person, through the same frames the
+ * machine uses, and these tests run them against a real room. Every tool is here, either run as someone who may not see or change the thing it is pointed at,
  * or named as one that never reaches a project's, a task's or a channel's records. A new tool that is
  * in neither list fails the last test, so it cannot be added without saying which it is.
  *
@@ -64,6 +68,7 @@ let limited: Project;
 let limitedTask: AgentTask;
 let hush: Channel;
 let hushGoalId: string;
+let core: ChatCore;
 /** Mia's own, in General, to point things from. */
 let miaTask: AgentTask;
 
@@ -100,23 +105,43 @@ before(async () => {
     assert.equal(response.status, 200);
     sessions.set(who, (await response.json()).token);
   }
+  // The room: the same people, under the ids the machine knows them by, and the machine's link to it.
+  const room = await chatWorld(
+    Object.fromEntries(
+      Object.entries(people).map(([who, p]) => [who, { ...p, id: owner(who as Who) }]),
+    ),
+    {
+      link: { key: "link-key", workspaceId },
+      runner: () => ({
+        send: (text) => link.onFrame(JSON.parse(text)),
+        close: () => undefined,
+      }),
+    },
+  );
+  core = room.core;
+  const link: WorkLink = new WorkLink({
+    send: (frame) => {
+      void core.agent.onFrame(JSON.stringify(frame));
+      return true;
+    },
+    history: async () => ({}),
+  });
+  server.agent.board = link.board({
+    leaseOf: () => undefined,
+    ticketOf: (who) => core.agent.boardTicket(who).ticket,
+  });
   const manual = (project: Project, title: string) => ({
     title,
-    kind: "manual",
+    kind: "manual" as const,
     projectId: project.id,
     input: {},
   });
-  secret = await created(
-    await call("max", "POST", "/api/agent/projects", { name: "Reorg", access: "private" }),
-  );
-  secretTask = await created(
-    await call("max", "POST", "/api/agent/tasks", manual(secret, "Draft the layoffs memo")),
-  );
-  limited = await created(
-    await call("max", "POST", "/api/agent/projects", { name: "Roadmap", access: "limited" }),
-  );
-  limitedTask = await created(
-    await call("max", "POST", "/api/agent/tasks", manual(limited, "Plan the autumn release")),
+  secret = await core.work.createProject(owner("max"), { name: "Reorg", access: "private" });
+  secretTask = await core.work.createTask(owner("max"), manual(secret, "Draft the layoffs memo"));
+  limited = await core.work.createProject(owner("max"), { name: "Roadmap", access: "limited" });
+  limitedTask = await core.work.createTask(
+    owner("max"),
+    manual(limited, "Plan the autumn release"),
   );
   hush = await created(
     await call("max", "POST", "/api/agent/channels", {
@@ -133,13 +158,11 @@ before(async () => {
       hush.id,
     )
   ).id;
-  miaTask = await created(
-    await call("mia", "POST", "/api/agent/tasks", {
-      title: "Book the offsite",
-      kind: "manual",
-      input: {},
-    }),
-  );
+  miaTask = await core.work.createTask(owner("mia"), {
+    title: "Book the offsite",
+    kind: "manual",
+    input: {},
+  });
 });
 after(async () => {
   await server.agent.stop();
@@ -180,7 +203,7 @@ async function use(
     return { said: error instanceof Error ? error.message : String(error), failed: true };
   }
 }
-const stored = (id: string) => db.get<AgentTask>("shared", "tasks", id);
+const stored = (id: string) => core.tasks.get(id);
 
 /** The tools that reach the board or a channel's records, each run as someone who must not get through. */
 const reaching: Record<string, () => Promise<void>> = {
@@ -280,13 +303,13 @@ const reaching: Record<string, () => Promise<void>> = {
       const refused = await use("mia", "update_project", { projectId: project.id, name: "Mine" });
       assert.ok(refused.failed, project.name);
     }
-    assert.equal((await db.get<Project>("shared", "projects", secret.id))?.name, "Reorg");
+    assert.equal(core.projects.get(secret.id)?.name, "Reorg");
   },
   async delete_project() {
     for (const project of [secret, limited]) {
       const refused = await use("mia", "delete_project", { projectId: project.id });
       assert.ok(refused.failed, project.name);
-      assert.ok(await db.get("shared", "projects", project.id), "the project is still there");
+      assert.ok(core.projects.get(project.id), "the project is still there");
     }
   },
 };

@@ -9,6 +9,7 @@ import { createStore, type Store } from "../apps/server/src/db.ts";
 import type { OpencodeTaskRuntime } from "../apps/server/src/opencode/index.ts";
 import type { ActionProposal } from "../packages/domain/src/index.ts";
 import { browserFixture } from "./helpers/browser.ts";
+import { detailOf, localBoard, localTask, markDone } from "./helpers/local-task.ts";
 import { opencodeStandIn } from "./helpers/opencode.ts";
 
 /**
@@ -29,6 +30,7 @@ async function executor(t: TestContext, name: string, adjust: Partial<Config> = 
     allowedOrigins: [],
     ...adjust,
   });
+  server.agent.board = localBoard(server.agent);
   const standIn = opencodeStandIn({
     dataDir: adjust.dataDir ?? directory,
     model: "openai/fixture",
@@ -60,12 +62,12 @@ test("the executor offers Hive's tools, runs what the agent calls, and persists 
     await call("finish_task", { summary: "Saved your weekend plan with two steps." });
     idle();
   });
-  const task = await server.agent.createTask("owner", {
+  const task = await localTask(server.agent, "owner", {
     prompt: "Make a weekend plan",
     kind: "plan",
   });
   await server.agent.worker.tick();
-  const result = await server.agent.detail("owner", task.id);
+  const result = await detailOf(server.agent, "owner", task.id);
   // The agent hands its work in; it never closes the task itself.
   assert.equal(result.task.status, "in_review", result.task.error ?? result.task.question);
   assert.equal(result.task.state.unconfirmed, false);
@@ -73,7 +75,7 @@ test("the executor offers Hive's tools, runs what the agent calls, and persists 
   assert.ok(result.artifacts.some((a) => a.title === "Weekend plan"));
   assert.ok(result.events.some((event) => event.title === "Read the authorized workspace sources"));
   // A person marks it done.
-  assert.equal((await server.agent.accept("owner", task.id)).status, "succeeded");
+  assert.equal((await markDone(server.agent, "owner", task.id)).status, "succeeded");
   // The agent is told the task, and is offered the worker's tools but no way to approve its own work.
   assert.match(lastPrompt(standIn.prompts), /Make a weekend plan/);
   for (const name of ["prepare_email", "prepare_event", "ask_user", "finish_task"])
@@ -92,7 +94,7 @@ test("the executor offers Hive's tools, runs what the agent calls, and persists 
     });
     idle();
   });
-  const appointment = await server.agent.createTask("owner", {
+  const appointment = await localTask(server.agent, "owner", {
     prompt: "Prepare a sample walk on my calendar",
   });
   await server.agent.worker.tick();
@@ -126,9 +128,9 @@ test("an agent that stops without calling finish_task is handed in as unconfirme
     say("Find cool stuff on Hacker News");
     idle();
   });
-  const task = await server.agent.createTask("owner", { prompt: "Plan my week" });
+  const task = await localTask(server.agent, "owner", { prompt: "Plan my week" });
   await server.agent.worker.tick();
-  const result = await server.agent.detail("owner", task.id);
+  const result = await detailOf(server.agent, "owner", task.id);
   // The run ended without saying it was finished: a person is asked to decide, not told it is done.
   assert.equal(result.task.status, "in_review");
   assert.equal(result.task.state.unconfirmed, true);
@@ -146,7 +148,7 @@ test("an agent that stops without calling finish_task is handed in as unconfirme
 test("a task needs a model before an agent is started for it", async (t) => {
   const { server, standIn } = await executor(t, "executor-unconfigured", { model: undefined });
   standIn.agent(() => assert.fail("no agent should be started"));
-  const task = await server.agent.createTask("owner", { prompt: "Plan my week" });
+  const task = await localTask(server.agent, "owner", { prompt: "Plan my week" });
   await server.agent.worker.tick();
   const waiting = await server.agent.getTask("owner", task.id);
   assert.equal(waiting.status, "waiting_input");
@@ -165,7 +167,7 @@ test("replaying a completed prepared action returns its receipt without reopenin
     await call("prepare_event", draft);
     idle();
   });
-  const task = await server.agent.createTask("replay-owner", {
+  const task = await localTask(server.agent, "replay-owner", {
     prompt: "Put a sample walk on my calendar",
   });
   await server.agent.worker.tick();
@@ -252,7 +254,7 @@ test("browser reads keep observation identity distinct while reusing one session
     idle();
   });
 
-  const task = await server.agent.createTask("owner", {
+  const task = await localTask(server.agent, "owner", {
     prompt: "Read both public sources and compare them.",
   });
   await server.agent.worker.tick();
@@ -315,7 +317,7 @@ test("a task's plan is the todo list its agent keeps, shown as the agent writes 
     await call("finish_task", { summary: "Drafted the reply." });
     idle();
   });
-  const task = await server.agent.createTask("owner", { prompt: "Reply to the brief" });
+  const task = await localTask(server.agent, "owner", { prompt: "Reply to the brief" });
   id = task.id;
   // Nothing of Hive's own: a task has no steps until its agent writes some.
   assert.deepEqual(await plan(), []);
@@ -332,7 +334,7 @@ test("a task's plan is the todo list its agent keeps, shown as the agent writes 
 
 test("a run starts from the list its session already holds, so an old plan does not outlive it", async (t) => {
   const { db, server, standIn } = await executor(t, "executor-plan-start");
-  const first = await server.agent.createTask("owner", { prompt: "Reply to the brief" });
+  const first = await localTask(server.agent, "owner", { prompt: "Reply to the brief" });
   // Steps written for this task before the agent kept its own: nothing ever filled them in.
   await db.put("owner", "tasks", {
     ...first,
@@ -348,7 +350,7 @@ test("a run starts from the list its session already holds, so an old plan does 
 
   // A session that is picked up again already has its list, which is the plan from the start.
   standIn.setTodos(todos(["Read the brief", "completed"], ["Draft the reply", "in_progress"]));
-  const second = await server.agent.createTask("owner", { prompt: "Reply to the other brief" });
+  const second = await localTask(server.agent, "owner", { prompt: "Reply to the other brief" });
   await server.agent.worker.tick();
   assert.deepEqual(
     (await server.agent.getTask("owner", second.id)).plan.map((s) => `${s.title}:${s.status}`),

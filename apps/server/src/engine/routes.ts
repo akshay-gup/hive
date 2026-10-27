@@ -32,102 +32,6 @@ const goalPatchSchema = z.object({
 export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: string } }> {
   const app = new Hono<{ Variables: { owner: string } }>();
   app.get("/", async (c) => c.json(await service.snapshot(c.get("owner"))));
-  app.post("/tasks", async (c) =>
-    c.json(await service.createTask(c.get("owner"), await c.req.json()), 201),
-  );
-  app.get("/tasks/:id", async (c) =>
-    c.json(await service.detail(c.get("owner"), c.req.param("id"))),
-  );
-  app.patch("/tasks/:id", async (c) =>
-    c.json(await service.updateTask(c.get("owner"), c.req.param("id"), await c.req.json())),
-  );
-  app.delete("/tasks/:id", async (c) =>
-    c.json(await service.deleteTask(c.get("owner"), c.req.param("id"))),
-  );
-  app.get("/projects/people", async (c) => c.json(await service.projectPeople(c.get("owner"))));
-  app.post("/projects", async (c) =>
-    c.json(await service.createProject(c.get("owner"), await c.req.json()), 201),
-  );
-  app.patch("/projects/:id", async (c) =>
-    c.json(await service.updateProject(c.get("owner"), c.req.param("id"), await c.req.json())),
-  );
-  app.delete("/projects/:id", async (c) =>
-    c.json(
-      await service.deleteProject(
-        c.get("owner"),
-        c.req.param("id"),
-        await c.req.json().catch(() => ({})),
-      ),
-    ),
-  );
-  app.post("/tasks/:id/accept", async (c) =>
-    c.json(await service.accept(c.get("owner"), c.req.param("id"))),
-  );
-  app.post("/tasks/:id/notes", async (c) =>
-    c.json(await service.addNote(c.get("owner"), c.req.param("id"), await c.req.json()), 201),
-  );
-  app.delete("/tasks/:id/notes/:noteId", async (c) =>
-    c.json(await service.removeNote(c.get("owner"), c.req.param("id"), c.req.param("noteId"))),
-  );
-  app.post("/tasks/:id/attachments", async (c) => {
-    const file = (await c.req.parseBody()).file;
-    if (!(file instanceof File)) throw new AppError("Choose a file to attach");
-    return c.json(
-      await service.addAttachment(c.get("owner"), c.req.param("id"), {
-        name: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-      }),
-      201,
-    );
-  });
-  app.delete("/tasks/:id/attachments/:attachmentId", async (c) =>
-    c.json(
-      await service.removeAttachment(
-        c.get("owner"),
-        c.req.param("id"),
-        c.req.param("attachmentId"),
-      ),
-    ),
-  );
-  /** Signed, like Files, so a browser can open it without the access key. */
-  app.get("/tasks/:id/attachments/:attachmentId/content", async (c) => {
-    const { file, bytes } = await service.attachmentContent(
-      c.get("owner"),
-      c.req.param("id"),
-      c.req.param("attachmentId"),
-    );
-    const inline = file.mimeType === "application/pdf" || file.mimeType.startsWith("image/");
-    c.header("Content-Type", file.mimeType);
-    c.header(
-      "Content-Disposition",
-      `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-    );
-    // Uploaded by a person: never let a browser guess a type or run anything from it. (A sandboxed
-    // page cannot open a PDF in the browser's own reader, so PDFs get the type header alone.)
-    c.header("X-Content-Type-Options", "nosniff");
-    if (file.mimeType !== "application/pdf")
-      c.header("Content-Security-Policy", "sandbox; default-src 'none'");
-    return c.body(bytes);
-  });
-  app.post("/tasks/:id/control", async (c) => {
-    const { action } = z
-      .object({ action: z.enum(["pause", "resume", "cancel", "retry"]) })
-      .parse(await c.req.json());
-    return c.json(await service.control(c.get("owner"), c.req.param("id"), action));
-  });
-  app.post("/tasks/:id/input", async (c) => {
-    const body = z
-      .object({
-        answer: z.string().trim().min(1).max(12000),
-        fields: z
-          .record(z.string().min(1).max(300), z.union([z.string().max(12000), z.boolean()]))
-          .optional(),
-      })
-      .parse(await c.req.json());
-    return c.json(
-      await service.answer(c.get("owner"), c.req.param("id"), body.answer, body.fields),
-    );
-  });
   app.get("/channels", async (c) => {
     const owner = c.get("owner");
     const [channels, person, read, prefs] = await Promise.all([
@@ -304,9 +208,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
       range ? 206 : 200,
     );
   });
-  app.get("/channels/:id/tasks", async (c) =>
-    c.json(await service.channelTasks(c.get("owner"), c.req.param("id"))),
-  );
   app.post("/channels/:id/threads", async (c) => {
     const raw = await c.req.text();
     const body = z
@@ -348,20 +249,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     const binding = await service.channelOfThread(c.get("owner"), c.req.param("threadId"));
     if (!binding) throw new AppError("Thread is not bound to a channel", 404);
     return c.json(binding);
-  });
-  app.get("/threads/:threadId/tasks", async (c) =>
-    c.json(await service.threadTasks(c.get("owner"), c.req.param("threadId"))),
-  );
-  app.post("/tasks/:id/delegate", async (c) => {
-    const body = z
-      .object({
-        target: z.string().trim().min(1).max(80),
-        reason: z.string().trim().min(1).max(500).optional(),
-      })
-      .parse(await c.req.json());
-    return c.json(
-      await service.delegateTask(c.get("owner"), c.req.param("id"), body.target, body.reason),
-    );
   });
   app.post("/goals", async (c) =>
     c.json(await service.createGoal(c.get("owner"), await c.req.json()), 201),

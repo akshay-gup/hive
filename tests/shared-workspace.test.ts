@@ -13,10 +13,10 @@ import type {
   AgentWorkspace,
   ChannelThread,
   Project,
-  RunEvent,
 } from "../packages/domain/src/agent.ts";
 import type { ActionProposal, Workspace } from "../packages/domain/src/index.ts";
 import { createSamplePdf } from "../packages/integrations/src/pdf.ts";
+import { detailOf, localBoard, localTask } from "./helpers/local-task.ts";
 
 /**
  * Hive is a team workspace: channels, threads (and the agent's replies in them), tasks, boards,
@@ -83,6 +83,7 @@ before(async () => {
     allowedOrigins: ["http://localhost:8081"],
   };
   server = await createApp(db, config);
+  server.agent.board = localBoard(server.agent);
   tokenA = (await server.auth.sessionForOwner(ALICE)).token;
   tokenB = (await server.auth.sessionForOwner(BOB)).token;
   await db.put("system", "users", { id: ALICE, name: "Alice", email: "alice@example.com" });
@@ -192,66 +193,15 @@ test("the orchestrator chat stays private, including its threads", async () => {
   assert.deepEqual((await read<Transcript>(tokenB, "/api/conversation")).messages, []);
 });
 
-let task: AgentTask;
-let project: Project;
-test("tasks, boards and projects are shared", async () => {
-  project = await agent<Project>(tokenA, "/projects", { name: "Launch" }, 201);
-  task = await agent<AgentTask>(
-    tokenA,
-    "/tasks",
-    {
-      title: "Write the changelog",
-      kind: "manual",
-      channelId: "team",
-      threadId: thread.threadId,
-      projectId: project.id,
-    },
-    201,
-  );
-  const snapshot = await agent<AgentWorkspace>(tokenB, "");
-  assert.ok(snapshot.tasks.some((t) => t.id === task.id));
-  assert.ok(snapshot.projects.some((p) => p.id === project.id));
-  assert.ok(
-    (await agent<AgentTask[]>(tokenB, "/channels/team/tasks")).some((t) => t.id === task.id),
-  );
-  assert.ok(
-    (await agent<AgentTask[]>(tokenB, `/threads/${thread.threadId}/tasks`)).some(
-      (t) => t.id === task.id,
-    ),
-  );
-  const detail = await agent<{ task: AgentTask }>(tokenB, `/tasks/${task.id}`);
-  assert.equal(detail.task.title, "Write the changelog");
-});
-
-test("anyone can work a shared task and add to a shared board", async () => {
-  const moved = await agent<AgentTask>(
-    tokenB,
-    `/tasks/${task.id}`,
-    { status: "running" },
-    200,
-    "PATCH",
-  );
-  assert.equal(moved.status, "running");
-  const bobs = await agent<AgentTask>(
-    tokenB,
-    "/tasks",
-    { title: "Review the changelog", kind: "manual", projectId: project.id },
-    201,
-  );
-  const snapshot = await agent<AgentWorkspace>(tokenA, "");
-  assert.equal(snapshot.tasks.find((t) => t.id === task.id)?.status, "running");
-  assert.equal(snapshot.tasks.find((t) => t.id === bobs.id)?.projectId, project.id);
-  assert.equal(bobs.createdBy, BOB);
-  assert.equal(task.createdBy, ALICE);
-});
-
-test("the worker runs a shared task as the person who asked for it and everyone sees its run", async () => {
-  const mine = await agent<AgentTask>(
-    tokenA,
-    "/tasks",
-    { title: "Summarise the thread", prompt: "Summarise it", kind: "agent", channelId: "team" },
-    201,
-  );
+let _task: AgentTask;
+let _project: Project;
+test("the worker runs a task as the person who asked for it and its run is on the machine for the room to show", async () => {
+  const mine = await localTask(server.agent, ALICE, {
+    title: "Summarise the thread",
+    prompt: "Summarise it",
+    kind: "agent",
+    channelId: "team",
+  });
   const actors: string[] = [];
   const worker = new TaskWorker(
     db,
@@ -264,18 +214,18 @@ test("the worker runs a shared task as the person who asked for it and everyone 
   );
   await worker.tick();
   assert.deepEqual(actors, [ALICE]);
-  const seen = await agent<{ task: AgentTask; events: RunEvent[] }>(tokenB, `/tasks/${mine.id}`);
+  const seen = await detailOf(server.agent, BOB, mine.id);
   assert.equal(seen.task.status, "succeeded");
   assert.ok(seen.events.some((e) => e.title === "Reading the thread"));
 });
 
 test("a task's outcome notifies whoever started it, and no one else", async () => {
-  await agent<AgentTask>(
-    tokenA,
-    "/tasks",
-    { title: "Research venues", prompt: "Find venues", kind: "agent", channelId: "team" },
-    201,
-  );
+  await localTask(server.agent, ALICE, {
+    title: "Research venues",
+    prompt: "Find venues",
+    kind: "agent",
+    channelId: "team",
+  });
   // No model is configured, so the task stops to ask for one: an outcome that wants a person.
   await server.agent.worker.tick();
   const notes = (token: string) => agent<AgentNotification[]>(token, "/notifications");
@@ -292,13 +242,12 @@ test("a task's outcome notifies whoever started it, and no one else", async () =
 });
 
 test("reviews and receipts are shared, and anyone on the team can approve one", async () => {
-  const work = await agent<AgentTask>(
-    tokenA,
-    "/tasks",
-    { title: "Book the venue", kind: "manual", channelId: "team" },
-    201,
-  );
-  await agent(tokenA, `/tasks/${work.id}`, { status: "running" }, 200, "PATCH");
+  const work = await localTask(server.agent, ALICE, {
+    title: "Book the venue",
+    kind: "manual",
+    channelId: "team",
+  });
+  await db.put(ALICE, "tasks", { ...work, status: "running" });
   const now = Date.now();
   const proposal = await server.actions.propose(
     ALICE,
@@ -357,13 +306,12 @@ const calendarReview = (title: string) => ({
 });
 
 test("anyone can decline a review", async () => {
-  const work = await agent<AgentTask>(
-    tokenA,
-    "/tasks",
-    { title: "Send the invite", kind: "manual", channelId: "team" },
-    201,
-  );
-  await agent(tokenA, `/tasks/${work.id}`, { status: "running" }, 200, "PATCH");
+  const work = await localTask(server.agent, ALICE, {
+    title: "Send the invite",
+    kind: "manual",
+    channelId: "team",
+  });
+  await db.put(ALICE, "tasks", { ...work, status: "running" });
   const proposal = await server.actions.propose(
     ALICE,
     calendarReview("Kickoff"),
@@ -378,13 +326,12 @@ test("anyone can decline a review", async () => {
 });
 
 test("cancelling a task declines its pending review, whoever cancels it", async () => {
-  const work = await agent<AgentTask>(
-    tokenA,
-    "/tasks",
-    { title: "Order the cake", kind: "manual", channelId: "team" },
-    201,
-  );
-  await agent(tokenA, `/tasks/${work.id}`, { status: "running" }, 200, "PATCH");
+  const work = await localTask(server.agent, ALICE, {
+    title: "Order the cake",
+    kind: "manual",
+    channelId: "team",
+  });
+  await db.put(ALICE, "tasks", { ...work, status: "running" });
   const proposal = await server.actions.propose(
     ALICE,
     calendarReview("Cake pickup"),
@@ -392,7 +339,13 @@ test("cancelling a task declines its pending review, whoever cancels it", async 
     work.id,
   );
   await db.compareAndSwap(ALICE, "tasks", work.id, {}, { actionId: proposal.id });
-  await agent(tokenB, `/tasks/${work.id}/control`, { action: "cancel" });
+  // Whoever stops it, in the chat service, the machine is told, and declines what was waiting on a decision.
+  const stopped = await db.put(ALICE, "tasks", {
+    ...work,
+    status: "cancelled" as const,
+    actionId: proposal.id,
+  });
+  await server.agent.outcome(stopped);
   const after = await read<Workspace>(tokenA, "/api/workspace");
   assert.equal(after.actions.find((a) => a.id === proposal.id)?.status, "denied");
 });
