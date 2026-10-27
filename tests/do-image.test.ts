@@ -108,6 +108,7 @@ test("the Droplet is sent the scripts, and the DigitalOcean token is not among t
     "/opt/hive-bake/hive-update.path",
     "/opt/hive-bake/hive-update.service",
     "/opt/hive-bake/hive-update.timer",
+    "/opt/hive-bake/hive-watch.service",
     "/opt/hive-bake/hive-workspace.service",
     "/opt/hive-bake/nftables.conf",
   ]);
