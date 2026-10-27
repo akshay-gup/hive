@@ -26,6 +26,24 @@ export const noBoard: Board = (() => {
 })();
 
 /** What the agent's tools use to change the board. The room decides who they act as and what they may do. */
+/**
+ * Whether a board ticket names the person who is signed in here. The chat service checks the ticket's
+ * signature; this checks it was not handed over by someone else, so a session cannot borrow another
+ * person's ticket and act as them on the board. (A ticket names the account; here a signed-in person of a
+ * managed workspace is `acct:` and the account.)
+ */
+export function ticketIsFor(ticket: string, owner: string): boolean {
+  try {
+    const claims = JSON.parse(Buffer.from(ticket.split(".")[0] ?? "", "base64url").toString()) as {
+      u?: unknown;
+    };
+    if (typeof claims.u !== "string") return false;
+    return owner === (claims.u.startsWith("acct:") ? claims.u : `acct:${claims.u}`);
+  } catch {
+    return false;
+  }
+}
+
 export interface WorkClient {
   call<T = unknown>(op: WorkOp, args: Record<string, unknown>, key?: string): Promise<T>;
 }

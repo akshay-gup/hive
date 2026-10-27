@@ -21,7 +21,7 @@ import { TaskBorrower } from "./chat-runner/borrow.ts";
 import { ChatRunnerHost } from "./chat-runner/host.ts";
 import { RunnerLink, type SocketFactory } from "./chat-runner/link.ts";
 import { standInFor, vouchFor } from "./chat-runner/stubs.ts";
-import { WorkLink } from "./chat-runner/work-link.ts";
+import { ticketIsFor, WorkLink } from "./chat-runner/work-link.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { agentRoutes } from "./engine/routes.ts";
@@ -309,7 +309,8 @@ export async function createApp(
         : await auth.owner(c.req.header("authorization"));
     c.set("owner", owner);
     const ticket = c.req.header("x-hive-board");
-    if (ticket && ticket.length <= 2000) boardTickets.set(owner, ticket);
+    if (ticket && ticket.length <= 2000 && ticketIsFor(ticket, owner))
+      boardTickets.set(owner, ticket);
     // A guest is let through only to what the channels they were added to hold, and anyone else
     // not to the private channels that are not theirs.
     if (config.managed) await channelGate(c, owner, agent);
