@@ -14,6 +14,7 @@ import { RunRecord } from "../opencode/run-record.ts";
 import type { TaskBorrower } from "./borrow.ts";
 import { buildRunContext, fetchRunFiles } from "./context.ts";
 import { prepareRun, threadIdFor } from "./stubs.ts";
+import type { Board, WorkLink } from "./work-link.ts";
 
 /** What the host needs of the OpenCode shim: start a run on a thread, and stop it. */
 export interface RunLauncher {
@@ -47,6 +48,10 @@ export interface HostDeps {
   maxRuns?: number;
   /** The tasks the room lends this machine. */
   tasks?: TaskBorrower;
+  /** The board's requests to the chat service, and its answers. */
+  work?: WorkLink;
+  /** How the agent changes the board in a run. */
+  board: Board;
   /** How many tasks may go at once. */
   maxTasks?: number;
   /** The name the agent goes by in the chat. */
@@ -168,6 +173,7 @@ export class ChatRunnerHost {
 
   onClose() {
     // Runs go on without the connection; what they say is said again, in full, at the next snapshot.
+    this.deps.work?.onClose();
   }
 
   onFrame(frame: RoomFrame) {
@@ -177,6 +183,10 @@ export class ChatRunnerHost {
       case "task.stop":
       case "task.ended":
         this.deps.tasks?.onFrame(frame);
+        return;
+      case "work.result":
+      case "work.ask":
+        this.deps.work?.onFrame(frame);
         return;
       case "watch":
         this.deps.setWatchMode?.(frame.mode);
@@ -324,6 +334,7 @@ export class ChatRunnerHost {
           : stripMention(start.text, "@hive") || start.text,
         files: files.parts,
         shareFile: (path) => this.shareFile(run, path),
+        work: this.deps.board.forRun(run.runId),
       };
       done = this.deps.launcher.launch(
         start.asker.id,

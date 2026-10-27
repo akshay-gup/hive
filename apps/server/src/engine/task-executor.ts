@@ -307,6 +307,8 @@ export async function executeTask(
       signal: ctx.signal,
       requestKey: `task:${task.id}`,
       channelId: task.originChannelId ?? task.channelId,
+      // What a task changes of the board it changes as the person it is for, while the machine holds it.
+      work: service.board.forTask(task.id),
     },
   );
   const merged = [

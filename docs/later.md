@@ -22,6 +22,8 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 
 ## Product
 
+- **Keep a task's run history in the chat service (owed).** Today the app asks the machine for a task's steps, artifacts and browser windows, and the machine checks with the chat service that the person may see the task; none of it shows while the machine sleeps. The machine should send a trimmed copy of each run's steps to the chat service, as chat runs already do, so the history is there when the machine is off. We chose to ship the simpler way first and agreed this is to be done.
+
 - **Create tasks from a private channel.** The agent asks which project, and warns once, with names, when the project can be seen by more people than the channel. The chat service does the comparison from project data the machine sends one way, so the machine never learns a private channel's members.
 - **A bell notice and a live update for agent flags.** Today the owner and admins see a count and a list.
 - **Pin or favourite projects.**

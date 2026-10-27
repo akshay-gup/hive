@@ -40,6 +40,7 @@ import type { AgentWatch } from "../agent-watch/watch.ts";
 import type { Config } from "../config.ts";
 import type { AgentService } from "../engine/service.ts";
 import { diskOwnerForChannel } from "../engine/threads.ts";
+import type { WorkClient } from "../chat-runner/work-link.ts";
 import { conversationTools } from "../engine/tools.ts";
 import type { JevService } from "../jev/service.ts";
 import type { AskedPermissionProps, AskedQuestionProps, PermissionTracker } from "./approvals.ts";
@@ -93,6 +94,8 @@ export interface ChatOrigin {
   files: PromptFilePart[];
   /** Put a file of the channel's folder in the reply. */
   shareFile: (path: string) => Promise<{ sent: true } | { sent: false; error: string }>;
+  /** Change the board, as the person who asked. */
+  work: WorkClient;
 }
 
 const runInputSchema = z.object({
@@ -868,6 +871,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
             ? {
                 toolset: chat.privateChannel ? "chat-private" : "chat",
                 shareFile: chat.shareFile,
+                work: chat.work,
               }
             : {}),
         }),

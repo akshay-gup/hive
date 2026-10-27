@@ -94,6 +94,12 @@ export class TaskBorrower {
     return this.held.size;
   }
 
+  /** The lease the machine holds a task under, if it is working it. */
+  leaseOf(taskId: string): string | undefined {
+    const a = this.held.get(taskId);
+    return a && !a.dropped ? a.start.leaseId : undefined;
+  }
+
   /** What it holds, for the hello: tasks being worked, and tasks done whose end the room has not confirmed. */
   leases(): TaskLease[] {
     return [

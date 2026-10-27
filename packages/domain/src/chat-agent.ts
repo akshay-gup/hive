@@ -135,6 +135,18 @@ const taskPatchSchema = z
   .record(z.string(), z.unknown())
   .refine((patch) => JSON.stringify(patch).length <= MAX_TASK_PATCH_BYTES, "Too much at once");
 
+/** What the agent can do to the board (see `work.call`). */
+export const WORK_OPS = [
+  "task.create",
+  "task.update",
+  "task.delete",
+  "project.create",
+  "project.update",
+  "project.delete",
+  "board",
+] as const;
+export type WorkOp = (typeof WORK_OPS)[number];
+
 export const runnerFrameSchema = z.discriminatedUnion("t", [
   z.object({
     t: z.literal("hello"),
@@ -232,6 +244,31 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     reqId: text(100),
     fileId: text(100),
   }),
+  /**
+   * The agent changes the board, as the person it is working for: a chat run (by `runId`) or a task run (by the
+   * task and its lease). The room says who that is and what they may do; the machine names no one.
+   */
+  z.object({
+    t: z.literal("work.call"),
+    reqId: text(100),
+    runId: text(100).optional(),
+    taskId: text(100).optional(),
+    leaseId: text(100).optional(),
+    /** In the app's own chat with the agent there is no run: the app gives the machine a ticket for the person. */
+    ticket: text(2000).optional(),
+    op: z.enum(WORK_OPS),
+    args: z.record(z.string(), z.unknown()),
+    /** The same call said again (a retry) does not do it twice. */
+    key: text(200).optional(),
+  }),
+  /** The answer to something the room asked (`work.ask`). */
+  z.object({
+    t: z.literal("work.answer"),
+    reqId: text(100),
+    ok: z.boolean(),
+    body: z.unknown().optional(),
+    error: text(500).optional(),
+  }),
 ]);
 export type RunnerFrame = z.infer<typeof runnerFrameSchema>;
 
@@ -306,4 +343,18 @@ export type RoomFrame =
   | { t: "file.upload"; reqId: string; fileId: string; path: string }
   | { t: "file.attached"; reqId: string }
   | { t: "file.refused"; reqId: string; error: string }
+  /** What a `work.call` came to: the board's answer, or why not. */
+  | { t: "work.result"; reqId: string; ok: true; body: unknown }
+  | { t: "work.result"; reqId: string; ok: false; error: string; status: number }
+  /** The room asks the machine for what only it keeps (a task's run history) for a person who may see the task. */
+  | {
+      t: "work.ask";
+      reqId: string;
+      op: "task.history";
+      taskId: string;
+      viewer: string;
+      /** What the task says it made and used, so the machine finds those and nothing else. */
+      fileIds: string[];
+      browserIds: string[];
+    }
   | { t: "closing"; reason: string };

@@ -64,6 +64,7 @@ import {
 } from "../../../../packages/domain/src/mentions.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
+import { type Board, noBoard } from "../chat-runner/work-link.ts";
 import type { Config } from "../config.ts";
 import type { Store } from "../db.ts";
 import type { Files } from "../files.ts";
@@ -91,10 +92,14 @@ import { LostLeaseError, type TaskContext, TaskWorker } from "./worker.ts";
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const date = () => new Date().toISOString();
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
+/** How many of a task's latest steps the app is sent with its history. */
+const HISTORY_EVENTS = 400;
 export class AgentService {
   readonly worker: TaskWorker;
   /** Set by createApp: told when the worker is done with a task it was lent, so the task can be given back. */
   taskFinished?: (owner: string, task: AgentTask) => Promise<void>;
+  /** Set by createApp: how the agent's tools change the board, which the chat service keeps. */
+  board: Board = noBoard;
   private maintenance?: ReturnType<typeof setInterval>;
   private refreshing = false;
   private channels?: ChannelManager;
@@ -913,6 +918,24 @@ export class AgentService {
         }),
       };
     });
+  }
+  /** What the machine keeps of a task's runs, for a person the chat service has checked may see the task. */
+  async history(ask: { taskId: string; viewer: string; fileIds: string[]; browserIds: string[] }) {
+    const { viewer: owner, taskId: id } = ask;
+    const files = (await this.db.list<Artifact>(owner, "files")).filter((file) =>
+      ask.fileIds.includes(file.id),
+    );
+    const browsers = (await this.db.list<BrowserSession>(owner, "browsers")).filter((browser) =>
+      ask.browserIds.includes(browser.id),
+    );
+    return {
+      files: files.map((file) => this.files.signed(owner, file)),
+      browsers: browsers.map((browser) => this.browser.decorate(owner, browser)),
+      events: (await this.db.listWhere<RunEvent>(owner, "run-events", "taskId", id))
+        .sort((a, b) => a.date.localeCompare(b.date) || (a.sequence ?? 0) - (b.sequence ?? 0))
+        .slice(-HISTORY_EVENTS),
+      artifacts: await this.db.listWhere<AgentArtifact>(owner, "agent-artifacts", "taskId", id),
+    };
   }
   async detail(owner: string, id: string) {
     const task = await this.getTask(owner, id);

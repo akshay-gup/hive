@@ -14,6 +14,7 @@ import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { RecordStore } from "../../../packages/chat-core/src/store.ts";
 import type { Tasks } from "../../../packages/chat-core/src/work.ts";
 import { TASK_LIMITS } from "../../../packages/chat-core/src/work.ts";
+import type { Work } from "../../../packages/chat-core/src/work-rules.ts";
 import {
   type AgentTask,
   type Channel,
@@ -35,6 +36,7 @@ import {
   runnerFrameSchema,
 } from "../../../packages/domain/src/chat-agent.ts";
 import { withHandles } from "../../../packages/domain/src/mentions.ts";
+import { makeTicket, readTicket, TICKET_MS } from "./board-ticket.ts";
 import type { Filing } from "./filing.ts";
 import { signedPath } from "./uploads.ts";
 
@@ -68,6 +70,8 @@ export interface AgentLinkDeps {
   messages: Messages;
   runs: Runs;
   tasks: Tasks;
+  /** The board's rules: what the agent does to it it does as the person it works for. */
+  work: Work;
   files: Files;
   filing: Filing;
   /** The machine's connection, if there is one. The room may sleep, so this is asked for each time. */
@@ -103,6 +107,15 @@ export class AgentLink {
   private maxTasks: number = TASK_LIMITS.defaultMaxTasks;
   private pumping: Promise<void> = Promise.resolve();
   private lastWake = 0;
+  /** What the room asked the machine for and has no answer to yet. */
+  private readonly asking = new Map<
+    string,
+    {
+      resolve: (body: unknown) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   constructor(private readonly deps: AgentLinkDeps) {}
 
@@ -189,6 +202,18 @@ export class AgentLink {
       }
       case "task.end":
         return this.taskEnd(frame);
+      case "work.call":
+        return this.workCall(frame);
+      case "work.answer": {
+        const waiting = this.asking.get(frame.reqId);
+        if (!waiting) return;
+        this.asking.delete(frame.reqId);
+        clearTimeout(waiting.timer);
+        if (frame.ok) waiting.resolve(frame.body);
+        else
+          waiting.reject(new AppError(frame.error ?? "The agent's machine could not answer", 502));
+        return;
+      }
       case "file.begin":
         return this.fileBegin(frame);
       case "file.done":
@@ -286,6 +311,121 @@ export class AgentLink {
     );
     // Said even if it had already ended here, so the machine can let go of it.
     this.send({ t: "ack", runId: frame.runId });
+  }
+
+  // The board, as the agent changes it
+
+  /** What the app hands the machine so the agent can change the board for this person in the app's own chat. */
+  boardTicket(userId: string): { ticket: string; expiresAt: number } {
+    const key = this.deps.linkKey();
+    const workspaceId = this.deps.workspaceId();
+    if (!key || !workspaceId) throw new AppError("Tickets are not set up", 503);
+    const exp = this.deps.clock() + TICKET_MS;
+    return { ticket: makeTicket(key, { workspaceId, userId, exp }), expiresAt: exp };
+  }
+
+  /**
+   * The agent changes the board. Who it does it as, and in which channel, comes from the run or the task it
+   * holds, never from the frame: it can do what that person could do, and nothing of anyone else's.
+   */
+  private async workCall(frame: Extract<RunnerFrame, { t: "work.call" }>) {
+    const { runs, tasks, work } = this.deps;
+    const refuse = (error: string, status: number) =>
+      void this.send({ t: "work.result", reqId: frame.reqId, ok: false, error, status });
+    let actor: string;
+    let channelId: string | undefined;
+    if (frame.runId) {
+      const run = runs.get(frame.runId);
+      if (!run || !isActive(run)) return refuse("This run is over", 409);
+      actor = run.askedBy;
+      channelId = run.channelId;
+    } else if (frame.ticket) {
+      const key = this.deps.linkKey();
+      const workspace = this.deps.workspaceId();
+      const who =
+        key && workspace ? readTicket(key, workspace, frame.ticket, this.deps.clock()) : null;
+      if (!who) return refuse("Open the app again to let the agent change the board", 401);
+      actor = who;
+    } else {
+      const task = frame.taskId ? tasks.get(frame.taskId) : null;
+      if (!task || !frame.leaseId || task.leaseId !== frame.leaseId || !task.createdBy)
+        return refuse("This task is not being worked on", 409);
+      actor = task.createdBy;
+      channelId = task.originChannelId ?? task.channelId;
+    }
+    const args = frame.args;
+    const home: { channelId?: string } =
+      channelId && channelId !== ORCHESTRATOR_CHANNEL_ID ? { channelId } : {};
+    try {
+      let body: unknown;
+      switch (frame.op) {
+        case "task.create":
+          body = await work.createTask(actor, { ...args, ...home }, { key: frame.key });
+          break;
+        case "task.update": {
+          const { taskId, ...patch } = args;
+          body = await work.updateTask(actor, String(taskId ?? ""), patch, "agent");
+          break;
+        }
+        case "task.delete":
+          body = await work.deleteTask(actor, String(args.taskId ?? ""));
+          break;
+        case "project.create":
+          body = await work.createProject(actor, args);
+          break;
+        case "project.update": {
+          const { projectId, ...patch } = args;
+          body = await work.updateProject(actor, String(projectId ?? ""), patch);
+          break;
+        }
+        case "project.delete":
+          body = await work.deleteProject(actor, String(args.projectId ?? ""));
+          break;
+        case "board":
+          body = {
+            tasks: await work.tasksFor(actor),
+            projects: await work.projectsFor(actor),
+          };
+          break;
+      }
+      this.send({ t: "work.result", reqId: frame.reqId, ok: true, body });
+    } catch (error) {
+      if (error instanceof AppError) refuse(error.message, error.status);
+      else refuse("The board could not do that", 500);
+    }
+  }
+
+  /**
+   * Ask the machine for what only it keeps about a task (its run history) on behalf of a person the room
+   * has already checked may see the task. Fails if the machine is not connected or does not answer.
+   */
+  askMachine(task: AgentTask, viewer: string, ms = 15_000): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const reqId = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        this.asking.delete(reqId);
+        reject(new AppError("The agent's machine did not answer", 503));
+      }, ms);
+      this.asking.set(reqId, { resolve, reject, timer });
+      const browserIds = [task.state?.browserId, task.state?.sessionId].filter(
+        (id): id is string => typeof id === "string",
+      );
+      if (
+        !this.send({
+          t: "work.ask",
+          reqId,
+          op: "task.history",
+          taskId: task.id,
+          viewer,
+          fileIds: task.artifactIds ?? [],
+          browserIds,
+        })
+      ) {
+        this.asking.delete(reqId);
+        clearTimeout(timer);
+        reject(new AppError("The agent's machine is asleep", 503));
+      }
+    });
   }
 
   // Files the agent puts in its reply

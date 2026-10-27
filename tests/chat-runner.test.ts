@@ -53,16 +53,11 @@ test("what the agent does with its tools is shown as steps, and a board item it 
   }[];
   assert.ok(steps.some((s) => s.toolCalls?.some((c) => c.function.name.endsWith("create_issue"))));
   assert.ok(steps.some((s) => s.role === "tool"));
-  const tasks = await f.db.list<{ title: string; channelId?: string; createdBy?: string }>(
-    SHARED_OWNER,
-    "tasks",
-  );
-  const owned = (
-    await f.db.list<{ title: string; channelId?: string }>(people.max.id, "tasks")
-  ).concat(tasks);
-  const task = owned.find((x) => x.title === "Write the launch post");
+  // The board is the chat service's: the item is there, made as the person who asked, in the channel.
+  const task = f.core.tasks.all().find((x) => x.title === "Write the launch post");
   assert.ok(task, "the board has the item");
   assert.equal(task?.channelId, room.id);
+  assert.equal(task?.createdBy, people.max.id);
 });
 
 test("the tools depend on the channel and the person: a private channel has no board, a guest only what a guest may", async (t) => {

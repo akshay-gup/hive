@@ -20,6 +20,7 @@ import { TaskBorrower } from "./chat-runner/borrow.ts";
 import { ChatRunnerHost } from "./chat-runner/host.ts";
 import { RunnerLink, type SocketFactory } from "./chat-runner/link.ts";
 import { standInFor, vouchFor } from "./chat-runner/stubs.ts";
+import { WorkLink } from "./chat-runner/work-link.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { agentRoutes } from "./engine/routes.ts";
@@ -282,6 +283,12 @@ export async function createApp(
   });
   const hiveTools = new HiveToolBridge(`http://127.0.0.1:${config.port}/api/hive-tools`);
   app.route("/api/hive-tools", hiveTools.routes);
+  /**
+   * What the app gave each person to let the agent change the board in the app's own chat with it (the chat
+   * service made it for them and checks it). Kept in memory, so it is gone when the machine restarts and the
+   * app gives the next one with its next request.
+   */
+  const boardTickets = new Map<string, string>();
   app.use("/api/*", async (c, next) => {
     const signedRoute =
       /^\/api\/files\/[^/]+\/content$|^\/api\/agent\/tasks\/[^/]+\/attachments\/[^/]+\/content$|^\/api\/browsers\/[^/]+\/(?:preview|console)$|^\/api\/browser-shots\/[0-9a-f-]{36}$/.test(
@@ -294,6 +301,8 @@ export async function createApp(
         ? auth.verify(new URL(c.req.url))
         : await auth.owner(c.req.header("authorization"));
     c.set("owner", owner);
+    const ticket = c.req.header("x-hive-board");
+    if (ticket && ticket.length <= 2000) boardTickets.set(owner, ticket);
     // A guest is let through only to what the channels they were added to hold, and anyone else
     // not to the private channels that are not theirs.
     if (config.managed) await channelGate(c, owner, agent);
@@ -432,6 +441,10 @@ export async function createApp(
           socket: options.chatRunner?.socket,
           log: (line) => console.log(line),
         });
+        const work = new WorkLink({
+          send: (frame) => link.send(frame),
+          history: (ask) => agent.history(ask),
+        });
         const borrower = new TaskBorrower({
           send: (frame) => link.send(frame),
           copies: {
@@ -453,8 +466,15 @@ export async function createApp(
           log: (line) => console.log(line),
         });
         agent.taskFinished = (owner, task) => borrower.finished(owner, task);
+        const board = work.board({
+          leaseOf: (taskId) => borrower.leaseOf(taskId),
+          ticketOf: (owner) => boardTickets.get(owner),
+        });
+        agent.board = board;
         host = new ChatRunnerHost({
           tasks: borrower,
+          work,
+          board,
           send: (frame) => link.send(frame),
           service: agent,
           launcher: shim,

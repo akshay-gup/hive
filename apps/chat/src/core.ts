@@ -190,6 +190,7 @@ export class ChatCore {
       messages: this.messages,
       runs: this.runs,
       tasks: this.tasks,
+      work: this.work,
       files: this.files,
       filing: this.filing,
       runner: () => options.runner?.() ?? null,
@@ -410,6 +411,8 @@ export class ChatCore {
 
     // The board: projects and tasks, and who may see and change them.
     const owner = (c: { get(key: "owner"): string }) => c.get("owner");
+    // What the app gives the machine so the agent can change the board in the app's own chat with it.
+    app.get("/v1/work/ticket", (c) => c.json(this.agent.boardTicket(owner(c))));
     app.get("/v1/work", async (c) =>
       c.json({
         tasks: await this.work.tasksFor(owner(c)),
@@ -436,6 +439,22 @@ export class ChatCore {
         )[0],
       }),
     );
+    // What only the machine keeps of a task (the steps of its runs, what it made, its browser windows), for a
+    // person who may see the task; the room checks that, and the machine is asked while it is awake.
+    app.get("/v1/tasks/:id/run", async (c) => {
+      const me = owner(c);
+      const task = await this.work.getTask(me, c.req.param("id"));
+      try {
+        return c.json({
+          awake: true,
+          ...((await this.agent.askMachine(task, me)) as object),
+        });
+      } catch (error) {
+        // Reading old history is not worth starting a machine for.
+        if (error instanceof AppError && error.status === 503) return c.json({ awake: false });
+        throw error;
+      }
+    });
     app.patch("/v1/tasks/:id", async (c) =>
       c.json(await this.work.updateTask(owner(c), c.req.param("id"), await c.req.json())),
     );
