@@ -299,6 +299,18 @@ seal() {
 stage=${1:-all}
 if [ "$stage" = all ]; then
   exec > >(tee -a /var/log/hive-bake.log) 2>&1
+  # A bake that fails leaves the Droplet on, and nobody can log in to read why, so for half an hour the
+  # log is served on port 8099 (the firewall is lifted for it). Nothing in it is secret.
+  serve_log() {
+    local status=$?
+    [ "$status" = 0 ] && return
+    install -d /run/bakelog
+    sleep 2
+    cp /var/log/hive-bake.log /run/bakelog/log.txt 2>/dev/null || true
+    nft flush ruleset 2>/dev/null || true
+    timeout 1800 python3 -m http.server 8099 --directory /run/bakelog >/dev/null 2>&1 || true
+  }
+  trap serve_log EXIT
   # Settings for this run come in a file that only root can read, which is gone once it is read.
   if [ -f "$WORK/bake.env" ]; then
     set -a
