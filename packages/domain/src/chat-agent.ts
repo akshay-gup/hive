@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AgentTask } from "./agent.ts";
 import { WATCH_STOP_TEXT, type WatchMode, watchFindingSchema } from "./agent-watch.ts";
 
 /**
@@ -124,6 +125,16 @@ export interface AgentExtra {
 export const stepsSchema = z.array(z.unknown()).max(600);
 
 /** What the machine says to the room (untrusted: every field is checked). */
+/** A task the machine holds, and the lease it was given it under: every frame about the task names both. */
+export const taskLeaseSchema = z.object({ taskId: text(100), leaseId: text(100) });
+export type TaskLease = z.infer<typeof taskLeaseSchema>;
+
+/** The most a report of progress on a task may weigh once written down. */
+export const MAX_TASK_PATCH_BYTES = 200_000;
+const taskPatchSchema = z
+  .record(z.string(), z.unknown())
+  .refine((patch) => JSON.stringify(patch).length <= MAX_TASK_PATCH_BYTES, "Too much at once");
+
 export const runnerFrameSchema = z.discriminatedUnion("t", [
   z.object({
     t: z.literal("hello"),
@@ -134,9 +145,17 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
         avatar: z.enum(["sky", "sand", "lilac"]).optional(),
       })
       .optional(),
-    capacity: z.object({ maxRuns: z.number().int().min(1).max(8) }).optional(),
+    capacity: z
+      .object({
+        maxRuns: z.number().int().min(1).max(8),
+        /** Tasks it works on at once, besides runs. */
+        maxTasks: z.number().int().min(1).max(8).optional(),
+      })
+      .optional(),
     /** The runs it is working on, so the room knows which survived a restart of the room or the machine. */
     active: z.array(z.object({ runId: text(100), n: z.number().int().min(0) })).max(16),
+    /** The tasks it holds, by the lease it was given them under. */
+    tasks: z.array(taskLeaseSchema).max(16).optional(),
   }),
   z.object({ t: z.literal("renew"), token: text(4000) }),
   z.object({ t: z.literal("run.ack"), runId: text(100) }),
@@ -170,7 +189,31 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
     /** Why a failed run failed, when it was the watch that stopped it. */
     reason: z.literal("watch").optional(),
   }),
-  z.object({ t: z.literal("beat"), runIds: z.array(text(100)).max(16) }),
+  z.object({
+    t: z.literal("beat"),
+    runIds: z.array(text(100)).max(16),
+    /** The tasks it still holds. */
+    tasks: z.array(taskLeaseSchema).max(16).optional(),
+  }),
+  /** The machine has taken the task it was given. */
+  z.object({ t: z.literal("task.ack"), ...taskLeaseSchema.shape }),
+  /** Progress on a task it holds: fields of the task, laid over it. A field set to null is taken away. */
+  z.object({
+    t: z.literal("task.checkpoint"),
+    ...taskLeaseSchema.shape,
+    patch: taskPatchSchema,
+  }),
+  /**
+   * The machine is done with a task it held: `patch` says how it ended (its status among it), or `requeue`
+   * says it was cut off and is to be given out again. Said again until the room says it has it.
+   */
+  z.object({
+    t: z.literal("task.end"),
+    ...taskLeaseSchema.shape,
+    patch: taskPatchSchema,
+    requeue: z.boolean().optional(),
+    stalled: z.boolean().optional(),
+  }),
   /** The agent touched something of the machine's own (see agent-watch.ts); the service says who asked and where. */
   z.object({ t: z.literal("agent.flag"), finding: watchFindingSchema }),
   /** The agent has a file to put in its reply: the room says where to send the bytes. */
@@ -219,8 +262,27 @@ export interface ContextMessage {
   at: string;
 }
 
+/** A task the room hands to the machine to work on, with the person it is worked on for. */
+export interface TaskStart {
+  task: AgentTask;
+  leaseId: string;
+  owner: { id: string; email: string; name: string; role: string };
+}
+
 export type RoomFrame =
-  | { t: "welcome"; limits: { maxRunMs: number }; resume: string[]; watch?: WatchMode }
+  | {
+      t: "welcome";
+      limits: { maxRunMs: number };
+      resume: string[];
+      /** The tasks it holds that the room keeps lending it (by lease); any other it lets go of. */
+      resumeTasks?: string[];
+      watch?: WatchMode;
+    }
+  | { t: "task.start"; start: TaskStart }
+  /** The task is no longer the machine's to work on (paused, cancelled, or the lease was lost): let go of it. */
+  | { t: "task.stop"; taskId: string; leaseId: string }
+  /** The room has the end of the task. */
+  | { t: "task.ended"; taskId: string; leaseId: string }
   /** The owner changed what is done when the agent is seen opening the machine's own data. */
   | { t: "watch"; mode: WatchMode }
   | { t: "run.start"; run: RunStart }

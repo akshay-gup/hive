@@ -129,6 +129,22 @@ const STEPS: string[][] = [
     `CREATE INDEX agent_flags_at ON agent_flags (at_ms)`,
     `CREATE INDEX agent_flags_run ON agent_flags (run_id)`,
   ],
+  [
+    // The workspace's tasks. The columns are what the room looks things up by and decides with (who may see
+    // it, when it is due, who holds it); `data` is the rest of the task as the app shows it. A task is in the
+    // room's hands: the machine borrows one for a run, under a lease, and gives it back.
+    `CREATE TABLE tasks (
+       id TEXT PRIMARY KEY, project_id TEXT, created_by TEXT NOT NULL, kind TEXT NOT NULL,
+       status TEXT NOT NULL, next_run_ms INTEGER,
+       lease_id TEXT, acked INTEGER NOT NULL DEFAULT 0, lease_ms INTEGER,
+       attempts INTEGER NOT NULL DEFAULT 0, interruptions INTEGER NOT NULL DEFAULT 0,
+       created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+       data TEXT NOT NULL DEFAULT '{}'
+     )`,
+    `CREATE INDEX tasks_due ON tasks (status, next_run_ms) WHERE lease_id IS NULL`,
+    `CREATE INDEX tasks_leased ON tasks (lease_id) WHERE lease_id IS NOT NULL`,
+    `CREATE INDEX tasks_project ON tasks (project_id, created_ms)`,
+  ],
 ];
 
 /** The newest version of the tables. */

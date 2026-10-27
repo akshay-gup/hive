@@ -23,6 +23,7 @@ import { migrate } from "../../../packages/chat-core/src/schema.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { first, type Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
+import { Tasks } from "../../../packages/chat-core/src/work.ts";
 import type { Channel, ChannelFootprint } from "../../../packages/domain/src/agent.ts";
 import { WATCH_MODES } from "../../../packages/domain/src/agent-watch.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
@@ -74,6 +75,7 @@ export class ChatCore {
   readonly filing: Filing;
   readonly messaging: Messaging;
   readonly runs: Runs;
+  readonly tasks: Tasks;
   readonly flags: AgentFlags;
   readonly agent: AgentLink;
   private readonly publishEvent: (event: ChatEvent) => void;
@@ -159,6 +161,7 @@ export class ChatCore {
       publish: this.publishEvent,
     });
     this.runs = new Runs(sql, options.clock);
+    this.tasks = new Tasks(sql, options.clock);
     this.flags = new AgentFlags(sql, options.clock);
     this.agent = new AgentLink({
       store: this.store,
@@ -166,6 +169,7 @@ export class ChatCore {
       access: this.access,
       messages: this.messages,
       runs: this.runs,
+      tasks: this.tasks,
       files: this.files,
       filing: this.filing,
       runner: () => options.runner?.() ?? null,

@@ -12,6 +12,8 @@ import type { Message, Messages } from "../../../packages/chat-core/src/messages
 import { isActive, RUN_LIMITS, type Run, type Runs } from "../../../packages/chat-core/src/runs.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { RecordStore } from "../../../packages/chat-core/src/store.ts";
+import type { Tasks } from "../../../packages/chat-core/src/work.ts";
+import { TASK_LIMITS } from "../../../packages/chat-core/src/work.ts";
 import type { Channel } from "../../../packages/domain/src/agent.ts";
 import type { WatchMode } from "../../../packages/domain/src/agent-watch.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
@@ -61,6 +63,7 @@ export interface AgentLinkDeps {
   access: Access;
   messages: Messages;
   runs: Runs;
+  tasks: Tasks;
   files: Files;
   filing: Filing;
   /** The machine's connection, if there is one. The room may sleep, so this is asked for each time. */
@@ -91,6 +94,7 @@ export interface AgentLinkDeps {
  */
 export class AgentLink {
   private maxRuns: number = RUN_LIMITS.defaultMaxRuns;
+  private maxTasks: number = TASK_LIMITS.defaultMaxTasks;
   private pumping: Promise<void> = Promise.resolve();
   private lastWake = 0;
 
@@ -164,7 +168,19 @@ export class AgentLink {
         return this.channelsHave(frame.ids);
       case "beat":
         this.deps.runs.beat(frame.runIds);
+        if (frame.tasks?.length) this.deps.tasks.beat(frame.tasks);
         return;
+      case "task.ack":
+        if (this.deps.tasks.ack(frame.taskId, frame.leaseId)) return;
+        // Not the lease the room holds: the machine is told to let go of it.
+        this.send({ t: "task.stop", taskId: frame.taskId, leaseId: frame.leaseId });
+        return;
+      case "task.checkpoint":
+        if (!this.deps.tasks.checkpoint(frame.taskId, frame.leaseId, frame.patch))
+          this.send({ t: "task.stop", taskId: frame.taskId, leaseId: frame.leaseId });
+        return;
+      case "task.end":
+        return this.taskEnd(frame);
       case "file.begin":
         return this.fileBegin(frame);
       case "file.done":
@@ -186,8 +202,11 @@ export class AgentLink {
   }
 
   private async hello(frame: Extract<RunnerFrame, { t: "hello" }>) {
-    const { runs, store } = this.deps;
-    if (frame.capacity) this.maxRuns = frame.capacity.maxRuns;
+    const { runs, tasks, store } = this.deps;
+    if (frame.capacity) {
+      this.maxRuns = frame.capacity.maxRuns;
+      this.maxTasks = frame.capacity.maxTasks ?? TASK_LIMITS.defaultMaxTasks;
+    }
     if (frame.identity)
       await store.put("system", "agent", {
         id: "identity",
@@ -207,12 +226,34 @@ export class AgentLink {
         else await this.finish(run.id, "failed", "lost", {}, false);
       } else runs.requeue(run.id);
     }
+    // A task it still holds goes on; one it lost (it restarted under it) is cut off, and one it never took is given out again.
+    const held = new Set((frame.tasks ?? []).map((t) => t.leaseId));
+    const keepTasks: string[] = [];
+    for (const task of tasks.leased()) {
+      if (held.has(task.leaseId)) {
+        tasks.ack(task.id, task.leaseId);
+        keepTasks.push(task.leaseId);
+      } else if (task.acked) tasks.interrupt(task.id, task.leaseId);
+      else tasks.end(task.id, task.leaseId, {}, { requeue: true });
+    }
     this.send({
       t: "welcome",
       limits: { maxRunMs: RUN_LIMITS.maxRunMs },
       resume: keep,
+      resumeTasks: keepTasks,
       watch: await this.watchMode(),
     });
+    await this.pump();
+  }
+
+  /** The machine is done with a task, or was cut off. Said again until the room says it has it. */
+  private async taskEnd(frame: Extract<RunnerFrame, { t: "task.end" }>) {
+    const { tasks } = this.deps;
+    tasks.end(frame.taskId, frame.leaseId, frame.patch, {
+      requeue: frame.requeue,
+      stalled: frame.stalled,
+    });
+    this.send({ t: "task.ended", taskId: frame.taskId, leaseId: frame.leaseId });
     await this.pump();
   }
 
@@ -429,11 +470,12 @@ export class AgentLink {
   }
 
   private async pumpNow() {
-    const { runs } = this.deps;
+    const { runs, tasks } = this.deps;
     if (!this.deps.runner()) {
-      if (runs.active().some((r) => r.state === "queued")) this.wakeMachine();
+      if (runs.active().some((r) => r.state === "queued") || tasks.hasDue()) this.wakeMachine();
       return;
     }
+    await this.giveOutTasks();
     for (let i = 0; i < 16; i++) {
       const next = runs.nextToSend(this.maxRuns);
       if (!next) return;
@@ -447,6 +489,44 @@ export class AgentLink {
       runs.markSent(next.id);
       if (!this.send({ t: "run.start", run: start })) {
         runs.requeue(next.id);
+        return;
+      }
+    }
+  }
+
+  /** Give the machine the tasks that are due, as many as it can take. */
+  private async giveOutTasks() {
+    const { tasks, access } = this.deps;
+    for (let i = 0; i < 16 && tasks.inHand() < this.maxTasks; i++) {
+      const next = tasks.nextDue();
+      if (!next) return;
+      const owner = await access.person(next.createdBy ?? "");
+      const leaseId = crypto.randomUUID();
+      const task = tasks.claim(next.id, leaseId);
+      if (!task) continue;
+      if (!owner?.email) {
+        // Whoever made it is gone: nobody to work it for.
+        tasks.end(task.id, leaseId, {
+          status: "failed",
+          error: "Whoever asked for this is no longer here",
+        });
+        continue;
+      }
+      const sent = this.send({
+        t: "task.start",
+        start: {
+          task,
+          leaseId,
+          owner: {
+            id: owner.id,
+            email: owner.email,
+            name: owner.name,
+            role: owner.role ?? "member",
+          },
+        },
+      });
+      if (!sent) {
+        tasks.end(task.id, leaseId, {}, { requeue: true });
         return;
       }
     }
@@ -664,6 +744,7 @@ export class AgentLink {
   async disconnected(): Promise<void> {
     for (const run of this.deps.runs.active())
       if (run.state === "sent") this.deps.runs.requeue(run.id);
+    this.deps.tasks.requeueUnacked();
     await this.pump();
   }
 
@@ -680,8 +761,11 @@ export class AgentLink {
     for (const run of runs.quiet())
       if (now - (run.beatMs ?? run.createdMs) > RUN_LIMITS.beatStaleMs + grace)
         await this.finish(run.id, "failed", "lost", {}, false);
+    // A task the machine has not been heard of holding is cut off; it is tried again, a few times.
+    const { tasks } = this.deps;
+    for (const task of tasks.quiet(grace)) tasks.interrupt(task.id, task.leaseId);
     runs.prune();
     await this.pump();
-    return runs.hasActive();
+    return runs.hasActive() || tasks.hasActive() || tasks.hasDue();
   }
 }
