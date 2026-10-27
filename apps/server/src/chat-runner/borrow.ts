@@ -160,23 +160,25 @@ export class TaskBorrower {
           this.log(`could not start task ${frame.start.task.id}: ${String(error)}`),
         );
         return;
-      case "task.note": {
-        const a = this.held.get(frame.taskId);
-        if (a && a.start.leaseId === frame.leaseId && !a.dropped)
-          void this.deps.copies
-            .addNotes(a.owner, frame.taskId, frame.notes)
-            .catch((error) => this.log(`could not pass on a note: ${String(error)}`));
+      // Behind a task that is still being started, so that what is added in that moment is not lost.
+      case "task.note":
+        void this.serial(frame.taskId, async () => {
+          const a = this.held.get(frame.taskId);
+          if (a && a.start.leaseId === frame.leaseId && !a.dropped)
+            await this.deps.copies.addNotes(a.owner, frame.taskId, frame.notes);
+        }).catch((error) => this.log(`could not pass on a note: ${String(error)}`));
         return;
-      }
-      case "task.files": {
-        const a = this.held.get(frame.taskId);
-        if (a && a.start.leaseId === frame.leaseId && !a.dropped)
-          void this.deps.files
-            .take(a.owner, frame.taskId, frame.files)
-            .then((kept) => this.deps.copies.addFiles(a.owner, frame.taskId, kept))
-            .catch((error) => this.log(`could not pass on a file: ${String(error)}`));
+      case "task.files":
+        void this.serial(frame.taskId, async () => {
+          const a = this.held.get(frame.taskId);
+          if (a && a.start.leaseId === frame.leaseId && !a.dropped)
+            await this.deps.copies.addFiles(
+              a.owner,
+              frame.taskId,
+              await this.deps.files.take(a.owner, frame.taskId, frame.files),
+            );
+        }).catch((error) => this.log(`could not pass on a file: ${String(error)}`));
         return;
-      }
       case "task.stop": {
         const a = this.held.get(frame.taskId);
         if (a && a.start.leaseId === frame.leaseId)
