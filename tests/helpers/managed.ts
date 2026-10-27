@@ -6,12 +6,12 @@ import { join } from "node:path";
 import { createApp } from "../../apps/server/src/app.ts";
 import type { Config } from "../../apps/server/src/config.ts";
 import { createStore } from "../../apps/server/src/db.ts";
-import { localBoard } from "./local-task.ts";
 import {
   generateWorkspaceKeys,
   signWorkspaceToken,
   type WorkspaceRole,
 } from "../../packages/integrations/src/workspace-token.ts";
+import { localBoard } from "./local-task.ts";
 
 export interface TestPerson {
   id: string;

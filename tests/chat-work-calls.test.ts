@@ -236,10 +236,14 @@ test("a task is handed to another channel the person can open, and stays in revi
     input: {},
   });
   f.core.tasks.change(made.id, { status: "in_review" });
-  const missing = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, { target: "nowhere" });
+  const missing = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, {
+    target: "nowhere",
+  });
   assert.equal(missing.status, 404);
   // A channel the person cannot open is not one they are told exists.
-  const closed = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, { target: secret.id });
+  const closed = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, {
+    target: secret.id,
+  });
   assert.equal(closed.status, 404);
   const moved = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, {
     target: room.id,
@@ -253,6 +257,8 @@ test("a task is handed to another channel the person can open, and stays in revi
   );
   // An archived channel takes no work.
   await f.call("max", "POST", `/v1/channels/${room.id}/archive`, {});
-  const archived = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, { target: room.id });
+  const archived = await f.call("max", "POST", `/v1/tasks/${made.id}/delegate`, {
+    target: room.id,
+  });
   assert.equal(archived.status, 404);
 });

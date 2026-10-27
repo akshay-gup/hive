@@ -15,11 +15,11 @@ import { taskBriefLimits } from "../packages/domain/src/agent.ts";
 import type { Artifact } from "../packages/domain/src/index.ts";
 import {
   detailOf,
+  localBoard,
   localFile,
   localNote,
   localTask,
   markDone,
-  localBoard,
 } from "./helpers/local-task.ts";
 
 /**

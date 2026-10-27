@@ -37,10 +37,10 @@ import {
 import { jevActionPrefix, parseJevAction } from "../../../../packages/domain/src/jev.ts";
 import { Egress } from "../agent-watch/egress.ts";
 import type { AgentWatch } from "../agent-watch/watch.ts";
+import type { WorkClient } from "../chat-runner/work-link.ts";
 import type { Config } from "../config.ts";
 import type { AgentService } from "../engine/service.ts";
 import { diskOwnerForChannel } from "../engine/threads.ts";
-import type { WorkClient } from "../chat-runner/work-link.ts";
 import { conversationTools } from "../engine/tools.ts";
 import type { JevService } from "../jev/service.ts";
 import type { AskedPermissionProps, AskedQuestionProps, PermissionTracker } from "./approvals.ts";

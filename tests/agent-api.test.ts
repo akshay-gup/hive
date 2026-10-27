@@ -15,7 +15,7 @@ import type {
   Idea,
   Monitor,
 } from "../packages/domain/src/agent.ts";
-import { controlLocal, localBoard, } from "./helpers/local-task.ts";
+import { controlLocal, localBoard } from "./helpers/local-task.ts";
 
 let db: Store, server: Awaited<ReturnType<typeof createApp>>, directory: string, token: string;
 let config: Config;

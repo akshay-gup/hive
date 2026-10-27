@@ -588,7 +588,9 @@ export async function createApp(
       await agent.board
         .forPerson(owner)
         .call("review.decided", { taskId: decided.taskId, actionId: decided.id })
-        .catch((error) => console.error(`[Hive] could not tell the board of a review: ${String(error)}`));
+        .catch((error) =>
+          console.error(`[Hive] could not tell the board of a review: ${String(error)}`),
+        );
     return c.json(decided);
   });
   app.get("/api/drafts", async (c) => c.json(await db.list(c.get("owner"), "drafts")));

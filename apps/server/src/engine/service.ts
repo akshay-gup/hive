@@ -1372,9 +1372,9 @@ export class AgentService {
     if (task.status === "cancelled" && task.actionId) {
       const action = await this.db.get<ActionProposal>(owner, "actions", task.actionId);
       if (action?.status === "awaiting_review")
-        await this.actions.decide(owner, action.id, action.hash, "deny").catch((error) =>
-          backgroundFailure("decline a stopped task's review", error),
-        );
+        await this.actions
+          .decide(owner, action.id, action.hash, "deny")
+          .catch((error) => backgroundFailure("decline a stopped task's review", error));
     }
     await this.publishOutcome(owner, task);
   }
