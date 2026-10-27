@@ -38,6 +38,14 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **A guest cannot create anything in General.** By the current rules, a guest sees no projects until invited to a channel; say so in the app instead of an empty screen.
 - **A deleted workspace's old chat token makes an empty room.** For up to an hour after a workspace is deleted, a token made before it still reaches the chat service, which starts a fresh, empty room with a default #general. It holds no old data, but the chat service should remember a deletion and refuse.
 - **Making a workspace shows its steps going backwards.** The check is done in rounds a minute apart (a Worker may make only 50 requests in one go), and each round starts from the first step, so the progress shown jumps back from "checking" to "machine".
+- **Setting up a workspace says "about a minute the first time"; it takes about three and a half.** The steps use idioms that are hard to follow in a second language ("Plumping the cushions"); say what is happening and a true time.
+- **A disabled "Create workspace" button does nothing, with no hint.** Show why it is off (a name is needed).
+- **No terms, privacy or pricing anywhere before or after signing in.** /terms, /privacy and /pricing answer 200 with the sign-in page. A person deciding whether to trust it finds nothing about where data lives, who can read it (the agent has root) or what it costs. The account page can delete the account but not export.
+- **Slow connections get a blank page for about 25 seconds** (one 1.2 MB script and no loading screen), and the Activity list briefly says "A place for the work" before the tasks arrive, which looks like having none.
+- **Tap targets under 44 px on a phone:** "New issue" (35x36), the view and project pickers (22-36 tall), the filter pills (28-30).
+- **Back leaves the app.** Screens do not add browser history, so the Back button goes to the page before Hive instead of the previous screen.
+- **Raw validation text reaches people** ("Too big: expected string to have <=64 characters" for a long invitation link), and "Project not found" is shown for a project one may not see.
+- **Unexplained shorthand:** "Needs you", "3/3" beside a monitor, ages like "44m", "Computer · take control", "Delegate" and "Computer" in the left bar.
 - **Pin or favourite projects.**
 - **A hint when no agent is connected.**
 - **Hide single tasks inside a project.**
