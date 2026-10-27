@@ -139,6 +139,13 @@ const STEPS: string[][] = [
        lease_id TEXT, acked INTEGER NOT NULL DEFAULT 0, lease_ms INTEGER,
        attempts INTEGER NOT NULL DEFAULT 0, interruptions INTEGER NOT NULL DEFAULT 0,
        created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+       idem TEXT UNIQUE,
+       data TEXT NOT NULL DEFAULT '{}'
+     )`,
+    // Projects hold tasks; who may see and work on a project's tasks is the project's say.
+    `CREATE TABLE projects (
+       id TEXT PRIMARY KEY, name TEXT NOT NULL, access TEXT NOT NULL DEFAULT 'open',
+       created_by TEXT, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
        data TEXT NOT NULL DEFAULT '{}'
      )`,
     `CREATE INDEX tasks_due ON tasks (status, next_run_ms) WHERE lease_id IS NULL`,

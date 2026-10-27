@@ -1,4 +1,4 @@
-import type { AgentTask } from "../../domain/src/agent.ts";
+import type { AgentTask, Project } from "../../domain/src/agent.ts";
 import { first, type Sql } from "./sql.ts";
 
 /** How tasks are held out to the machine: how long one may go unheard of, and how often a cut-off one is tried again. */
@@ -98,14 +98,21 @@ export class Tasks {
     return row ? toTask(row) : null;
   }
 
+  /** The task made for this key, if there is one: asking twice for the same thing makes it once. */
+  byKey(key: string): AgentTask | null {
+    const row = first<Row>(this.sql, "SELECT * FROM tasks WHERE idem = ?", key);
+    return row ? toTask(row) : null;
+  }
+
   create(
     task: Pick<AgentTask, "id" | "kind" | "status" | "createdBy"> & Partial<AgentTask>,
+    key?: string,
   ): AgentTask {
     const now = this.clock();
     const { id, kind, status, createdBy, projectId, nextRunAt, ...rest } = task;
     this.sql.run(
-      `INSERT INTO tasks (id, project_id, created_by, kind, status, next_run_ms, created_ms, updated_ms, data)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, project_id, created_by, kind, status, next_run_ms, created_ms, updated_ms, idem, data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       projectId ?? null,
       createdBy ?? "",
@@ -114,9 +121,62 @@ export class Tasks {
       nextRunAt ? Date.parse(nextRunAt) : null,
       now,
       now,
+      key ?? null,
       JSON.stringify(lay({}, rest as Record<string, unknown>)),
     );
     return this.get(id) as AgentTask;
+  }
+
+  all(): AgentTask[] {
+    return this.sql.all<Row>("SELECT * FROM tasks ORDER BY created_ms, id").map(toTask);
+  }
+
+  /**
+   * Change a task: `change` is laid over it (or worked out from it, inside the step), and the columns that
+   * decide things (status, project, when it is due) are set from it. With `expect`, only if the task still
+   * has that status and lease, so a change made from an old read is refused. A lease set to null is let go.
+   */
+  change(
+    id: string,
+    change: Partial<AgentTask> | ((current: AgentTask) => Partial<AgentTask>),
+    expect?: { status: AgentTask["status"]; leaseId: string | null },
+  ): AgentTask | null {
+    return this.sql.transaction(() => {
+      const row = first<Row>(this.sql, "SELECT * FROM tasks WHERE id = ?", id);
+      if (!row) return null;
+      if (expect && (row.status !== expect.status || (row.lease_id ?? null) !== expect.leaseId))
+        return null;
+      const patch = typeof change === "function" ? change(toTask(row)) : change;
+      const now = this.clock();
+      const release = "leaseId" in patch && patch.leaseId === null ? 1 : 0;
+      const nextRun =
+        "nextRunAt" in patch
+          ? patch.nextRunAt
+            ? Date.parse(patch.nextRunAt)
+            : null
+          : row.next_run_ms;
+      this.sql.run(
+        `UPDATE tasks SET status = ?, project_id = ?, kind = ?, next_run_ms = ?, updated_ms = ?, data = ?,
+           lease_id = CASE WHEN ? THEN NULL ELSE lease_id END,
+           acked = CASE WHEN ? THEN 0 ELSE acked END,
+           lease_ms = CASE WHEN ? THEN NULL ELSE lease_ms END WHERE id = ?`,
+        patch.status ?? row.status,
+        "projectId" in patch ? (patch.projectId ?? null) : row.project_id,
+        patch.kind ?? row.kind,
+        nextRun,
+        now,
+        JSON.stringify(lay(JSON.parse(row.data), patch as Record<string, unknown>)),
+        release,
+        release,
+        release,
+        id,
+      );
+      return this.get(id);
+    });
+  }
+
+  remove(id: string): void {
+    this.sql.run("DELETE FROM tasks WHERE id = ?", id);
   }
 
   /** How many tasks the machine holds (given out, or running). */
@@ -315,5 +375,81 @@ export class Tasks {
 
   hasActive(): boolean {
     return first(this.sql, "SELECT 1 FROM tasks WHERE lease_id IS NOT NULL LIMIT 1") !== undefined;
+  }
+}
+
+interface ProjectRow {
+  id: string;
+  name: string;
+  access: string;
+  created_by: string | null;
+  created_ms: number;
+  updated_ms: number;
+  data: string;
+}
+
+const toProject = (row: ProjectRow): Project => {
+  const data = JSON.parse(row.data) as { description?: string; members?: Project["members"] };
+  return {
+    id: row.id,
+    name: row.name,
+    access: row.access as Project["access"],
+    createdAt: new Date(row.created_ms).toISOString(),
+    updatedAt: new Date(row.updated_ms).toISOString(),
+    members: data.members ?? [],
+    ...(data.description ? { description: data.description } : {}),
+    ...(row.created_by ? { createdBy: row.created_by } : {}),
+  };
+};
+
+/** The workspace's projects, as rows. Who may see one is decided by `access.ts`, not here. */
+export class Projects {
+  constructor(
+    private readonly sql: Sql,
+    private readonly clock: () => number = Date.now,
+  ) {}
+
+  get(id: string): Project | null {
+    const row = first<ProjectRow>(this.sql, "SELECT * FROM projects WHERE id = ?", id);
+    return row ? toProject(row) : null;
+  }
+
+  list(): Project[] {
+    return this.sql
+      .all<ProjectRow>("SELECT * FROM projects ORDER BY created_ms, id")
+      .map(toProject);
+  }
+
+  /** Keep a project: made if it is new, changed if it is not. */
+  put(project: Project): Project {
+    const now = this.clock();
+    const data = JSON.stringify({
+      ...(project.description ? { description: project.description } : {}),
+      members: project.members ?? [],
+    });
+    const changed = this.sql.run(
+      "UPDATE projects SET name = ?, access = ?, updated_ms = ?, data = ? WHERE id = ?",
+      project.name,
+      project.access ?? "open",
+      now,
+      data,
+      project.id,
+    );
+    if (changed === 0)
+      this.sql.run(
+        "INSERT INTO projects (id, name, access, created_by, created_ms, updated_ms, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        project.id,
+        project.name,
+        project.access ?? "open",
+        project.createdBy ?? null,
+        now,
+        now,
+        data,
+      );
+    return this.get(project.id) as Project;
+  }
+
+  remove(id: string): void {
+    this.sql.run("DELETE FROM projects WHERE id = ?", id);
   }
 }

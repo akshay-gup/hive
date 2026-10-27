@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   Access,
   canOpen,
+  canSeeTask,
+  canViewProject,
   isDm,
   managesChannel,
   type Person,
@@ -23,7 +25,8 @@ import { migrate } from "../../../packages/chat-core/src/schema.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { first, type Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
-import { Tasks } from "../../../packages/chat-core/src/work.ts";
+import { Projects, Tasks } from "../../../packages/chat-core/src/work.ts";
+import { Work } from "../../../packages/chat-core/src/work-rules.ts";
 import type { Channel, ChannelFootprint } from "../../../packages/domain/src/agent.ts";
 import { WATCH_MODES } from "../../../packages/domain/src/agent-watch.ts";
 import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
@@ -76,6 +79,8 @@ export class ChatCore {
   readonly messaging: Messaging;
   readonly runs: Runs;
   readonly tasks: Tasks;
+  readonly projects: Projects;
+  readonly work: Work;
   readonly flags: AgentFlags;
   readonly agent: AgentLink;
   private readonly publishEvent: (event: ChatEvent) => void;
@@ -162,6 +167,16 @@ export class ChatCore {
     });
     this.runs = new Runs(sql, options.clock);
     this.tasks = new Tasks(sql, options.clock);
+    this.projects = new Projects(sql, options.clock);
+    this.work = new Work({
+      access: this.access,
+      projects: this.projects,
+      tasks: this.tasks,
+      clock: options.clock ?? Date.now,
+      changed: ({ task, removed }) => void this.workChanged("task.changed", task, removed),
+      projectChanged: (project, removed) =>
+        void this.workChanged("project.changed", project, removed),
+    });
     this.flags = new AgentFlags(sql, options.clock);
     this.agent = new AgentLink({
       store: this.store,
@@ -284,6 +299,33 @@ export class ChatCore {
     return new Set((await this.access.openers(channel)).map((who) => who.owner));
   }
 
+  /**
+   * A task or project changed: each person who may see it is told which, so their screen asks again. The
+   * event carries no more than the id; what they may be shown is decided when they ask.
+   */
+  private async workChanged(
+    type: "task.changed" | "project.changed",
+    thing: { id: string; projectId?: string | null },
+    removed = false,
+  ) {
+    const project =
+      type === "task.changed"
+        ? thing.projectId
+          ? this.projects.get(thing.projectId)
+          : null
+        : (thing as { id: string });
+    for (const [id, who] of await this.access.byId()) {
+      const person = { id, ...who };
+      // A project that was removed is no one's any more; everyone who could see it is told it went.
+      const sees =
+        type === "task.changed"
+          ? canSeeTask({ person, allows: () => true }, project as never)
+          : removed || canViewProject(person, project as never);
+      if (sees)
+        this.emit(type, { id: thing.id, ...(removed ? { removed: true } : {}) }, { userId: id });
+    }
+  }
+
   /** A channel was made: those who can open it are told. */
   private announce(type: "channel.new" | "channel.updated", channelId: string) {
     this.emit(type, { id: channelId }, { channelId });
@@ -353,6 +395,66 @@ export class ChatCore {
     app.use("/v1/channels/:id/*", open);
 
     const body = async (c: { req: { json(): Promise<unknown> } }) => c.req.json().catch(() => ({}));
+
+    // The board: projects and tasks, and who may see and change them.
+    const owner = (c: { get(key: "owner"): string }) => c.get("owner");
+    app.get("/v1/work", async (c) =>
+      c.json({
+        tasks: await this.work.tasksFor(owner(c)),
+        projects: await this.work.projectsFor(owner(c)),
+      }),
+    );
+    app.get("/v1/projects/people", async (c) => c.json(await this.work.projectPeople(owner(c))));
+    app.post("/v1/projects", async (c) =>
+      c.json(await this.work.createProject(owner(c), await c.req.json()), 201),
+    );
+    app.patch("/v1/projects/:id", async (c) =>
+      c.json(await this.work.updateProject(owner(c), c.req.param("id"), await c.req.json())),
+    );
+    app.delete("/v1/projects/:id", async (c) =>
+      c.json(await this.work.deleteProject(owner(c), c.req.param("id"), await body(c))),
+    );
+    app.post("/v1/tasks", async (c) =>
+      c.json(await this.work.createTask(owner(c), await c.req.json()), 201),
+    );
+    app.get("/v1/tasks/:id", async (c) =>
+      c.json({
+        task: (
+          await this.work.present(owner(c), [await this.work.getTask(owner(c), c.req.param("id"))])
+        )[0],
+      }),
+    );
+    app.patch("/v1/tasks/:id", async (c) =>
+      c.json(await this.work.updateTask(owner(c), c.req.param("id"), await c.req.json())),
+    );
+    app.delete("/v1/tasks/:id", async (c) =>
+      c.json(await this.work.deleteTask(owner(c), c.req.param("id"))),
+    );
+    app.post("/v1/tasks/:id/control", async (c) => {
+      const { action } = z
+        .object({ action: z.enum(["pause", "resume", "cancel", "retry"]) })
+        .parse(await c.req.json());
+      return c.json(await this.work.control(owner(c), c.req.param("id"), action));
+    });
+    app.post("/v1/tasks/:id/input", async (c) => {
+      const input = z
+        .object({
+          answer: z.string().trim().min(1).max(12000),
+          fields: z
+            .record(z.string().min(1).max(300), z.union([z.string().max(12000), z.boolean()]))
+            .optional(),
+        })
+        .parse(await c.req.json());
+      return c.json(
+        await this.work.answer(owner(c), c.req.param("id"), input.answer, input.fields),
+      );
+    });
+    app.post("/v1/tasks/:id/notes", async (c) =>
+      c.json(await this.work.addNote(owner(c), c.req.param("id"), await c.req.json()), 201),
+    );
+    app.delete("/v1/tasks/:id/notes/:noteId", async (c) =>
+      c.json(await this.work.removeNote(owner(c), c.req.param("id"), c.req.param("noteId"))),
+    );
 
     app.get("/v1/me", (c) => {
       const { sub, email, name, role, limits } = c.get("identity");
