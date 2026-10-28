@@ -113,8 +113,8 @@ function ProjectPicker({
 
 /**
  * Deleting a project, on a page of its own: what becomes of its tasks (to another project, picked from
- * a list that copes with many, or deleted with it) and then the deleting, which is done by typing the
- * project's name.
+ * a list that copes with many, or deleted with it), the goals and routines that go with it, and then the
+ * deleting, which is done by typing the project's name.
  */
 export function DeleteProject({
   project,
@@ -130,6 +130,13 @@ export function DeleteProject({
   const { api } = useWorkspace();
   const { data, refresh } = useAgentWorkspace();
   const places = destinations(data?.projects ?? [], project.id);
+  const goalCount =
+    data?.goals.filter((goal) => goal.scope?.type === "project" && goal.scope.id === project.id)
+      .length ?? 0;
+  const routineCount =
+    data?.routines.filter(
+      (routine) => routine.scope.type === "project" && routine.scope.id === project.id,
+    ).length ?? 0;
   const [fate, setFate] = useState<"move" | "delete">("move");
   const [target, setTarget] = useState(GENERAL_PROJECT_ID);
   const [typed, setTyped] = useState("");
@@ -194,6 +201,27 @@ export function DeleteProject({
             )}
           </View>
         )}
+        <View
+          style={{
+            gap: 8,
+            padding: 14,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: colors.dangerLine,
+            backgroundColor: colors.dangerBg,
+          }}
+        >
+          <Text style={[s.label, { color: colors.danger }]}>Deleted with this project</Text>
+          <Text style={s.text}>
+            {goalCount} goal{goalCount === 1 ? "" : "s"} and {routineCount} routine
+            {routineCount === 1 ? "" : "s"}
+          </Text>
+          <Text style={s.small}>
+            {taskCount > 0
+              ? "These are deleted even if you move the tasks to another project. This cannot be undone."
+              : "Deleting this project and its contents cannot be undone."}
+          </Text>
+        </View>
         <Field
           label={`Type ${project.name} to confirm`}
           value={typed}
