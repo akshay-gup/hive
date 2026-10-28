@@ -91,6 +91,30 @@ test("a person and a workspace cannot ask without end, and a full queue says bus
   assert.equal(runs.check("someone", "ch-new"), "busy");
 });
 
+test("refused requests do not consume quotas or extend a person's limit", () => {
+  for (let i = 0; i < RUN_LIMITS.perPerson.count; i++) make({ state: "done", reason: "ok" });
+  assert.equal(runs.check("u1", "c1"), "limit");
+  clock += RUN_LIMITS.perPerson.windowMs - 1;
+  for (let i = 0; i < 70; i++) make({ state: "failed", reason: "limit" });
+  assert.equal(runs.check("u2", "c1"), null, "retries cannot exhaust the workspace's quota");
+  clock += 2;
+  assert.equal(runs.check("u1", "c1"), null, "rejected retries do not restart the window");
+  for (const reason of ["busy", "disabled", "dm", "archived", "access"] as const)
+    for (let i = 0; i < 10; i++) make({ askedBy: "u2", state: "failed", reason });
+  assert.equal(runs.check("u2", "c1"), null, "nothing was admitted or sent to the machine");
+});
+
+test("workspace quota counts accepted work, including runs stopped after being sent", () => {
+  for (let i = 0; i < RUN_LIMITS.perWorkspace.count; i++) {
+    const run = make({ askedBy: `person${i}` });
+    runs.markSent(run.id);
+    runs.end(run.id, "stopped", "access");
+  }
+  assert.equal(runs.check("someone-else", "c1"), "limit");
+  clock += RUN_LIMITS.perWorkspace.windowMs + 1;
+  assert.equal(runs.check("someone-else", "c1"), null);
+});
+
 test("the first answer to a prompt is the one taken", () => {
   const run = make();
   runs.markSent(run.id);

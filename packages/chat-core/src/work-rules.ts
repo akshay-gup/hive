@@ -365,6 +365,15 @@ export class Work {
 
   // Making and changing tasks
 
+  private assertTaskRoom(owner: string) {
+    if (
+      this.deps.tasks
+        .all()
+        .filter((t) => !TERMINAL.has(t.status) && (t.createdBy ?? owner) === owner).length >= 100
+    )
+      throw new AppError("Finish or cancel some tasks before adding more", 409);
+  }
+
   private change(
     task: AgentTask,
     patch: Partial<AgentTask> | ((current: AgentTask) => Partial<AgentTask>),
@@ -372,9 +381,14 @@ export class Work {
   ): AgentTask {
     const saved = this.deps.tasks.change(
       task.id,
-      typeof patch === "function"
-        ? (current) => ({ ...patch(current), updatedAt: this.now() })
-        : { ...patch, updatedAt: this.now() },
+      (current) => {
+        const update = typeof patch === "function" ? patch(current) : patch;
+        // Reopening consumes a slot for the creator, even when someone else reopens it. Check inside
+        // the same transaction as the write, so competing requests cannot take the last slot twice.
+        if (TERMINAL.has(current.status) && update.status && !TERMINAL.has(update.status))
+          this.assertTaskRoom(current.createdBy ?? "");
+        return { ...update, updatedAt: this.now() };
+      },
       expect ? { status: task.status, leaseId: task.leaseId ?? null } : undefined,
     );
     if (!saved) throw new AppError("Task changed; refresh and try again", 409);
@@ -415,12 +429,7 @@ export class Work {
     }
     const id = this.id();
     if (input.blockedBy.length) await this.checkBlockedBy(owner, id, input.blockedBy);
-    if (
-      this.deps.tasks
-        .all()
-        .filter((t) => !TERMINAL.has(t.status) && (t.createdBy ?? owner) === owner).length >= 100
-    )
-      throw new AppError("Finish or cancel some tasks before adding more", 409);
+    this.assertTaskRoom(owner);
     // Only the workflows that run as code have steps to start with, because the code ticks them off.
     // What an agent does has none: its plan is the todo list the agent keeps as it works.
     const titles =

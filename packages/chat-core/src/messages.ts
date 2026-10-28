@@ -1,8 +1,6 @@
 import { AppError } from "./errors.ts";
 import { first, type Sql } from "./sql.ts";
 
-/** The longest a message's text may be. */
-export const MAX_BODY = 40_000;
 /** How many different people are remembered as having replied in a thread, for showing their faces. */
 const MAX_REPLY_USERS = 50;
 

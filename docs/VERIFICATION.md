@@ -2,6 +2,20 @@
 
 What the automated checks cover, how to run them, and what has not been verified. Hive is an alpha: this lists coverage and its limits, and does not claim that every planned capability is complete.
 
+## Live limits check — 2026-10-28
+
+Checked against the deployed chat and control services using existing test accounts and temporary private projects and a channel:
+
+- At 98 open tasks, eight concurrent creates admitted two and refused six. The 101st task returned 409. Reopening and retrying also return 409 at the cap; completing a task frees a slot. Another person's allowance remains available.
+- Task titles (160 characters), descriptions (12,000), notes (4,000), project names (80), project descriptions (500), channel topics (250), and messages (40,000) accepted their boundary and refused one character beyond it. ASCII and emoji message posts and edits round-trip intact. A rejected edit leaves the saved value intact.
+- On a persistent connection, chat admitted 600 requests and returned 429 on the next. Sign-in returned 429 after 21 wrong-passphrase attempts. Existing control sessions and another chat account remained usable; both limits recovered automatically. Parallel bursts can overshoot: these [Cloudflare counters are approximate](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+
+An isolated staging workspace with a stand-in runner, without model calls, admitted eight runs for one person and refused the ninth, then stopped the workspace at 60 admitted runs. Sixty rejected retries did not consume teammates' allowances. Quota expiry is covered with a test clock rather than waiting an hour live. The live web app rendered a 40,000-character emoji message at 1400 px and 375 px without horizontal overflow or runtime exceptions.
+
+Regression tests cover reopening by status edit, retry, note, assignment and delegation, including changes made by someone other than the creator. Refused requests cannot extend run quotas; a run stopped after dispatch still counts. The affected suite passed 83 tests; production source and changed test typechecks passed separately.
+
+The checks found and fixed three gaps: reopening bypassed the task cap, refused runs consumed quotas, and message posting counted emoji differently from editing. All temporary projects, tasks, channels, staging workspaces and the binding probe Worker were removed. Open-ended workflow input metadata was also observed to accept a request above 256 KiB; this work adds no global JSON body budget. Native keyboard behavior and sustained load across multiple Cloudflare locations were not tested.
+
 ## Automated checks
 
 - **`pnpm test`** runs 776 tests across the API, task engine, OpenCode integration, tools, integrations, conversation queue, browser address handling, domain, and date handling, and the hosted control plane, its provisioners, the edge, the tools that make a Droplet image and try a provisioner, the workspace supervisor and the app's client for them.

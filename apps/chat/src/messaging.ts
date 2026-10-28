@@ -5,7 +5,7 @@ import type { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
 import type { FileRow, Files } from "../../../packages/chat-core/src/files.ts";
-import { MAX_BODY, type Message, type Messages } from "../../../packages/chat-core/src/messages.ts";
+import type { Message, Messages } from "../../../packages/chat-core/src/messages.ts";
 import type { Notice, Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import type { Reactions } from "../../../packages/chat-core/src/reactions.ts";
 import type { Reads } from "../../../packages/chat-core/src/reads.ts";
@@ -213,7 +213,6 @@ export class Messaging {
     const text = input.body.trim();
     const fileIds = input.fileIds ?? [];
     if (!text && fileIds.length === 0) throw new AppError("Write something to send", 422);
-    if (text.length > MAX_BODY) throw new AppError("That message is too long", 422);
 
     const known = await this.directory();
     // Only people who may open the channel are told about it, so a mention cannot tell someone a private channel exists.

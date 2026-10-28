@@ -9,6 +9,10 @@ import { first, type Sql } from "./sql.ts";
 
 export type RunState = "queued" | "sent" | "running" | "done" | "failed" | "stopped";
 const ACTIVE = "('queued', 'sent', 'running')";
+// Refusals still have a run row so the reply can explain them. They did not use a run allowance.
+// Once sent, a run counts even if access is later revoked or the channel is closed.
+const COUNTED =
+  "(sent_ms IS NOT NULL OR reason IS NULL OR reason NOT IN ('limit', 'busy', 'dm', 'disabled', 'archived', 'access'))";
 
 /** What keeps the agent from being used up: by one person, by a workspace, and in time. */
 export const RUN_LIMITS = {
@@ -165,7 +169,7 @@ export class Runs {
       first<{ n: number }>(this.sql, query, ...bindings)?.n ?? 0;
     if (
       count(
-        "SELECT COUNT(*) AS n FROM runs WHERE asked_by = ? AND created_ms > ?",
+        `SELECT COUNT(*) AS n FROM runs WHERE asked_by = ? AND created_ms > ? AND ${COUNTED}`,
         askedBy,
         now - RUN_LIMITS.perPerson.windowMs,
       ) >= RUN_LIMITS.perPerson.count
@@ -173,7 +177,7 @@ export class Runs {
       return "limit";
     if (
       count(
-        "SELECT COUNT(*) AS n FROM runs WHERE created_ms > ?",
+        `SELECT COUNT(*) AS n FROM runs WHERE created_ms > ? AND ${COUNTED}`,
         now - RUN_LIMITS.perWorkspace.windowMs,
       ) >= RUN_LIMITS.perWorkspace.count
     )
