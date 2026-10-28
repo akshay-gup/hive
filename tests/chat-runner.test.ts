@@ -147,8 +147,29 @@ test("the tools depend on the channel and the person: a private channel has no b
   const third = await f.post("gus", secret.id, "@hive c");
   await f.finished(third.id, "gus");
   assert.deepEqual(offered, [
-    ["browse_web", "create_issue", "send_file"],
-    ["browse_web", "send_file"],
+    [
+      "browse_web",
+      "create_goal",
+      "create_issue",
+      "create_routine",
+      "list_routines",
+      "remove_routine",
+      "routine_memo",
+      "routine_webhook",
+      "send_file",
+      "update_routine",
+    ],
+    [
+      "browse_web",
+      "create_goal",
+      "create_routine",
+      "list_routines",
+      "remove_routine",
+      "routine_memo",
+      "routine_webhook",
+      "send_file",
+      "update_routine",
+    ],
     ["browse_web", "send_file"],
   ]);
   // The machine was told the private channel is private, and nothing of who is in it but those who can ask.
