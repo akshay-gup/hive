@@ -119,6 +119,8 @@ export class ChatCore {
       workspaceId?: () => string | null;
       /** Ask for the agent's machine to be started. */
       wake?: () => void;
+      /** Where the chat service is reached from outside, for addresses it hands out. */
+      publicUrl?: () => string | undefined;
     } = {},
   ) {
     this.publishEvent = (event) => {
@@ -212,6 +214,10 @@ export class ChatCore {
       runOf: (triggerId) => this.runs.byTrigger(triggerId),
       isActive: (run) => run.state === "queued" || run.state === "sent" || run.state === "running",
       tell: (userId, notice) => this.workNotices.tell(userId, notice),
+      fireOwn: (owner, routine) => this.agent.fireOwnRoutine(owner, routine),
+      workspaceId: () => options.workspaceId?.() ?? null,
+      linkKey: options.linkKey ?? (() => undefined),
+      publicUrl: options.publicUrl ?? (() => undefined),
       soon: workQueued,
       clock: options.clock ?? Date.now,
     });
@@ -526,6 +532,12 @@ export class ChatCore {
     app.post("/v1/routines/:id", patchRoutine);
     app.post("/v1/routines/:id/run", async (c) =>
       c.json(await this.routines.runNow(owner(c), c.req.param("id"))),
+    );
+    app.post("/v1/routines/:id/hook", async (c) =>
+      c.json(await this.routines.hookOn(owner(c), c.req.param("id"), c.req.query("new") === "1")),
+    );
+    app.delete("/v1/routines/:id/hook", async (c) =>
+      c.json(await this.routines.hookOff(owner(c), c.req.param("id"))),
     );
     app.delete("/v1/routines/:id", async (c) =>
       c.json(await this.routines.remove(owner(c), c.req.param("id"))),

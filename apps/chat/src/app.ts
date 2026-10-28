@@ -44,6 +44,7 @@ export interface Env {
   FILES?: Bucket;
   /** What addresses for sending and fetching files are signed with. */
   FILE_LINK_KEY?: string;
+  CHAT_PUBLIC_URL?: string;
   /** The control plane's public key, as the workspaces have it: the Worker knows tokens are the control plane's by it. */
   CONTROL_PUBLIC_KEY: string;
   /** The origins of the app, separated by commas. */
@@ -229,6 +230,22 @@ async function askRoom(env: Env, workspaceId: string, action: string, body: unkn
     }),
   );
 }
+
+/**
+ * A routine's web hook: anything that can send a request (a build service, an alert, a script) wakes the agent by
+ * calling the address the room made for it, with what it wants said. The address is the credential; the room
+ * checks it, and how often it is called.
+ */
+app.post("/w/:ws/hooks/:id/:token", async (c) => {
+  const carried = await c.req.text();
+  if (carried.length > 16_384) return c.json({ error: "Too much at once" }, 413);
+  const response = await askRoom(c.env, c.req.param("ws"), "hook", {
+    id: c.req.param("id"),
+    token: c.req.param("token"),
+    body: carried,
+  });
+  return c.json(await response.json(), response.status as 200);
+});
 
 /** What a smaller picture may be: the kinds a page draws; anything else is taken for WebP. */
 const pictureType = (type: string | null | undefined) =>

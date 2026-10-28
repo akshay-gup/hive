@@ -58,6 +58,8 @@ interface RoomEnv {
     }>;
   };
   FILE_LINK_KEY?: string;
+  /** Where the chat service is reached from outside, for the addresses it hands out. */
+  CHAT_PUBLIC_URL?: string;
   /** The control plane's public key: the agent's machine renews its token in-band, so the room checks it too. */
   CONTROL_PUBLIC_KEY?: string;
   /** Where the control plane is, and the key that proves to it that the room is asking: to wake the agent's machine. */
@@ -112,6 +114,7 @@ export class ChatRoom extends DurableObject<RoomEnv> {
       wake: () => ctx.waitUntil(this.wake()),
       keepAlive: (work) => ctx.waitUntil(work),
       linkKey: () => env.FILE_LINK_KEY,
+      publicUrl: () => env.CHAT_PUBLIC_URL,
       deleteObjects: async (keys) => {
         await env.FILES?.delete(keys);
       },

@@ -158,6 +158,8 @@ export const WORK_OPS = [
   "routine.update",
   "routine.remove",
   "routine.memo",
+  /** An address anything can call to wake a routine with a message. */
+  "routine.hook",
   /** Goals: made, changed (pausing one pauses its tasks the person may work on), and listed as the person may see them. */
   "goal.create",
   "goal.update",
@@ -292,6 +294,22 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
 ]);
 export type RunnerFrame = z.infer<typeof runnerFrameSchema>;
 
+/** What the room asks of the machine, besides runs and tasks (see `work.ask`). */
+export interface TaskHistoryAsk {
+  op: "task.history";
+  taskId: string;
+  viewer: string;
+  /** What the task says it made and used, so the machine finds those and nothing else. */
+  fileIds: string[];
+  browserIds: string[];
+}
+export interface RoutineFireAsk {
+  op: "routine.fire";
+  routine: { id: string; title: string; note: string; memo: string };
+  owner: { id: string; email: string; name: string; role: string };
+  ticket: string;
+}
+
 /** What the room says to the machine. */
 export interface RunStart {
   id: string;
@@ -376,14 +394,7 @@ export type RoomFrame =
   | { t: "work.result"; reqId: string; ok: true; body: unknown }
   | { t: "work.result"; reqId: string; ok: false; error: string; status: number }
   /** The room asks the machine for what only it keeps (a task's run history) for a person who may see the task. */
-  | {
-      t: "work.ask";
-      reqId: string;
-      op: "task.history";
-      taskId: string;
-      viewer: string;
-      /** What the task says it made and used, so the machine finds those and nothing else. */
-      fileIds: string[];
-      browserIds: string[];
-    }
+  | ({ t: "work.ask"; reqId: string } & TaskHistoryAsk)
+  /** The room wakes the agent in a person's own chat, for a routine of theirs. The ticket lets it work the board as them for a while. */
+  | ({ t: "work.ask"; reqId: string } & RoutineFireAsk)
   | { t: "closing"; reason: string };

@@ -452,6 +452,25 @@ export async function createApp(
         const work = new WorkLink({
           send: (frame) => link.send(frame),
           history: (ask) => agent.history(ask),
+          // A routine of someone's wakes the agent in their own chat: the note is written there as if they had
+          // sent it, with a ticket for the board so that it can work as them, and it is answered as it would be.
+          routine: async (ask) => {
+            const owner = `acct:${ask.owner.id}`;
+            await vouchFor(agent, ask.owner);
+            boardTickets.set(owner, ask.ticket);
+            const { routine } = ask;
+            await shim.queueMessage(owner, "default", {
+              id: `routine-${routine.id}-${Date.now()}`,
+              content: [
+                `⏰ Routine “${routine.title}” (routine id: ${routine.id}). This is a note you wrote to yourself:`,
+                routine.note,
+                routine.memo
+                  ? `What you kept for yourself last time: ${routine.memo}`
+                  : "You kept nothing for yourself last time. Use routine_memo (with this routine id) to keep something for next time.",
+              ].join("\n\n"),
+            });
+            return { ok: true };
+          },
         });
         const borrower = new TaskBorrower({
           send: (frame) => link.send(frame),

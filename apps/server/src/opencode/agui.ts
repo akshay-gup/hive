@@ -1126,6 +1126,25 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
    * not leave the message unanswered.
    */
   /** A message sent while the agent is working: written into the thread, and answered when it is free. */
+  /** A message for a thread: written into it, and answered at once if the agent is free, or when it is. */
+  const queueMessage = async (
+    owner: string,
+    threadId: string,
+    message: { id: string; content: string },
+  ): Promise<{ queued: boolean }> => {
+    if (!deps.saveMessages || !deps.loadMessages) throw new Error("Messages cannot be kept here");
+    await deps.saveMessages(owner, threadId, [
+      { id: message.id, role: "user", content: message.content },
+    ]);
+    if (settling.has(threadId)) {
+      pending.set(threadId, owner);
+      return { queued: true };
+    }
+    const messages = await deps.loadMessages(owner, threadId);
+    const run = launch(owner, { threadId, runId: `run-${Date.now()}`, messages });
+    void run?.catch(() => undefined);
+    return { queued: false };
+  };
   app.post("/queue", async (c) => {
     const owner = c.get("owner");
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -1142,17 +1161,9 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
       !deps.loadMessages
     )
       return c.json({ error: "Invalid message" }, 400);
-    await deps.saveMessages(owner, threadId, [
-      { id: message.id, role: "user", content: message.content },
-    ]);
-    if (settling.has(threadId)) {
-      pending.set(threadId, owner);
-      return c.json({ queued: true });
-    }
-    const messages = await deps.loadMessages(owner, threadId);
-    const run = launch(owner, { threadId, runId: `run-${Date.now()}`, messages });
-    void run?.catch(() => undefined);
-    return c.json({ queued: false });
+    return c.json(
+      await queueMessage(owner, threadId, { id: message.id, content: message.content }),
+    );
   });
   app.post("/start", async (c) => {
     const owner = c.get("owner");
@@ -1229,5 +1240,5 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
     pending.delete(threadId);
     stoppers.get(threadId)?.abort();
   };
-  return Object.assign(app, { resume, launch, stop });
+  return Object.assign(app, { resume, launch, stop, queueMessage });
 }

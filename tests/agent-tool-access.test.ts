@@ -312,6 +312,10 @@ const reaching: Record<string, () => Promise<void>> = {
     const refused = await use("mia", "update_routine", { routineId, paused: true });
     assert.ok(refused.failed && /not (found|there)/i.test(refused.said), refused.said);
   },
+  async routine_webhook() {
+    const refused = await use("mia", "routine_webhook", { routineId });
+    assert.ok(refused.failed && /not (found|there)/i.test(refused.said), refused.said);
+  },
   async remove_routine() {
     const refused = await use("mia", "remove_routine", { routineId });
     assert.ok(refused.failed && /not (found|there)/i.test(refused.said), refused.said);

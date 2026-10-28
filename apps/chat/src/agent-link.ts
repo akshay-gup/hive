@@ -31,11 +31,13 @@ import {
   type PromptChoice,
   REASON_TEXT,
   type RoomFrame,
+  type RoutineFireAsk,
   type RunnerFrame,
   type RunReason,
   type RunStart,
   type RunStatus,
   runnerFrameSchema,
+  type TaskHistoryAsk,
 } from "../../../packages/domain/src/chat-agent.ts";
 import { withHandles } from "../../../packages/domain/src/mentions.ts";
 import { makeTicket, readTicket, TICKET_MS } from "./board-ticket.ts";
@@ -452,17 +454,19 @@ export class AgentLink {
         case "routine.remove":
           body = await routines.remove(actor, String(args.routineId ?? ""));
           break;
-        case "routine.memo":
-          if (!run) return refuse("Only a run a routine woke can keep a memo", 409);
-          body = await routines.setMemo(
-            run.id,
-            run.triggerId,
-            z
-              .string()
-              .max(4000)
-              .parse(args.memo ?? ""),
-          );
+        case "routine.hook":
+          body = await routines.hookOn(actor, String(args.routineId ?? ""), args.change === true);
           break;
+        case "routine.memo": {
+          const memo = z
+            .string()
+            .max(4000)
+            .parse(args.memo ?? "");
+          body = run
+            ? await routines.setMemo(run.id, run.triggerId, memo)
+            : await routines.setMemoFor(actor, String(args.routineId ?? ""), memo);
+          break;
+        }
         case "goal.create":
           body = await goals.create(actor, args, {
             ...home,
@@ -504,6 +508,22 @@ export class AgentLink {
    * has already checked may see the task. Fails if the machine is not connected or does not answer.
    */
   askMachine(task: AgentTask, viewer: string, ms = 15_000): Promise<unknown> {
+    const browserIds = [task.state?.browserId, task.state?.sessionId].filter(
+      (id): id is string => typeof id === "string",
+    );
+    return this.askRaw(
+      {
+        op: "task.history",
+        taskId: task.id,
+        viewer,
+        fileIds: task.artifactIds ?? [],
+        browserIds,
+      },
+      ms,
+    );
+  }
+
+  private askRaw(what: TaskHistoryAsk | RoutineFireAsk, ms: number): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const reqId = crypto.randomUUID();
       const timer = setTimeout(() => {
@@ -511,25 +531,47 @@ export class AgentLink {
         reject(new AppError("The agent's machine did not answer", 503));
       }, ms);
       this.asking.set(reqId, { resolve, reject, timer });
-      const browserIds = [task.state?.browserId, task.state?.sessionId].filter(
-        (id): id is string => typeof id === "string",
-      );
-      if (
-        !this.send({
-          t: "work.ask",
-          reqId,
-          op: "task.history",
-          taskId: task.id,
-          viewer,
-          fileIds: task.artifactIds ?? [],
-          browserIds,
-        })
-      ) {
+      if (!this.send({ t: "work.ask", reqId, ...what })) {
         this.asking.delete(reqId);
         clearTimeout(timer);
         reject(new AppError("The agent's machine is asleep", 503));
       }
     });
+  }
+
+  /**
+   * Wake the agent in a person's own chat for a routine of theirs, which only the machine can do (that chat is
+   * kept there). "later" when the machine is not here: it is woken, and the routine tries again soon.
+   */
+  async fireOwnRoutine(
+    owner: string,
+    routine: { id: string; title: string; note: string; memo: string },
+  ): Promise<"sent" | "later" | "failed"> {
+    if (!this.deps.runner()) {
+      this.wakeMachine();
+      return "later";
+    }
+    const person = await this.deps.access.person(owner);
+    if (!person) return "failed";
+    try {
+      await this.askRaw(
+        {
+          op: "routine.fire",
+          routine,
+          owner: {
+            id: owner,
+            email: person.email,
+            name: person.name,
+            role: person.role ?? "member",
+          },
+          ticket: this.boardTicket(owner).ticket,
+        },
+        20_000,
+      );
+      return "sent";
+    } catch {
+      return "failed";
+    }
   }
 
   // Files the agent puts in its reply

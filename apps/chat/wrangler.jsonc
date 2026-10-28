@@ -21,7 +21,9 @@
     // workspaces are given, which `wrangler secret put` or an edit here provides before the first deploy.
     "CONTROL_PUBLIC_KEY": "MCowBQYDK2VwAyEAqLyFMTSo3eOIi87n7Zw7yEzxauvxbtq1qex0i8nSKko",
     // Where the control plane is: the room asks it to start the agent's machine when the agent is mentioned.
-    "CONTROL_URL": "https://api.vi-ak.com"
+    "CONTROL_URL": "https://api.vi-ak.com",
+    // Where the chat service is reached from outside, for the addresses it hands out (a routine's web hook).
+    "CHAT_PUBLIC_URL": "https://chat.vi-ak.com"
     // Also set, as secrets: FILE_LINK_KEY, what the addresses for sending and fetching files are signed with
     // (`wrangler secret put FILE_LINK_KEY`), and CHAT_WAKE_KEY, which proves to the control plane that the
     // request to start a machine is the chat service's (the same value is the control plane's CHAT_WAKE_KEY).

@@ -1663,6 +1663,7 @@ function RoutineCard({ routine, onGone }: { routine: Routine; onGone?: () => voi
   const { api } = useWorkspace();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [address, setAddress] = useState("");
   async function act(work: () => Promise<unknown>, gone = false) {
     setBusy(true);
     setError("");
@@ -1703,6 +1704,17 @@ function RoutineCard({ routine, onGone }: { routine: Routine; onGone?: () => voi
           </Text>
         </>
       )}
+      {!!address && (
+        <>
+          <Text selectable style={s.text}>
+            {address}
+          </Text>
+          <Text style={s.small}>
+            Anything that sends a request to this address wakes Hive for this routine, with what it
+            sends. Keep it private.
+          </Text>
+        </>
+      )}
       <ErrorNotice error={error || (routine.failures > 0 ? (routine.lastResult ?? "") : "")} />
       <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
         {routine.status !== "done" && (
@@ -1724,6 +1736,21 @@ function RoutineCard({ routine, onGone }: { routine: Routine; onGone?: () => voi
           onPress={() => void act(() => mutate(`/routines/${routine.id}/run`, {}))}
         >
           Run now
+        </Button>
+        <Button
+          small
+          busy={busy}
+          onPress={() =>
+            void act(async () => {
+              const made = await api.request<{ path: string; url?: string }>(
+                `/chat/v1/routines/${routine.id}/hook`,
+                {},
+              );
+              setAddress(made.url ?? made.path);
+            })
+          }
+        >
+          Web address
         </Button>
         <Button
           small

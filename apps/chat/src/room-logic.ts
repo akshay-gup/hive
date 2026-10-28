@@ -50,6 +50,8 @@ export class RoomLogic {
       keepAlive?: (work: Promise<unknown>) => void;
       /** The key files' addresses are signed with. */
       linkKey?: () => string | undefined;
+      /** Where the chat service is reached from outside. */
+      publicUrl?: () => string | undefined;
       /** Delete these objects from the bucket. The bucket is only touched here, never inside a change to the room. */
       deleteObjects?: (keys: string[]) => Promise<void>;
       /** Ask to be woken in this many milliseconds to do the room's upkeep, unless sooner is already asked for. */
@@ -59,6 +61,7 @@ export class RoomLogic {
     this.core = new ChatCore(sql, {
       clock: hooks.clock,
       linkKey: hooks.linkKey,
+      publicUrl: hooks.publicUrl,
       workQueued: () => hooks.wakeIn?.(5_000),
       runner: () => hooks.runner?.() ?? null,
       stream: (channelId, message) => hooks.keepAlive?.(this.realtime.stream(channelId, message)),
@@ -187,6 +190,20 @@ export class RoomLogic {
       const { people } = peopleSchema.parse(await request.json());
       await this.core.syncPeople(people);
       return Response.json({ ok: true, count: people.length });
+    }
+    if (action === "hook") {
+      const { id, token, body } = (await request.json()) as {
+        id: string;
+        token: string;
+        body: string;
+      };
+      try {
+        return Response.json(await this.core.routines.fireHook(id, token, body ?? ""));
+      } catch (error) {
+        if (error instanceof AppError)
+          return Response.json({ error: error.message }, { status: error.status });
+        throw error;
+      }
     }
     if (action === "purge") {
       await this.hooks.purge();

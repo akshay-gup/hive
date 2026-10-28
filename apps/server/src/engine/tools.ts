@@ -502,11 +502,25 @@ export function conversationTools(
       execute: async ({ routineId }) => board.call("routine.remove", { routineId }),
     }),
     defineTool({
+      name: "routine_webhook",
+      description:
+        "Get a private web address for a routine. Anything that can send a request (a build service, an alert, a script) wakes you for that routine by calling it, with what it wants to tell you. The address is a secret: give it only to the person who asked. Use change: true to replace the address with a new one (the old one stops working).",
+      parameters: z.object({
+        routineId: z.string().min(1).max(200),
+        change: z.boolean().optional(),
+      }),
+      execute: async (args) => board.call("routine.hook", args),
+    }),
+    defineTool({
       name: "routine_memo",
       description:
-        "Keep a short note for yourself for the next time this routine wakes you (what you saw, what changed, what to look at next). It replaces the last one. Only for a run that a routine started.",
-      parameters: z.object({ memo: z.string().max(4000) }),
-      execute: async ({ memo }) => board.call("routine.memo", { memo }),
+        "Keep a short note for yourself for the next time this routine wakes you (what you saw, what changed, what to look at next). It replaces the last one. In a channel it is for the routine that started this run; in your own chat, pass the routine id you were given.",
+      parameters: z.object({
+        memo: z.string().max(4000),
+        routineId: z.string().max(200).optional(),
+      }),
+      execute: async ({ memo, routineId }) =>
+        board.call("routine.memo", { memo, ...(routineId ? { routineId } : {}) }),
     }),
     defineTool({
       name: "remember_fact",
@@ -542,6 +556,7 @@ export const chatTools: ReadonlySet<string> = new Set([
   "list_routines",
   "update_routine",
   "remove_routine",
+  "routine_webhook",
   "routine_memo",
 ]);
 /** In a private channel: what it makes is not kept apart for the people in it, so only reading and sharing into the reply. */
@@ -552,6 +567,7 @@ export const privateChatTools: ReadonlySet<string> = new Set([
   "list_routines",
   "update_routine",
   "remove_routine",
+  "routine_webhook",
   "routine_memo",
 ]);
 

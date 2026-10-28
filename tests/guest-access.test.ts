@@ -430,6 +430,7 @@ test("the agent is offered a guest only the tools the channel's conversation nee
     "list_routines",
     "update_routine",
     "remove_routine",
+    "routine_webhook",
     "routine_memo",
     "remember_fact",
   ])

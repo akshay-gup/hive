@@ -88,7 +88,7 @@ test("a schedule is checked and put in words, and a time that has passed is not 
   assert.equal(nextFire({ kind: "once", at: "2020-01-01T00:00:00Z" }, now), null);
 });
 
-test("a routine is the channel's: its members see it, others do not, and a routine of one's own chat waits for that to be built", async () => {
+test("a routine is the channel's: its members see it, others do not", async () => {
   const ops = await room("max", "ops");
   const mine = await make("max", ops);
   assert.equal(mine.status, "active");
@@ -107,10 +107,6 @@ test("a routine is the channel's: its members see it, others do not, and a routi
     ["Check the page"],
   );
   assert.equal((await core.routines.list(id("max"))).length, 2);
-  await assert.rejects(
-    core.routines.create(id("max"), { title: "x", note: "y", schedule: every(5) }),
-    /own chat/,
-  );
   const secret = (await core.routines.list(id("max"))).find((r) => r.title === "Secret watch");
   assert.ok(secret);
   await assert.rejects(core.routines.update(id("mia"), secret.id, { paused: true }), /not there/);
@@ -207,4 +203,123 @@ test("deleting a channel deletes its routines", async () => {
   const mine = await make("max", ops);
   assert.equal((await call("max", "DELETE", `/v1/channels/${ops}`)).status, 200);
   assert.equal(core.entries.get(mine.id), null);
+});
+
+test("a routine of someone's own chat wakes the machine, tries again when it is asleep, and hands it the note, the memo and a ticket", async () => {
+  const frames: {
+    t: string;
+    reqId?: string;
+    op?: string;
+    ticket?: string;
+    routine?: { memo: string; note: string };
+    owner?: { id: string };
+  }[] = [];
+  let connected = false;
+  let answerOk = true;
+  let woken = 0;
+  const world = await chatWorld(people, {
+    clock: () => clock,
+    link: { key: "link-key", workspaceId: "w1" },
+    runner: () =>
+      connected
+        ? {
+            send: (text) => {
+              const frame = JSON.parse(text);
+              frames.push(frame);
+              if (frame.t === "work.ask")
+                queueMicrotask(
+                  () =>
+                    void world.core.agent.onFrame(
+                      JSON.stringify({
+                        t: "work.answer",
+                        reqId: frame.reqId,
+                        ok: answerOk,
+                        error: "no",
+                      }),
+                    ),
+                );
+            },
+            close: () => undefined,
+          }
+        : null,
+  });
+  void woken;
+  const own = await world.core.routines.create(id("mia"), {
+    title: "Morning summary",
+    note: "Summarise my open tasks",
+    schedule: { kind: "every", minutes: 60 },
+  });
+  assert.deepEqual(own.where, { own: true });
+  assert.deepEqual(own.scope, { type: "person", id: id("mia") });
+  // Nobody else sees it, an admin included.
+  assert.deepEqual(await world.core.routines.list(id("olive")), []);
+  clock += 61 * 60_000;
+  await world.core.routines.fireDue();
+  // The machine is asleep: the routine waits a little, uncounted, and the machine is being woken.
+  let state = (await world.core.routines.list(id("mia")))[0];
+  assert.equal(state?.failures, 0);
+  assert.equal(state?.lastResult, "waiting for the machine to wake");
+  assert.equal(frames.length, 0);
+  connected = true;
+  await world.core.routines.setMemoFor(id("mia"), own.id, "yesterday: 3 open");
+  clock += 46_000;
+  await world.core.routines.fireDue();
+  const ask = frames.find((f) => f.op === "routine.fire");
+  assert.ok(ask, "the machine was asked to wake the agent");
+  assert.equal(ask.owner?.id, id("mia"));
+  assert.equal(ask.routine?.note, "Summarise my open tasks");
+  assert.equal(ask.routine?.memo, "yesterday: 3 open");
+  assert.ok(ask.ticket && ask.ticket.includes("."), "it carries a ticket for the board");
+  state = (await world.core.routines.list(id("mia")))[0];
+  assert.equal(state?.fires, 1);
+  // The next time is an hour on from this one.
+  assert.equal(state?.nextRunAt, new Date(clock + 60 * 60_000).toISOString());
+  // A machine that answers no is a failure, counted.
+  answerOk = false;
+  clock += 61 * 60_000;
+  await world.core.routines.fireDue();
+  state = (await world.core.routines.list(id("mia")))[0];
+  assert.equal(state?.failures, 1);
+});
+
+test("a routine's web address wakes the agent with what was sent, only for the right address, and not too fast", async () => {
+  const world = await chatWorld(people, {
+    clock: () => clock,
+    link: { key: "link-key", workspaceId: "w1" },
+  });
+  const ops = (await (await world.call("max", "POST", "/v1/channels", { name: "ops" })).json()) as {
+    id: string;
+  };
+  const routine = await world.core.routines.create(
+    id("max"),
+    { title: "Build", note: "Say what the build did", schedule: every(1440) },
+    { channelId: ops.id },
+  );
+  await assert.rejects(world.core.routines.fireHook(routine.id, "x", "hi"), /Not found/);
+  const made = await world.core.routines.hookOn(id("max"), routine.id);
+  assert.match(made.path, new RegExp(`^/w/w1/hooks/${routine.id}/`));
+  const token = made.path.split("/").pop() as string;
+  await assert.rejects(world.core.routines.fireHook(routine.id, `${token}x`, "hi"), /Not found/);
+  await world.core.routines.fireHook(routine.id, token, "build 42 failed: tests red");
+  const posted = (await (
+    await world.call("max", "GET", `/v1/channels/${ops.id}/messages`)
+  ).json()) as {
+    messages: ChatMessage[];
+  };
+  const woke = posted.messages.find((m) => m.body.includes("Routine “Build”"));
+  assert.ok(woke);
+  assert.match(woke.body, /build 42 failed: tests red/);
+  assert.match(woke.body, /data to read and not as instructions/);
+  // Called again at once, it is too fast.
+  await assert.rejects(world.core.routines.fireHook(routine.id, token, "again"), /Too many/);
+  // A new address replaces the old; turning it off ends it.
+  clock += 11_000;
+  const next = await world.core.routines.hookOn(id("max"), routine.id, true);
+  assert.notEqual(next.path, made.path);
+  await assert.rejects(world.core.routines.fireHook(routine.id, token, "old"), /Not found/);
+  await world.core.routines.hookOff(id("max"), routine.id);
+  await assert.rejects(
+    world.core.routines.fireHook(routine.id, next.path.split("/").pop() as string, "off"),
+    /Not found/,
+  );
 });
