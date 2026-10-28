@@ -250,11 +250,11 @@ export function WorkspaceTools() {
     ),
   });
   useRenderTool({
-    name: "watch_page",
-    description: "Display a saved page watch",
+    name: "create_routine",
+    description: "Display a saved routine",
     parameters: displayParameters,
     render: ({ result, status }) => (
-      <ServerToolCard name="Tracking" result={result} loading={status !== "complete"} />
+      <ServerToolCard name="Routine" result={result} loading={status !== "complete"} />
     ),
   });
   useRenderTool({
@@ -311,7 +311,7 @@ function ServerToolCard({
         small
         onPress={() =>
           navigate(
-            name === "Goal" || name === "Tracking"
+            name === "Goal" || name === "Routine"
               ? "goals"
               : name === "Memory"
                 ? "apps"

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/server/src/app.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
-import type { AgentNotification, AgentTask, Idea, Monitor } from "../packages/domain/src/agent.ts";
+import type { AgentNotification, AgentTask, Idea } from "../packages/domain/src/agent.ts";
 import type { ActionProposal } from "../packages/domain/src/index.ts";
 import {
   answerLocal,
@@ -140,63 +140,6 @@ test("a review for a task that was cancelled cannot be approved", async () => {
   );
   await server.agent.worker.tick();
   assert.equal((await server.agent.getTask(owner, task.id)).status, "cancelled");
-});
-
-test("failed page checks back off, expose the error, and pause after repeated failures", async () => {
-  const monitor = await server.agent.createMonitor(owner, {
-    title: "Public availability",
-    url: "https://example.com",
-  });
-  for (let i = 1; i <= 5; i++) {
-    await server.agent.worker.tick();
-    const task = await server.agent.getTask(owner, monitor.taskId);
-    assert.equal(task.status, i < 5 ? "scheduled" : "paused");
-    assert.ok(task.error);
-    assert.equal(task.state.failures, i);
-    if (i < 5)
-      await db.compareAndSwap(
-        owner,
-        "tasks",
-        task.id,
-        { status: "scheduled" },
-        { nextRunAt: "2020-01-01T00:00:00Z" },
-      );
-  }
-  assert.equal((await db.get<Monitor>(owner, "monitors", monitor.id))?.status, "paused");
-});
-
-test("each failure streak of a watch raises its own alerts after it is resumed", async () => {
-  const monitor = await server.agent.createMonitor(owner, {
-    title: "Resumed availability",
-    url: "https://example.com",
-  });
-  const failUntilPaused = async () => {
-    for (let i = 1; i <= 5; i++) {
-      await server.agent.worker.tick();
-      const task = await server.agent.getTask(owner, monitor.taskId);
-      if (i < 5)
-        await db.compareAndSwap(
-          owner,
-          "tasks",
-          task.id,
-          { status: "scheduled" },
-          { nextRunAt: "2020-01-01T00:00:00Z" },
-        );
-    }
-    assert.equal((await server.agent.getTask(owner, monitor.taskId)).status, "paused");
-  };
-  const alerts = async () =>
-    (await db.list<AgentNotification>(owner, "notifications")).filter(
-      (n) => n.taskId === monitor.taskId && n.title === "Watch needs attention",
-    );
-  await failUntilPaused();
-  assert.equal((await alerts()).length, 2, "one retry alert and one paused alert");
-  await server.agent.controlMonitor(owner, monitor.id, "resume");
-  await failUntilPaused();
-  assert.equal((await alerts()).length, 4, "the second streak alerts again");
-  // Replaying the same outcome must not duplicate the alert.
-  await server.agent.worker.tick();
-  assert.equal((await alerts()).length, 4);
 });
 
 test("dismissal racing acceptance never creates work for a dismissed idea", async () => {

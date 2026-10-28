@@ -44,11 +44,9 @@ export async function localTask(
           "Wait for your decision",
           "Record the outcome",
         ]
-      : input.kind === "monitor"
-        ? ["Check the source", "Compare with the last observation", "Report a meaningful change"]
-        : input.kind === "finance"
-          ? ["Validate transactions", "Calculate the summary", "Save your tracker"]
-          : [];
+      : input.kind === "finance"
+        ? ["Validate transactions", "Calculate the summary", "Save your tracker"]
+        : [];
   const now = new Date().toISOString();
   await service.ensure(owner);
   const task: AgentTask = {
@@ -72,10 +70,7 @@ export async function localTask(
     plan: titles.map((title, i) => ({ id: String(i), title, status: "pending" as const })),
     evidence: [],
     input: input.input,
-    state: {
-      connectionId: (await service.workspace.connection(owner))?.id ?? null,
-      ...(held && input.kind === "monitor" ? { initializingMonitor: true } : {}),
-    },
+    state: { connectionId: (await service.workspace.connection(owner))?.id ?? null },
     createdAt: now,
     updatedAt: now,
     attempts: 0,
@@ -128,10 +123,6 @@ export async function controlLocal(
     leaseId: null,
     leaseUntil: null,
     error: undefined,
-    // A watch started again counts its failures afresh.
-    ...(task.kind === "monitor" && (action === "resume" || action === "retry")
-      ? { state: { ...task.state, failures: 0, notice: null, initializingMonitor: false } }
-      : {}),
   } as AgentTask);
 }
 
@@ -242,6 +233,9 @@ export function localBoard(service: AgentService): Board {
           )) as never;
         case "review.decided":
           return {} as never;
+        case "goal.create":
+          // Goals are the room's; the same key is the same goal.
+          return { id: `goal-${key ?? crypto.randomUUID()}` } as never;
         default:
           throw new Error(`The test board does not do ${op}`);
       }

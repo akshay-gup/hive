@@ -152,8 +152,16 @@ export const WORK_OPS = [
   "tasks.visible",
   /** A review the agent prepared for a task has been decided: the task is to carry on. */
   "review.decided",
-  /** A goal was paused: its tasks the person may work on are paused. */
-  "goal.pause",
+  /** Routines: a note the agent writes to itself and a time; made, listed, changed, removed, and the memo the run that one woke keeps. */
+  "routine.create",
+  "routine.list",
+  "routine.update",
+  "routine.remove",
+  "routine.memo",
+  /** Goals: made, changed (pausing one pauses its tasks the person may work on), and listed as the person may see them. */
+  "goal.create",
+  "goal.update",
+  "goal.list",
 ] as const;
 export type WorkOp = (typeof WORK_OPS)[number];
 
@@ -297,6 +305,8 @@ export interface RunStart {
   /** The files on the message that asked, each to be fetched from the path (on the chat service) for a few minutes. */
   files: { id: string; name: string; mime: string; bytes: number; path: string }[];
   mode: "ask";
+  /** Set when a routine woke the agent: which one, and what the agent kept for itself last time. */
+  routine?: { id: string; title: string; memo: string };
   /**
    * Set when the run was sent before and its machine restarted: what the reply held then. The agent carries
    * on from there, in the session it already has, and the reply goes on from this.

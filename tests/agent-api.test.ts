@@ -13,7 +13,6 @@ import type {
   AgentWorkspace,
   Goal,
   Idea,
-  Monitor,
 } from "../packages/domain/src/agent.ts";
 import { controlLocal, localBoard } from "./helpers/local-task.ts";
 
@@ -80,55 +79,14 @@ test("agent API requires a session and reports the actual worker state", async (
 
 test("agent request validation rejects malformed input with useful JSON errors", async () => {
   for (const [path, body] of [
-    ["/goals", { title: " " }],
-    ["/goals/missing", { status: "unknown" }],
-    ["/goals/missing", { milestones: [{ id: "one", title: "Step", done: "yes" }] }],
-    [
-      "/monitors",
-      { title: "Price", url: "https://example.com", condition: "price_below", value: "bad" },
-    ],
-    ["/monitors/missing/control", { action: "delete" }],
     ["/ideas/missing", { action: "accept", prompt: " " }],
     ["/memories", { text: " " }],
     ["/identity", { name: "Hive", tone: "angry" }],
-    ["/sample-page", { text: "a".repeat(100001) }],
   ] satisfies [string, unknown][]) {
     const response = await request(path, body);
     assert.equal(response.status, 422, path);
     assert.equal(typeof (await response.json()).error, "string", path);
   }
-});
-
-test("goal updates validate milestones and pausing a goal asks the board to pause its tasks", async () => {
-  const goal = await read<Goal>("/goals", { title: "Travel", milestones: ["Choose dates"] }, 201);
-  const asked: unknown[] = [];
-  const board = server.agent.board;
-  server.agent.board = {
-    ...board,
-    forPerson: (who) => ({
-      call: async (op, args, key) => {
-        if (op === "goal.pause") {
-          asked.push(args);
-          return { paused: 0 } as never;
-        }
-        return board.forPerson(who).call(op, args, key);
-      },
-    }),
-  };
-  try {
-    const saved = await read<Goal>(`/goals/${goal.id}`, {
-      status: "paused",
-      milestones: goal.milestones.map((milestone) => ({ ...milestone, done: true })),
-    });
-    assert.equal(saved.status, "paused");
-    assert.equal(saved.milestones[0].done, true);
-    assert.deepEqual(asked, [{ goalId: goal.id }]);
-  } finally {
-    server.agent.board = board;
-  }
-  // Goals are shared, so a teammate's goal can be updated.
-  const theirs = await server.agent.createGoal("other-user", { title: "A teammate's goal" });
-  assert.equal((await request(`/goals/${theirs.id}`, { status: "completed" })).status, 200);
 });
 
 test("memories can be edited and forgotten while identity changes persist", async () => {
@@ -177,7 +135,7 @@ test("memories can be edited and forgotten while identity changes persist", asyn
   assert.ok(!(await read<AgentWorkspace>("")).memories.some((item) => item.id === memory.id));
 });
 
-test("idea dismissal survives refresh and concurrent acceptance creates one goal and task", async () => {
+test("idea dismissal survives refresh and concurrent acceptance creates one task", async () => {
   const ideas = await read<Idea[]>("/ideas/refresh", {});
   assert.ok(ideas.length >= 2);
   assert.ok(ideas.every((idea) => idea.evidence.length > 0));
@@ -191,7 +149,6 @@ test("idea dismissal survives refresh and concurrent acceptance creates one goal
     (await read<Idea[]>("/ideas/refresh", {})).find((idea) => idea.id === dismissed.id)?.status,
     "dismissed",
   );
-  const before = await read<AgentWorkspace>("");
   const tasksBefore = (await db.list<AgentTask>("local-user", "tasks")).length;
   const results = await Promise.all([
     read<Idea>(`/ideas/${accepted.id}`, { action: "accept" }),
@@ -199,108 +156,9 @@ test("idea dismissal survives refresh and concurrent acceptance creates one goal
   ]);
   assert.equal(results[0].status, "accepted");
   assert.equal(results[0].taskId, results[1].taskId);
-  const after = await read<AgentWorkspace>("");
-  assert.equal(after.goals.length, before.goals.length + 1);
   assert.equal((await db.list<AgentTask>("local-user", "tasks")).length, tasksBefore + 1);
   assert.ok(results[0].taskId);
   await controlLocal(server.agent, "local-user", results[0].taskId, "cancel");
-});
-
-test("sample monitor saves its baseline and deduplicates notifications for repeated changes", async () => {
-  await read("/sample-page", { text: "No tables available" });
-  const monitor = await read<Monitor>(
-    "/monitors",
-    {
-      title: "Dinner availability",
-      url: "sample://availability",
-      condition: "change",
-      intervalMinutes: 1,
-    },
-    201,
-  );
-  const notifications = async () =>
-    (await read<AgentNotification[]>("/notifications")).filter(
-      (item) => item.taskId === monitor.taskId,
-    );
-  await server.agent.worker.tick();
-  assert.equal((await server.agent.getTask("local-user", monitor.taskId)).status, "scheduled");
-  assert.equal((await notifications()).length, 0);
-  for (const text of [
-    "One table at 7 pm",
-    "One table at 7 pm",
-    "Two tables at 7 pm",
-    "One table at 7 pm",
-  ]) {
-    await read("/sample-page", { text });
-    await read(`/monitors/${monitor.id}/control`, { action: "check" });
-    await server.agent.worker.tick();
-  }
-  const found = await notifications();
-  assert.equal(found.length, 2);
-  assert.ok(found.every((item) => !item.read));
-  const readNotification = await read<AgentNotification>(`/notifications/${found[0].id}/read`, {});
-  assert.equal(readNotification.read, true);
-  assert.equal((await notifications()).find((item) => item.id === found[0].id)?.read, true);
-  const snapshot = await read<AgentWorkspace>("");
-  assert.equal(snapshot.monitors.find((item) => item.id === monitor.id)?.checks, 5);
-  assert.equal(
-    (await read<Monitor>(`/monitors/${monitor.id}/control`, { action: "pause" })).status,
-    "paused",
-  );
-  assert.equal(
-    (await read<Monitor>(`/monitors/${monitor.id}/control`, { action: "stop" })).status,
-    "stopped",
-  );
-  // Notifications are the workspace's: one raised for a teammate can be read by anyone.
-  await server.agent.notify("other-user", "For the team", "Team details", undefined, "team-notice");
-  const teamNotification = (await db.list<AgentNotification>("other-user", "notifications")).find(
-    (item) => item.title === "For the team",
-  );
-  assert.ok(teamNotification);
-  assert.equal((await request(`/notifications/${teamNotification.id}/read`, {})).status, 200);
-  assert.equal(
-    (await db.get<AgentNotification>("other-user", "notifications", teamNotification.id))?.read,
-    true,
-  );
-  // Dismissing removes a notification, and dismissing all empties the list.
-  assert.equal((await request(`/notifications/${teamNotification.id}/dismiss`, {})).status, 200);
-  assert.equal(
-    await db.get<AgentNotification>("other-user", "notifications", teamNotification.id),
-    null,
-  );
-  assert.equal((await request(`/notifications/${teamNotification.id}/dismiss`, {})).status, 404);
-  await server.agent.notify("other-user", "Another", "More", undefined, "another-notice");
-  assert.ok(
-    ((await read<{ removed: number }>("/notifications/dismiss-all", {})).removed ?? 0) >= 1,
-  );
-  assert.equal((await notifications()).length, 0);
-});
-
-test("live mode rejects sample sources and hides the fixture mutation endpoint", async () => {
-  const live = await createApp(db, {
-    ...config,
-    mode: "live",
-  });
-  try {
-    const response = await live.app.request("/api/agent/sample-page", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ text: "Changed" }),
-    });
-    assert.equal(response.status, 404);
-    const monitor = await live.app.request("/api/agent/monitors", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ title: "Forbidden fixture", url: "sample://availability" }),
-    });
-    assert.equal(monitor.status, 422);
-    assert.deepEqual(await db.get("local-user", "sample-pages", "availability"), {
-      id: "availability",
-      text: "One table at 7 pm",
-    });
-  } finally {
-    await live.agent.stop();
-  }
 });
 
 test("saved sessions validate and logout revokes only the current token", async () => {

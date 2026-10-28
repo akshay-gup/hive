@@ -117,6 +117,12 @@ export class Runs {
     return row ? toRun(row) : null;
   }
 
+  /** The run a message asked for, if it asked for one. */
+  byTrigger(triggerId: string): Run | null {
+    const row = first<Row>(this.sql, "SELECT * FROM runs WHERE trigger_id = ?", triggerId);
+    return row ? toRun(row) : null;
+  }
+
   byReply(replyId: string): Run | null {
     const row = first<Row>(this.sql, "SELECT * FROM runs WHERE reply_id = ?", replyId);
     return row ? toRun(row) : null;

@@ -10,6 +10,14 @@ export function buildRunContext(start: RunStart, toolNotes: string, saved: strin
     `${start.asker.name || start.asker.email} (${start.asker.role}) asked you. Your reply is posted in the channel as a message everyone in it can read, so write it for all of them, and keep it short unless asked for more. Do not share anything you would not want everyone in the channel to read.`,
     toolNotes,
   ];
+  if (start.routine)
+    lines.push(
+      `This is your routine "${start.routine.title}": you wrote the note below to yourself, and the room woke you for it. ${
+        start.routine.memo
+          ? `What you kept for yourself last time (it is your own text): ${start.routine.memo}`
+          : "You kept nothing for yourself last time."
+      } If there is something to remember for the next time, save it with the routine_memo tool, since you will not otherwise remember this run.`,
+    );
   if (start.people.length)
     lines.push(
       `People in this channel: ${start.people.map((p) => `${p.name} (@${p.handle})`).join(", ")}. Writing @handle in a reply mentions that person and notifies them, if you want to bring someone in.`,

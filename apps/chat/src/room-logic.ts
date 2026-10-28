@@ -121,14 +121,20 @@ export class RoomLogic {
     this.core.events.prune();
     this.core.flags.prune();
     files.reconcile();
+    // Routines whose time has come wake the agent.
+    await this.core.routines.fireDue();
     // Runs that waited, ran or asked too long are ended, and the room looks at them again soon while any are going.
     const running = await this.core.agent.maintain();
+    // A scheduled task or a routine is looked at when it is due.
+    const times = [this.core.tasks.nextScheduledMs(), this.core.routines.nextDueMs()].filter(
+      (at): at is number => at !== null,
+    );
+    const due = times.length ? Math.min(...times) : null;
+    const untilDue =
+      due !== null ? Math.min(24 * 3600_000, Math.max(1_000, due - Date.now())) : null;
     // Soon again while an upload is waiting out its time, otherwise once a day.
-    if (running) return { nextInMs: 30_000 };
-    // A scheduled task is looked at when it is due.
-    const due = this.core.tasks.nextScheduledMs();
-    if (due !== null)
-      return { nextInMs: Math.min(24 * 3600_000, Math.max(1_000, due - Date.now())) };
+    if (running) return { nextInMs: Math.min(30_000, untilDue ?? 30_000) };
+    if (untilDue !== null) return { nextInMs: untilDue };
     return { nextInMs: files.hasWork() ? 60_000 : 24 * 3600_000 };
   }
 

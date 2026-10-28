@@ -6,8 +6,8 @@ import { AppError } from "../../../../packages/chat-core/src/errors.ts";
 import {
   type AgentTask,
   createTaskSchema,
+  type Goal,
   goalInputSchema,
-  monitorInputSchema,
   ORCHESTRATOR_CHANNEL_ID,
   type Project,
 } from "../../../../packages/domain/src/agent.ts";
@@ -199,7 +199,6 @@ export function conversationTools(
         "Hand a whole job to the durable server worker. It continues when the app closes and pauses for user input or approval. Use document for a selected email form, finance for imported CSV, plan for a goal plan, agent for other jobs.",
       parameters: createTaskSchema,
       execute: async (args) => {
-        if (args.goalId) await service.assertGoal(owner, args.goalId);
         return board.call(
           "task.create",
           { ...args, ...(channelId ? { channelId, threadId: input.threadId } : {}) },
@@ -231,7 +230,6 @@ export function conversationTools(
         projectId: z.string().optional(),
       }),
       execute: async (args) => {
-        if (args.goalId) await service.assertGoal(owner, args.goalId);
         return board.call(
           "task.create",
           {
@@ -280,7 +278,6 @@ export function conversationTools(
         projectId: z.string().optional(),
       }),
       execute: async ({ taskId, ...patch }) => {
-        if (patch.goalId) await service.assertGoal(owner, patch.goalId);
         return board.call("task.update", { taskId, ...patch });
       },
     }),
@@ -420,12 +417,13 @@ export function conversationTools(
         // The board is the chat service's and comes back as the person asking may see it.
         const [snapshot, shown] = await Promise.all([
           service.snapshot(owner),
-          board.call<{ tasks: AgentTask[]; projects: Project[] }>("board", {}),
+          board.call<{ tasks: AgentTask[]; projects: Project[]; goals: Goal[] }>("board", {}),
         ]);
         // Download links are for a person's browser, not for the agent.
         return {
           ...snapshot,
           projects: shown.projects,
+          goals: shown.goals,
           tasks: shown.tasks.map((task) =>
             task.attachments
               ? { ...task, attachments: task.attachments.map(({ url: _link, ...file }) => file) }
@@ -436,23 +434,79 @@ export function conversationTools(
     }),
     defineTool({
       name: "create_goal",
-      description: "Save an outcome and milestones requested by the user",
-      parameters: goalInputSchema,
-      execute: async (args) =>
-        service.createGoal(
-          owner,
-          args,
-          createHash("sha256").update(key("goal", args)).digest("hex"),
-          await privateChannel(),
+      description:
+        "Save an outcome and milestones requested by the user. Whose it is follows from where it is made (the team's from a public channel, the channel's from a private one, the person's from their own chat) unless `scope` says: person, project (with projectId), channel or team.",
+      parameters: goalInputSchema.omit({ scope: true }).extend({
+        scope: z.enum(["person", "project", "channel", "team"]).optional(),
+        projectId: z.string().max(100).optional(),
+      }),
+      execute: async ({ scope, projectId, ...args }) =>
+        board.call(
+          "goal.create",
+          {
+            ...args,
+            ...(scope
+              ? {
+                  scope: scope === "project" ? { type: "project", id: projectId } : { type: scope },
+                }
+              : {}),
+          },
+          key("goal", { scope, projectId, ...args }),
         ),
     }),
     defineTool({
-      name: "watch_page",
+      name: "create_routine",
       description:
-        "Schedule a public-page condition check requested by the user. The worker records observations and notifies on meaningful changes. Price checks detect explicit USD or dollar prices; no booking is performed.",
-      parameters: monitorInputSchema,
-      execute: async (args) =>
-        service.createMonitor(owner, args, key("watch", args), await privateChannel(), board),
+        "Set a routine: a note to yourself and a time, so the system wakes you later, in this same place, as the person who asked, with the note. Use it to remind, to check something on a schedule (a page, a disk, a build), or to do any task later or again and again. Write the note so it makes sense with nothing else around it. Schedule: {kind:'once', at:<ISO time>}, {kind:'every', minutes:N} (at least 1), or {kind:'cron', expr:'<five fields>', tz:'<time zone, such as Europe/London>'}. When a routine wakes you, you can keep something for next time with routine_memo.",
+      parameters: z.object({
+        title: z.string().min(1).max(160),
+        note: z.string().min(1).max(4000),
+        schedule: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("once"), at: z.string() }),
+          z.object({ kind: z.literal("every"), minutes: z.number().min(1) }),
+          z.object({ kind: z.literal("cron"), expr: z.string(), tz: z.string().optional() }),
+        ]),
+      }),
+      execute: async (args) => board.call("routine.create", args, key("routine", args)),
+    }),
+    defineTool({
+      name: "list_routines",
+      description:
+        "List the routines the person may see: what each is for, its schedule, when it runs next and how its last run went.",
+      parameters: z.object({}),
+      execute: async () => board.call("routine.list", {}),
+    }),
+    defineTool({
+      name: "update_routine",
+      description:
+        "Change a routine's title, note or schedule, or pause it (paused: true) or start it again (paused: false).",
+      parameters: z.object({
+        routineId: z.string().min(1).max(200),
+        title: z.string().min(1).max(160).optional(),
+        note: z.string().min(1).max(4000).optional(),
+        schedule: z
+          .discriminatedUnion("kind", [
+            z.object({ kind: z.literal("once"), at: z.string() }),
+            z.object({ kind: z.literal("every"), minutes: z.number().min(1) }),
+            z.object({ kind: z.literal("cron"), expr: z.string(), tz: z.string().optional() }),
+          ])
+          .optional(),
+        paused: z.boolean().optional(),
+      }),
+      execute: async (args) => board.call("routine.update", args),
+    }),
+    defineTool({
+      name: "remove_routine",
+      description: "Remove a routine, so it does not wake you again.",
+      parameters: z.object({ routineId: z.string().min(1).max(200) }),
+      execute: async ({ routineId }) => board.call("routine.remove", { routineId }),
+    }),
+    defineTool({
+      name: "routine_memo",
+      description:
+        "Keep a short note for yourself for the next time this routine wakes you (what you saw, what changed, what to look at next). It replaces the last one. Only for a run that a routine started.",
+      parameters: z.object({ memo: z.string().max(4000) }),
+      execute: async ({ memo }) => board.call("routine.memo", { memo }),
     }),
     defineTool({
       name: "remember_fact",
@@ -480,9 +534,26 @@ export function conversationTools(
 }
 
 /** What the agent has in a shared channel: read a page, put an item on the channel's board, share a file. */
-export const chatTools: ReadonlySet<string> = new Set(["browse_web", "create_issue", "send_file"]);
+export const chatTools: ReadonlySet<string> = new Set([
+  "browse_web",
+  "create_issue",
+  "send_file",
+  "create_routine",
+  "list_routines",
+  "update_routine",
+  "remove_routine",
+  "routine_memo",
+]);
 /** In a private channel: what it makes is not kept apart for the people in it, so only reading and sharing into the reply. */
-export const privateChatTools: ReadonlySet<string> = new Set(["browse_web", "send_file"]);
+export const privateChatTools: ReadonlySet<string> = new Set([
+  "browse_web",
+  "send_file",
+  "create_routine",
+  "list_routines",
+  "update_routine",
+  "remove_routine",
+  "routine_memo",
+]);
 
 /**
  * What the agent may be asked to do for a guest: show choices, put an item on their channel's board,

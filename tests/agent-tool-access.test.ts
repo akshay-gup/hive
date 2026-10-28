@@ -143,19 +143,14 @@ before(async () => {
     owner("max"),
     manual(limited, "Plan the autumn release"),
   );
-  hush = await created(
-    await call("max", "POST", "/api/agent/channels", {
-      name: "hush",
-      visibility: "private",
-      members: [],
-    }),
-  );
+  hush = (await (
+    await room.call("max", "POST", "/v1/channels", { name: "hush", visibility: "private" })
+  ).json()) as Channel;
   hushGoalId = (
-    await server.agent.createGoal(
+    await core.goals.create(
       owner("max"),
       { title: "Quietly replace the vendor", description: "Tell no one" },
-      undefined,
-      hush.id,
+      { channelId: hush.id },
     )
   ).id;
   miaTask = await core.work.createTask(owner("mia"), {
@@ -204,18 +199,14 @@ async function use(
   }
 }
 const stored = (id: string) => core.tasks.get(id);
+let routineId = "";
 
 /** The tools that reach the board or a channel's records, each run as someone who must not get through. */
 const reaching: Record<string, () => Promise<void>> = {
   async agent_status() {
-    // A goal with no steps yet is turned into a suggestion to plan it, which must stay in its channel.
-    const ideas = await server.agent.refreshIdeas(owner("max"));
-    const idea = ideas.find((candidate) => candidate.input.goalId === hushGoalId);
-    assert.ok(idea, "the goal in the private channel is suggested to the one who made it");
-    await assert.rejects(
-      server.agent.decideIdea(owner("mia"), idea.id, "accept"),
-      /not (found|there)/i,
-    );
+    // The goal in the private channel is its people's: the one who made it sees it, and no one else.
+    const max = (await use("max", "agent_status", {})).said;
+    assert.ok(max.includes("Quietly replace the vendor"), "the goal's maker is shown it");
     const mia = (await use("mia", "agent_status", {})).said;
     for (const secretText of [
       secret.id,
@@ -301,6 +292,31 @@ const reaching: Record<string, () => Promise<void>> = {
     });
     assert.ok(guestGoal.failed, guestGoal.said);
   },
+  async list_routines() {
+    const mine = await core.routines.create(
+      owner("max"),
+      {
+        title: "Check the vendor",
+        note: "Look at the vendor's page",
+        schedule: { kind: "every", minutes: 60 },
+      },
+      { channelId: hush.id },
+    );
+    const mia = await use("mia", "list_routines", {});
+    assert.ok(!mia.said.includes(mine.id) && !mia.said.includes("Check the vendor"), mia.said);
+    const max = await use("max", "list_routines", {});
+    assert.ok(max.said.includes("Check the vendor"));
+    routineId = mine.id;
+  },
+  async update_routine() {
+    const refused = await use("mia", "update_routine", { routineId, paused: true });
+    assert.ok(refused.failed && /not (found|there)/i.test(refused.said), refused.said);
+  },
+  async remove_routine() {
+    const refused = await use("mia", "remove_routine", { routineId });
+    assert.ok(refused.failed && /not (found|there)/i.test(refused.said), refused.said);
+    assert.ok(core.entries.get(routineId), "the routine is still there");
+  },
   async update_project() {
     for (const project of [secret, limited]) {
       const refused = await use("mia", "update_project", { projectId: project.id, name: "Mine" });
@@ -329,7 +345,8 @@ const apart: Record<string, string> = {
   request_upload: "asks the people in the channel the run is in",
   create_project: "makes a project the asker runs",
   create_goal: "writes a goal for the asker and reads nothing",
-  watch_page: "writes a watch for the asker and reads nothing",
+  create_routine: "makes a routine for the asker, in the place the run is in, and reads nothing",
+  routine_memo: "keeps a note on the one routine that woke this run, and on no other",
   remember_fact: "writes a memory for the asker and reads nothing",
 };
 

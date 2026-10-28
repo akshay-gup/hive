@@ -114,9 +114,9 @@ test("what only the machine keeps of a task is asked for through the room, for a
   assert.equal(refused.status, 404);
 });
 
-test("when a person marks a task done, the goal it counts toward is told on the machine", async (t) => {
+test("when a person marks a task done, the goal it counts toward counts it, once, and only if they could see the goal", async (t) => {
   const f = await wired(t, ({ say }) => say("ok"));
-  const goal = await f.server.agent.createGoal(people.max.id, {
+  const goal = await f.core.goals.create(people.max.id, {
     title: "Launch",
     description: "Ship it",
     category: "work",
@@ -129,19 +129,15 @@ test("when a person marks a task done, the goal it counts toward is told on the 
     input: {},
   });
   await f.core.work.updateTask(people.max.id, made.id, { status: "succeeded" });
-  await f.until("the goal to count it", async () => {
-    const current = await f.db.get<{ milestones: { id: string; done: boolean }[] }>(
-      people.max.id,
-      "goals",
-      goal.id,
-    );
-    return Boolean(current?.milestones.some((m) => m.id === made.id && m.done));
-  });
-  // Said once it is done: the room does not keep telling.
-  await f.until(
-    "the room to stop telling",
-    async () => (await f.core.store.list("system", "outcomes")).length === 0,
+  await f.until("the goal to count it", async () =>
+    Boolean(
+      (await f.core.goals.list(people.max.id))
+        .find((g) => g.id === goal.id)
+        ?.milestones.some((m) => m.id === made.id && m.done),
+    ),
   );
+  const counted = (await f.core.goals.list(people.max.id)).find((g) => g.id === goal.id);
+  assert.equal(counted?.milestones.filter((m) => m.id === made.id).length, 1);
 });
 
 test("a file attached to a task is kept by the room, reaches the agent while it works, and is gone from the machine after", async (t) => {

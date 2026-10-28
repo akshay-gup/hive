@@ -112,7 +112,8 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
   const path = pathOf(c);
   const refuse = () => new AppError(NOT_FOR_GUESTS, 403);
   const channel = (id: string) => {
-    if (!scope.allows(decoded(id))) throw new AppError("That channel is not there, or you cannot see it.", 404);
+    if (!scope.allows(decoded(id)))
+      throw new AppError("That channel is not there, or you cannot see it.", 404);
   };
   const body = () => bodyOf(c);
   const thread = async (threadId: unknown) => {

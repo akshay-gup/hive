@@ -4,6 +4,7 @@ import CalendarDays from "lucide-react-native/dist/esm/icons/calendar-days";
 import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
 import CircleCheck from "lucide-react-native/dist/esm/icons/circle-check";
+import Clock from "lucide-react-native/dist/esm/icons/clock";
 import Globe2 from "lucide-react-native/dist/esm/icons/earth";
 import FileText from "lucide-react-native/dist/esm/icons/file-text";
 import Lightbulb from "lucide-react-native/dist/esm/icons/lightbulb";
@@ -35,9 +36,10 @@ import type {
   Evidence,
   Goal,
   Idea,
-  Monitor,
+  Routine,
   RunEvent,
 } from "../../../packages/domain/src/agent";
+import { GENERAL_PROJECT_ID } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
 import { useActivityProjects } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
@@ -1310,11 +1312,11 @@ export function GoalsScreen() {
   const { data } = useAgentWorkspace();
   const [adding, setAdding] = useState<string>();
   const [selectedGoal, setSelectedGoal] = useState<string>();
-  const [selectedMonitor, setSelectedMonitor] = useState<string>();
+  const [selectedRoutine, setSelectedRoutine] = useState<string>();
   const [showAll, setShowAll] = useState(false);
   const goal = data?.goals.find((item) => item.id === selectedGoal);
-  const monitor = data?.monitors.find((item) => item.id === selectedMonitor);
-  const monitors = data?.monitors || [];
+  const routine = data?.routines?.find((item) => item.id === selectedRoutine);
+  const routines = data?.routines || [];
   return (
     <View style={{ gap: 24 }}>
       <AgentStatus />
@@ -1322,20 +1324,17 @@ export function GoalsScreen() {
         <View style={[s.between, { marginBottom: 4 }]}>
           <View style={[s.row, { gap: 10 }]}>
             <HaloDot color={colors.success} halo={colors.successBg} />
-            <Text style={s.heading}>Tracking</Text>
+            <Text style={s.heading}>Routines</Text>
           </View>
-          <Button small icon={Plus} onPress={() => setAdding("Tracking")}>
-            Track
-          </Button>
         </View>
-        {(showAll ? monitors : monitors.slice(0, 3)).map((item) => {
-          const failing = !!item.error && item.status === "active";
+        {(showAll ? routines : routines.slice(0, 3)).map((item) => {
+          const failing = item.failures > 0 && item.status === "active";
           return (
             <Pressable
               key={item.id}
               accessibilityRole="button"
-              accessibilityLabel={`Open tracking: ${item.title}`}
-              onPress={() => setSelectedMonitor(item.id)}
+              accessibilityLabel={`Open routine: ${item.title}`}
+              onPress={() => setSelectedRoutine(item.id)}
               style={({ hovered }: WebPressState) => [
                 s.row,
                 {
@@ -1359,7 +1358,7 @@ export function GoalsScreen() {
                   },
                 ]}
               >
-                <Globe2 size={19} color={failing ? colors.danger : colors.text} />
+                <Clock size={19} color={failing ? colors.danger : colors.text} />
               </View>
               <View style={{ flex: 1, gap: 3 }}>
                 <Text style={s.text} numberOfLines={1}>
@@ -1367,13 +1366,15 @@ export function GoalsScreen() {
                 </Text>
                 <Text numberOfLines={1} style={s.muted}>
                   {item.status === "active"
-                    ? `Checking every ${every(item.intervalMinutes)}`
-                    : statusLabel(item.status)}
-                  {item.lastValue ? ` · Last: ${item.lastValue}` : ""}
+                    ? item.scheduleText
+                    : item.status === "paused"
+                      ? "Paused"
+                      : "Done"}
+                  {item.lastResult ? ` · Last: ${item.lastResult}` : ""}
                 </Text>
                 {failing && (
                   <Text numberOfLines={1} style={[s.small, { color: colors.danger }]}>
-                    Needs attention: {item.error}
+                    Needs attention: {item.lastResult}
                   </Text>
                 )}
               </View>
@@ -1381,14 +1382,15 @@ export function GoalsScreen() {
             </Pressable>
           );
         })}
-        {!monitors.length && (
+        {!routines.length && (
           <Text style={[s.muted, { paddingVertical: 12 }]}>
-            Ticket prices, a reservation, a page you’re watching.
+            Ask Hive to check something regularly, or to remind you later. It sets a routine for
+            itself.
           </Text>
         )}
-        {monitors.length > 3 && (
+        {routines.length > 3 && (
           <Button small onPress={() => setShowAll(!showAll)}>
-            {showAll ? "Show less" : `Show ${monitors.length - 3} more`}
+            {showAll ? "Show less" : `Show ${routines.length - 3} more`}
           </Button>
         )}
       </View>
@@ -1480,15 +1482,8 @@ export function GoalsScreen() {
         )}
       </View>
       {adding && (
-        <Sheet
-          title={adding === "Tracking" ? "Track something" : "Create a goal"}
-          onClose={() => setAdding(undefined)}
-        >
-          {adding === "Tracking" ? (
-            <MonitorForm onDone={() => setAdding(undefined)} />
-          ) : (
-            <GoalForm onDone={() => setAdding(undefined)} />
-          )}
+        <Sheet title="Create a goal" onClose={() => setAdding(undefined)}>
+          <GoalForm onDone={() => setAdding(undefined)} />
         </Sheet>
       )}
       {goal && (
@@ -1496,16 +1491,26 @@ export function GoalsScreen() {
           <GoalCard goal={goal} onOpenTask={() => setSelectedGoal(undefined)} />
         </Sheet>
       )}
-      {monitor && (
-        <Sheet title={monitor.title} onClose={() => setSelectedMonitor(undefined)}>
-          <MonitorCard monitor={monitor} onOpenTask={() => setSelectedMonitor(undefined)} />
+      {routine && (
+        <Sheet title={routine.title} onClose={() => setSelectedRoutine(undefined)}>
+          <RoutineCard routine={routine} onGone={() => setSelectedRoutine(undefined)} />
         </Sheet>
       )}
     </View>
   );
 }
 function GoalForm({ onDone }: { onDone: () => void }) {
-  const { mutate } = useAgentWorkspace();
+  const { mutate, data } = useAgentWorkspace();
+  // Whose the goal is: the team's, only the person's own, or a project's (and so whoever may see that project).
+  const [whose, setWhose] = useState("team");
+  const places = [
+    { id: "team", label: "The team" },
+    { id: "person", label: "Just me" },
+    ...(data?.projects ?? [])
+      .filter((project) => project.id !== GENERAL_PROJECT_ID && project.you?.canWork)
+      .slice(0, 6)
+      .map((project) => ({ id: `project:${project.id}`, label: project.name })),
+  ];
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [milestones, setMilestones] = useState("");
@@ -1522,6 +1527,9 @@ function GoalForm({ onDone }: { onDone: () => void }) {
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean),
+        scope: whose.startsWith("project:")
+          ? { type: "project", id: whose.slice("project:".length) }
+          : { type: whose },
       });
       onDone();
     } catch (e) {
@@ -1550,6 +1558,7 @@ function GoalForm({ onDone }: { onDone: () => void }) {
         onChangeText={setMilestones}
         multiline
       />
+      <Segmented label="Whose goal is it?" value={whose} onChange={setWhose} options={places} />
       <ErrorNotice error={error} />
       <Button primary disabled={!title.trim()} busy={busy} onPress={() => void save()}>
         Create goal
@@ -1649,131 +1658,18 @@ function GoalCard({ goal, onOpenTask }: { goal: Goal; onOpenTask?: () => void })
     </Card>
   );
 }
-function MonitorForm({ onDone }: { onDone: () => void }) {
-  const { workspace } = useWorkspace();
-  const { mutate } = useAgentWorkspace();
-  const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
-  const [condition, setCondition] = useState<Monitor["condition"]>("change");
-  const [value, setValue] = useState("");
-  const [interval, setInterval] = useState("15");
-  const [sample, setSample] = useState(false);
+function RoutineCard({ routine, onGone }: { routine: Routine; onGone?: () => void }) {
+  const { mutate, refresh } = useAgentWorkspace();
+  const { api } = useWorkspace();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  async function save() {
+  async function act(work: () => Promise<unknown>, gone = false) {
     setBusy(true);
     setError("");
     try {
-      const minutes = Number(interval);
-      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080)
-        throw new Error("Use a check interval from 1 to 10080 minutes.");
-      if (!sample && !/^https?:\/\//i.test(url.trim()))
-        throw new Error("Enter an http or https address for a public page.");
-      await mutate("/monitors", {
-        title: title.trim(),
-        url: sample ? "sample://availability" : url.trim(),
-        condition,
-        value,
-        intervalMinutes: minutes,
-      });
-      onDone();
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Card>
-      <Field
-        label="What are you watching?"
-        value={title}
-        onChangeText={setTitle}
-        placeholder="A table at my favorite restaurant"
-      />
-      {workspace.mode === "sample" && (
-        <CheckRow
-          checked={sample}
-          label="Try the built-in availability page"
-          onPress={() => setSample(!sample)}
-        />
-      )}
-      {!sample && (
-        <Field
-          label="Public page URL"
-          value={url}
-          onChangeText={setUrl}
-          autoCapitalize="none"
-          placeholder="https://example.com/product"
-        />
-      )}
-      <Text style={[s.small, { marginBottom: 10 }]}>Notify me when</Text>
-      <View style={[s.row, { gap: 7, flexWrap: "wrap", marginBottom: 16 }]}>
-        {(["change", "contains", "price_below"] as const).map((item) => (
-          <Button small primary={condition === item} key={item} onPress={() => setCondition(item)}>
-            {item === "change"
-              ? "Page changes"
-              : item === "contains"
-                ? "Text appears"
-                : "Price drops below"}
-          </Button>
-        ))}
-      </View>
-      {condition !== "change" && (
-        <Field
-          label={condition === "contains" ? "Text to look for" : "Target price"}
-          value={value}
-          onChangeText={setValue}
-        />
-      )}
-      <Field
-        label="Check every (minutes)"
-        value={interval}
-        onChangeText={setInterval}
-        keyboardType="number-pad"
-      />
-      <Text style={[s.small, { marginBottom: 14 }]}>
-        {sample
-          ? "Changes to this built-in page stay in your workspace."
-          : "Hive checks this public page on the server and saves meaningful changes in Notifications."}
-      </Text>
-      <ErrorNotice error={error} />
-      <Button
-        primary
-        busy={busy}
-        disabled={
-          !title.trim() || (!sample && !url.trim()) || (condition !== "change" && !value.trim())
-        }
-        onPress={() => void save()}
-      >
-        Start tracking
-      </Button>
-    </Card>
-  );
-}
-function MonitorCard({ monitor, onOpenTask }: { monitor: Monitor; onOpenTask?: () => void }) {
-  const { mutate } = useAgentWorkspace();
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function act(action: string) {
-    setBusy(true);
-    setError("");
-    try {
-      await mutate(`/monitors/${monitor.id}/control`, { action });
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function changeSample() {
-    setBusy(true);
-    setError("");
-    try {
-      await mutate("/sample-page", {
-        text: `Availability: a table is available. Updated ${new Date().toISOString()}`,
-      });
-      await mutate(`/monitors/${monitor.id}/control`, { action: "check" });
+      await work();
+      await refresh();
+      if (gone) onGone?.();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -1783,55 +1679,66 @@ function MonitorCard({ monitor, onOpenTask }: { monitor: Monitor; onOpenTask?: (
   return (
     <Card style={{ gap: 12 }}>
       <View style={s.between}>
-        <Text style={[s.heading, { flex: 1 }]}>{monitor.title}</Text>
-        <Chip tint={colors.primarySoft}>{statusLabel(monitor.status)}</Chip>
+        <Text style={[s.heading, { flex: 1 }]}>{routine.title}</Text>
+        <Chip tint={colors.primarySoft}>
+          {routine.status === "active" ? "On" : routine.status === "paused" ? "Paused" : "Done"}
+        </Chip>
       </View>
-      <Text selectable style={s.small}>
-        {monitor.url.startsWith("sample:") ? "Built-in availability page" : monitor.url}
-      </Text>
-      <Text style={s.text}>
-        {monitor.condition === "change"
-          ? "Watch for a page change"
-          : monitor.condition === "contains"
-            ? `Watch for “${monitor.value}”`
-            : `Price below ${monitor.value}`}
-      </Text>
       <Text style={s.small}>
-        Every {monitor.intervalMinutes} min · {monitor.checks} checks
+        {routine.scheduleText}
+        {routine.nextRunAt && routine.status === "active"
+          ? `\nNext: ${stamp(routine.nextRunAt)}`
+          : ""}
+        {routine.lastRunAt ? `\nLast woke Hive: ${stamp(routine.lastRunAt)}` : ""}
       </Text>
-      <Text style={s.small}>
-        Last check: {stamp(monitor.lastCheckedAt)}
-        {monitor.status === "active" ? `\nNext check: ${stamp(monitor.nextCheckAt)}` : ""}
+      <Text style={s.small}>What Hive is to do</Text>
+      <Text selectable style={s.text}>
+        {routine.note}
       </Text>
-      {!!monitor.lastValue && (
-        <Text selectable numberOfLines={5} style={s.muted}>
-          {monitor.lastValue}
-        </Text>
+      {!!routine.memo && (
+        <>
+          <Text style={s.small}>What Hive kept for itself last time</Text>
+          <Text selectable numberOfLines={8} style={s.muted}>
+            {routine.memo}
+          </Text>
+        </>
       )}
-      <ErrorNotice error={error || monitor.error} />
-      {monitor.status !== "stopped" && (
-        <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+      <ErrorNotice error={error || (routine.failures > 0 ? (routine.lastResult ?? "") : "")} />
+      <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+        {routine.status !== "done" && (
           <Button
             small
             busy={busy}
-            onPress={() => void act(monitor.status === "active" ? "pause" : "resume")}
+            onPress={() =>
+              void act(() =>
+                mutate(`/routines/${routine.id}`, { paused: routine.status === "active" }),
+              )
+            }
           >
-            {monitor.status === "active" ? "Pause" : "Resume"}
+            {routine.status === "active" ? "Pause" : "Resume"}
           </Button>
-          <Button small busy={busy} onPress={() => void act("check")}>
-            Check now
-          </Button>
-          <Button small danger busy={busy} onPress={() => void act("stop")}>
-            Stop tracking
-          </Button>
-        </View>
-      )}
-      {monitor.url.startsWith("sample:") && monitor.status !== "stopped" && (
-        <Button small busy={busy} onPress={() => void changeSample()}>
-          Change availability
+        )}
+        <Button
+          small
+          busy={busy}
+          onPress={() => void act(() => mutate(`/routines/${routine.id}/run`, {}))}
+        >
+          Run now
         </Button>
-      )}
-      <TaskLink taskId={monitor.taskId} onOpen={onOpenTask} />
+        <Button
+          small
+          danger
+          busy={busy}
+          onPress={() =>
+            void act(
+              () => api.request(`/chat/v1/routines/${routine.id}`, undefined, "DELETE"),
+              true,
+            )
+          }
+        >
+          Remove
+        </Button>
+      </View>
     </Card>
   );
 }

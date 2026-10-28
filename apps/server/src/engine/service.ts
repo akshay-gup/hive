@@ -22,11 +22,7 @@ import {
   type ChannelThread,
   createChannelSchema,
   type Evidence,
-  type Goal,
-  goalInputSchema,
   type Idea,
-  type Monitor,
-  monitorInputSchema,
   type NotificationPrefs,
   notificationPrefsSchema,
   ORCHESTRATOR_CHANNEL_ID,
@@ -130,7 +126,6 @@ export class AgentService {
     this.channelFiles = new ChannelFiles(config, files, (owner, id) => this.getChannel(owner, id));
     this.uploadRequests = new UploadRequests(db);
     this.worker = new TaskWorker(db, (owner, task, context) => this.execute(owner, task, context), {
-      settled: (owner, task) => this.publishOutcome(owner, task),
       finished: (owner, task) => this.taskFinished?.(owner, task) ?? Promise.resolve(),
       // In orchestrator mode the main process only runs orchestrator-channel tasks;
       // per-channel workers (spawned separately) claim their own channels.
@@ -144,9 +139,6 @@ export class AgentService {
    */
   async recoverCopies() {
     for (const { owner, value } of await this.db.scan<AgentTask>("tasks")) {
-      await this.publishOutcome(value.createdBy ?? owner, value).catch((error) =>
-        backgroundFailure("publish a lost run's outcome", error),
-      );
       await this.taskFiles
         .removeAll(value.id, this.workspaceOf(value, owner))
         .catch((error) => backgroundFailure("remove a lost run's files", error));
@@ -649,8 +641,6 @@ export class AgentService {
       ...notices.map((n) => n.taskId),
     ]);
     return {
-      goals: [],
-      monitors: [],
       ideas: [],
       memories: [],
       artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
@@ -713,16 +703,13 @@ export class AgentService {
     const scope = await this.access.scope(owner);
     if (scope.person?.role === "guest") return this.guestSnapshot(owner, scope);
     await this.ensure(owner);
-    const [goals, monitors, ideas, memories, artifacts, notifications, identity] =
-      await Promise.all([
-        this.db.list<Goal>(owner, "goals"),
-        this.db.list<Monitor>(owner, "monitors"),
-        this.db.list<Idea>(owner, "ideas"),
-        this.db.list<AgentMemory>(owner, "memories"),
-        this.db.list<AgentArtifact>(owner, "agent-artifacts"),
-        this.db.list<AgentNotification>(owner, "notifications"),
-        this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
-      ]);
+    const [ideas, memories, artifacts, notifications, identity] = await Promise.all([
+      this.db.list<Idea>(owner, "ideas"),
+      this.db.list<AgentMemory>(owner, "memories"),
+      this.db.list<AgentArtifact>(owner, "agent-artifacts"),
+      this.db.list<AgentNotification>(owner, "notifications"),
+      this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
+    ]);
     const heartbeat =
       (await this.db.get<{ lastTickAt: string }>("system", "worker-status", "tasks")) ??
       (await this.db.get<{ lastTickAt: string }>(
@@ -732,14 +719,11 @@ export class AgentService {
       ));
     // What belongs to a task of a private channel or project is shown to those who may see the task.
     const visible = await this.visibleTaskIds(owner, [
-      ...monitors.map((m) => m.taskId),
       ...artifacts.map((a) => a.taskId),
       ...notifications.map((n) => n.taskId),
     ]);
     const prefs = await this.notificationPrefs(owner);
     return {
-      goals: goals.filter((goal) => !goal.channelId || scope.allows(goal.channelId)),
-      monitors: monitors.filter((monitor) => !monitor.taskId || visible.has(monitor.taskId)),
       ideas: ideas.filter((idea) => !idea.channelId || scope.allows(idea.channelId)),
       memories: memories.filter((memory) => !memory.channelId || scope.allows(memory.channelId)),
       artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
@@ -834,54 +818,6 @@ export class AgentService {
     if (noteIds.length)
       await this.db.patchItems(owner, "tasks", taskId, "notes", noteIds, { delivered: true });
   }
-  /**
-   * Throws, as if it were not there, unless the person may see the goal: a guest is shown none, and one
-   * made in a private channel is for the people in it. (The board is the chat service's and cannot tell;
-   * goals are kept here, so a goal a task is pointed at is checked here.)
-   */
-  async assertGoal(owner: string, id: string): Promise<void> {
-    const goal = await this.db.get<Goal>(owner, "goals", id);
-    const scope = await this.access.scope(owner);
-    if (
-      !goal ||
-      scope.person?.role === "guest" ||
-      (goal.channelId && !scope.allows(goal.channelId))
-    )
-      throw new AppError("Goal not found", 404);
-  }
-  async createGoal(owner: string, raw: unknown, id?: string, channelId?: string) {
-    const input = goalInputSchema.parse(raw);
-    const goal: Goal = {
-      id: id ?? randomUUID(),
-      title: input.title,
-      description: input.description,
-      category: input.category,
-      status: "active",
-      milestones: input.milestones.map((title) => ({ id: randomUUID(), title, done: false })),
-      createdAt: date(),
-      createdBy: owner,
-      ...(channelId ? { channelId } : {}),
-    };
-    await this.db.insertIfAbsent(owner, "goals", goal);
-    return (await this.db.get<Goal>(owner, "goals", goal.id)) ?? goal;
-  }
-  async updateGoal(
-    owner: string,
-    id: string,
-    patch: { status?: Goal["status"]; milestones?: Goal["milestones"] },
-    board: WorkClient = this.board.forPerson(owner),
-  ) {
-    const goal = await this.db.get<Goal>(owner, "goals", id);
-    if (!goal) throw new AppError("Goal not found", 404);
-    const saved = await this.db.put(owner, "goals", { ...goal, ...patch });
-    // The goal's tasks are the board's: it pauses those the person may.
-    if (patch.status === "paused")
-      await board.call("goal.pause", { goalId: id }).catch((error) => {
-        backgroundFailure("pause a goal's tasks", error);
-      });
-    return saved;
-  }
-  /** The channels this machine keeps something for because the chat service asked the agent in them. */
   async standInIds(): Promise<string[]> {
     return (await this.db.list<Channel>(SHARED_OWNER, "channels"))
       .filter((channel) => channel.createdBy === "chat")
@@ -906,106 +842,11 @@ export class AgentService {
             .forDirectory(directory)
             .session.delete({ sessionID: binding.opencodeSessionId, directory })
             .catch(() => undefined);
-    for (const kind of ["memories", "goals", "ideas", "notifications"] as const)
+    for (const kind of ["memories", "ideas", "notifications"] as const)
       for (const item of await this.db.list<{ id: string; channelId?: string }>(SHARED_OWNER, kind))
         if (item.channelId === channelId) await this.db.remove(SHARED_OWNER, kind, item.id);
     await rm(directory, { recursive: true, force: true });
     await this.db.remove(SHARED_OWNER, "channels", channelId);
-  }
-  async createMonitor(
-    owner: string,
-    raw: unknown,
-    idempotencyKey?: string,
-    /** The private channel it is asked for in, which keeps it from the people who are not in it. */
-    channelId?: string,
-    /** How the board is changed: as the run it is asked in, or as the person (in the app's own chat). */
-    board: WorkClient = this.board.forPerson(owner),
-  ) {
-    const input = monitorInputSchema.parse(raw);
-    const url = new URL(input.url);
-    if (url.protocol === "sample:" && this.config.mode !== "sample")
-      throw new AppError("Sample sources are unavailable in live workspaces", 422);
-    if (!["https:", "http:", "sample:"].includes(url.protocol) || url.username || url.password)
-      throw new AppError("Use a public HTTP(S) page", 422);
-    if (url.protocol === "sample:" && input.url !== "sample://availability")
-      throw new AppError("Unknown sample source", 422);
-    const id = idempotencyKey ? hash(`monitor:${idempotencyKey}`) : randomUUID();
-    const existing = await this.db.get<Monitor>(owner, "monitors", id);
-    if (existing) {
-      await this.activateMonitor(board, existing);
-      return existing;
-    }
-    // The watch's task is made waiting, so nothing runs it before the watch is recorded.
-    const task = await board.call<AgentTask>(
-      "task.create",
-      {
-        kind: "monitor",
-        title: input.title,
-        prompt: `Watch ${input.url} for ${input.condition}${input.value ? `: ${input.value}` : ""}`,
-        input: { monitorId: id },
-        held: true,
-        ...(channelId ? { channelId } : {}),
-      },
-      `monitor:${id}`,
-    );
-    const monitor: Monitor = {
-      id,
-      taskId: task.id,
-      ...input,
-      status: "active",
-      nextCheckAt: date(),
-      checks: 0,
-    };
-    await this.db.insertIfAbsent(owner, "monitors", monitor);
-    await this.activateMonitor(board, monitor);
-    return monitor;
-  }
-  /** A new watch's task starts once the watch is recorded. */
-  private async activateMonitor(board: WorkClient, monitor: Monitor) {
-    if (monitor.status !== "active") return null;
-    const task = await board.call<AgentTask>("task.get", { taskId: monitor.taskId });
-    if (task.status !== "paused" || !task.state.initializingMonitor) return null;
-    return board.call("task.update", { taskId: task.id, status: "queued" });
-  }
-  async controlMonitor(
-    owner: string,
-    id: string,
-    action: "pause" | "resume" | "stop" | "check",
-    board: WorkClient = this.board.forPerson(owner),
-  ) {
-    const monitor = await this.db.get<Monitor>(owner, "monitors", id);
-    if (!monitor) throw new AppError("Monitor not found", 404);
-    if (monitor.status === "stopped" && action !== "stop")
-      throw new AppError("Create a new watch to restart this stopped monitor", 409);
-    if (action === "pause" || action === "stop") {
-      const saved = await this.db.put(owner, "monitors", {
-        ...monitor,
-        status: action === "pause" ? "paused" : "stopped",
-        nextCheckAt: date(),
-      });
-      await board.call("task.control", {
-        taskId: monitor.taskId,
-        action: action === "pause" ? "pause" : "cancel",
-      });
-      return saved;
-    }
-    const task = await board.call<AgentTask>("task.get", { taskId: monitor.taskId });
-    if (task.status === "cancelled")
-      throw new AppError("Create a new watch to restart this stopped monitor", 409);
-    // Only the watch we read is made active, so a concurrent stop is never undone.
-    const saved = await this.db.compareAndSwap<Monitor>(
-      owner,
-      "monitors",
-      id,
-      { status: monitor.status },
-      { status: "active", nextCheckAt: date(), error: null },
-    );
-    if (!saved) throw new AppError("The watch changed while updating. Try again.", 409);
-    if (task.status === "paused")
-      await board.call("task.control", { taskId: task.id, action: "resume" });
-    else if (!["queued", "running"].includes(task.status))
-      await board.call("task.update", { taskId: task.id, status: "queued" });
-    return saved;
   }
   async refreshIdeas(owner: string) {
     const w = await this.workspace.snapshot(owner);
@@ -1076,22 +917,6 @@ export class AgentService {
         createdAt: date(),
       } satisfies Idea);
     }
-    for (const goal of await this.db.list<Goal>(owner, "goals"))
-      if (goal.status === "active" && !goal.milestones.length) {
-        const id = hash(`goal:${goal.id}:${goal.description}`);
-        await this.db.insertIfAbsent(owner, "ideas", {
-          id,
-          title: `Let's make a plan for ${goal.title}`,
-          reason: "This goal has no milestones yet. A concrete plan will give it a next step.",
-          evidence: [{ id: goal.id, kind: "user", title: goal.title, excerpt: goal.description }],
-          prompt: `Create an actionable plan for ${goal.title}. ${goal.description}`,
-          kind: "plan",
-          input: { goalId: goal.id },
-          status: "new",
-          createdAt: date(),
-          ...(goal.channelId ? { channelId: goal.channelId } : {}),
-        } satisfies Idea);
-      }
     await this.ensure(owner);
     await this.db.compareAndSwap(owner, "agent-settings", "identity", {}, { lastIdeasAt: date() });
     return this.db.list<Idea>(owner, "ideas");
@@ -1131,10 +956,11 @@ export class AgentService {
       idea = claimed ?? (await this.db.get<Idea>(owner, "ideas", id));
       if (idea?.status !== "accepted") return idea;
     }
-    const goal = await this.createGoal(
-      owner,
+    // The goal is the chat service's; asked again, it is the same goal: the board knows the key.
+    const goal = await board.call<{ id: string }>(
+      "goal.create",
       { title: idea.title, description: idea.reason },
-      hash(`idea-goal:${id}`),
+      `idea-goal:${id}`,
     );
     // Asked again, it is the same task: the board knows the key.
     const task = await board.call<AgentTask>(
@@ -1258,49 +1084,6 @@ export class AgentService {
       else return { status: "waiting_approval" };
     }
     if (task.kind === "document") return this.document(owner, task, context);
-    if (task.kind === "monitor") {
-      try {
-        return await this.observe(owner, task, context);
-      } catch (error) {
-        if (error instanceof LostLeaseError || context.signal.aborted) throw error;
-        await context.guard();
-        const failures = Number(task.state.failures ?? 0) + 1;
-        // Each streak of failures (after a success or a resume) gets its own alerts.
-        const failureStreak = Number(task.state.failureStreak ?? 0) + (failures === 1 ? 1 : 0);
-        const detail = error instanceof Error ? error.message : "Page check failed";
-        const nextCheckAt = new Date(
-          Date.now() + Math.min(60, 2 ** failures) * 60000,
-        ).toISOString();
-        await this.db.compareAndSwap(
-          owner,
-          "monitors",
-          String(task.input.monitorId),
-          { status: "active" },
-          { error: detail, nextCheckAt },
-        );
-        await context.event(
-          "error",
-          failures >= 5 ? "Watch paused after repeated failures" : "Check failed; retry scheduled",
-          detail,
-        );
-        return {
-          status: failures >= 5 ? "paused" : "scheduled",
-          error: detail,
-          nextRunAt: nextCheckAt,
-          state: {
-            ...task.state,
-            failures,
-            resumingMonitor: false,
-            failureStreak,
-            notice: {
-              title: "Watch needs attention",
-              body: detail,
-              key: `watch-error:${task.id}:${failureStreak}:${failures >= 5 ? "paused" : "retry"}`,
-            },
-          },
-        };
-      }
-    }
     if (task.kind === "finance") {
       await context.event("step", "Analyzing the imported transactions");
       const csv = z.string().parse(task.input.csv);
@@ -1376,55 +1159,6 @@ export class AgentService {
           .decide(owner, action.id, action.hash, "deny")
           .catch((error) => backgroundFailure("decline a stopped task's review", error));
     }
-    await this.publishOutcome(owner, task);
-  }
-  /**
-   * What the machine does about a task that came to an end or a stop: the person is told of it by the chat
-   * service, which makes the notice itself (and keeps it while this machine sleeps), so what is left here is
-   * what only the machine can do: count a finished task as a goal's milestone.
-   */
-  private async publishOutcome(owner: string, task: AgentTask) {
-    if (task.status === "succeeded") {
-      // Only a goal the person who started the task may see counts it (the board cannot tell; goals are here).
-      if (
-        task.goalId &&
-        (await this.assertGoal(owner, task.goalId).then(
-          () => true,
-          () => false,
-        ))
-      ) {
-        for (let attempt = 0; attempt < 8; attempt++) {
-          const goal = await this.db.get<Goal>(owner, "goals", task.goalId);
-          if (!goal || goal.milestones.some((m) => m.id === task.id)) break;
-          if (
-            await this.db.compareAndSwap(
-              owner,
-              "goals",
-              goal.id,
-              { milestones: goal.milestones },
-              {
-                milestones: [...goal.milestones, { id: task.id, title: task.title, done: true }],
-              },
-            )
-          )
-            break;
-        }
-      }
-    }
-    const notice = z
-      .object({ title: z.string(), body: z.string(), key: z.string() })
-      .safeParse(task.state.notice);
-    if ((task.status === "scheduled" || (task.status === "paused" && task.error)) && notice.success)
-      await this.notify(owner, notice.data.title, notice.data.body, task.id, notice.data.key);
-    // A watch pauses after repeated failures only once that task outcome has committed.
-    if (task.kind === "monitor" && task.status === "paused" && task.error)
-      await this.db.compareAndSwap(
-        owner,
-        "monitors",
-        String(task.input.monitorId),
-        { status: "active", error: task.error },
-        { status: "paused" },
-      );
   }
   private async document(
     owner: string,
@@ -1517,108 +1251,5 @@ export class AgentService {
         status: i < 3 ? "succeeded" : i === 3 ? "waiting" : "pending",
       })),
     };
-  }
-  private async observe(
-    owner: string,
-    task: AgentTask,
-    ctx: TaskContext,
-  ): Promise<Partial<AgentTask>> {
-    const monitor = await this.db.get<Monitor>(owner, "monitors", String(task.input.monitorId));
-    if (!monitor) throw new Error("Monitor not found");
-    if (monitor.status !== "active")
-      return { status: monitor.status === "paused" ? "paused" : "cancelled" };
-    let observation: { url: string; title: string; text: string; sessionId?: string };
-    if (monitor.url === "sample://availability") {
-      if (this.config.mode !== "sample") throw new Error("Sample source unavailable");
-      const page = await this.db.get<{ text: string }>(owner, "sample-pages", "availability");
-      observation = {
-        url: monitor.url,
-        title: "Sample dinner availability",
-        text: page?.text ?? "No tables available. Check again later.",
-      };
-    } else {
-      await ctx.guard();
-      observation = await this.browser.observe(
-        owner,
-        monitor.url,
-        typeof task.state.sessionId === "string" ? task.state.sessionId : undefined,
-      );
-    }
-    const text = observation.text.replace(/\s+/g, " ").trim();
-    const currentHash = hash(text);
-    const previousHash =
-      typeof task.state.lastHash === "string" ? task.state.lastHash : monitor.lastHash;
-    const matched =
-      monitor.condition === "change"
-        ? Boolean(previousHash && previousHash !== currentHash)
-        : monitor.condition === "contains"
-          ? text.toLowerCase().includes(monitor.value.toLowerCase())
-          : this.matchesPrice(text, Number(monitor.value));
-    const previouslyMatched = Boolean(task.state.matched);
-    const shouldNotify = matched && (monitor.condition === "change" || !previouslyMatched);
-    const nextCheckAt = new Date(Date.now() + monitor.intervalMinutes * 60000).toISOString();
-    await ctx.guard();
-    // Worker lease is checked before each publication; monitor control also invalidates that lease.
-    const savedMonitor = await this.db.compareAndSwap(
-      owner,
-      "monitors",
-      monitor.id,
-      { status: "active" },
-      {
-        checks: monitor.checks + 1,
-        lastCheckedAt: date(),
-        lastHash: currentHash,
-        lastValue: text.slice(0, 1000),
-        nextCheckAt,
-        error: null,
-      },
-    );
-    if (!savedMonitor) throw new LostLeaseError();
-    await ctx.event(
-      "observation",
-      previousHash ? "Checked for changes" : "Saved the first observation",
-      text.slice(0, 1000),
-    );
-    if (shouldNotify) {
-      await ctx.guard();
-      await ctx.event("result", "A meaningful change was found", text.slice(0, 500));
-    }
-    return {
-      status: "scheduled",
-      nextRunAt: nextCheckAt,
-      result: shouldNotify
-        ? "Change found. A notification is ready."
-        : "Watching. I'll check again on schedule.",
-      state: {
-        ...task.state,
-        sessionId: observation.sessionId,
-        lastHash: currentHash,
-        resumingMonitor: false,
-        matched,
-        failures: 0,
-        notice: shouldNotify
-          ? {
-              title: monitor.title,
-              body: `Condition met at ${observation.url}: ${text.slice(0, 240)}`,
-              key: `monitor:${monitor.id}:${currentHash}`,
-            }
-          : null,
-      },
-      error: null,
-      evidence: [
-        {
-          id: monitor.id,
-          kind: "web",
-          title: observation.title,
-          url: observation.url,
-          excerpt: text.slice(0, 600),
-        },
-      ],
-      plan: task.plan.map((s) => ({ ...s, status: "succeeded" })),
-    };
-  }
-  private matchesPrice(text: string, threshold: number) {
-    const matches = [...text.matchAll(/(?:\$|USD\s*)(\d+(?:,\d{3})*(?:\.\d{1,2})?)/g)];
-    return matches.some((m) => Number(m[1].replace(/,/g, "")) < threshold);
   }
 }

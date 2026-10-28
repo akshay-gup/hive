@@ -15,19 +15,6 @@ import type { AgentService } from "./service.ts";
 
 const text = z.string().trim().min(1).max(4000);
 const memorySchema = z.object({ text, source: z.string().trim().min(1).max(200).optional() });
-const goalPatchSchema = z.object({
-  status: z.enum(["active", "paused", "completed"]).optional(),
-  milestones: z
-    .array(
-      z.object({
-        id: z.string().min(1).max(200),
-        title: z.string().trim().min(1).max(200),
-        done: z.boolean(),
-      }),
-    )
-    .max(100)
-    .optional(),
-});
 
 export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: string } }> {
   const app = new Hono<{ Variables: { owner: string } }>();
@@ -250,22 +237,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     if (!binding) throw new AppError("Thread is not bound to a channel", 404);
     return c.json(binding);
   });
-  app.post("/goals", async (c) =>
-    c.json(await service.createGoal(c.get("owner"), await c.req.json()), 201),
-  );
-  app.post("/goals/:id", async (c) => {
-    const body = goalPatchSchema.parse(await c.req.json());
-    return c.json(await service.updateGoal(c.get("owner"), c.req.param("id"), body));
-  });
-  app.post("/monitors", async (c) =>
-    c.json(await service.createMonitor(c.get("owner"), await c.req.json()), 201),
-  );
-  app.post("/monitors/:id/control", async (c) => {
-    const { action } = z
-      .object({ action: z.enum(["pause", "resume", "stop", "check"]) })
-      .parse(await c.req.json());
-    return c.json(await service.controlMonitor(c.get("owner"), c.req.param("id"), action));
-  });
   app.post("/ideas/refresh", async (c) => c.json(await service.refreshIdeas(c.get("owner"))));
   app.post("/ideas/:id", async (c) => {
     const body = z
@@ -393,12 +364,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     if (!(await service.snapshot(owner)).notifications.some((n) => n.id === id))
       throw new AppError("Notification not found", 404);
     await service.db.remove(owner, "notifications", id);
-    return c.json({ ok: true });
-  });
-  app.post("/sample-page", async (c) => {
-    if (service.config.mode !== "sample") throw new AppError("Not found", 404);
-    const body = z.object({ text: z.string().max(100000) }).parse(await c.req.json());
-    await service.db.put(c.get("owner"), "sample-pages", { id: "availability", text: body.text });
     return c.json({ ok: true });
   });
   return app;

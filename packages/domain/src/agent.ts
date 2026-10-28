@@ -102,7 +102,7 @@ export interface AgentTask {
   id: string;
   title: string;
   prompt: string;
-  kind: "agent" | "document" | "monitor" | "finance" | "plan" | "manual";
+  kind: "agent" | "document" | "finance" | "plan" | "manual";
   status: TaskStatus;
   goalId?: string;
   /**
@@ -200,8 +200,8 @@ export interface Goal {
   milestones: { id: string; title: string; done: boolean }[];
   createdAt: string;
   createdBy?: string;
-  /** The channel it came out of, kept as a label. It does not keep the task from anyone: who may see it is its project's say, and the agent that made it can read the machine it is kept on. */
-  channelId?: string;
+  /** Whose it is: a person's, a project's, a channel's, or the whole team's. Who may see it follows from this. */
+  scope?: { type: "person" | "project" | "channel" | "team"; id?: string };
 }
 /**
  * Who may see and change a project's tasks. Open: everyone in the workspace sees and works on it.
@@ -262,21 +262,31 @@ export const deleteProjectSchema = z
     message: "Move the tasks or delete them, not both",
   });
 export type DeleteProjectInput = z.infer<typeof deleteProjectSchema>;
-export interface Monitor {
+/** A routine as the app shows it: a note the agent wrote to itself, and when it wakes the agent to read it. */
+export interface Routine {
   id: string;
-  taskId: string;
   title: string;
-  url: string;
-  condition: "change" | "contains" | "price_below";
-  value: string;
-  intervalMinutes: number;
-  status: "active" | "paused" | "stopped";
-  nextCheckAt: string;
-  lastCheckedAt?: string;
-  lastValue?: string;
-  lastHash?: string;
-  error?: string;
-  checks: number;
+  note: string;
+  schedule:
+    | { kind: "once"; at: string }
+    | { kind: "every"; minutes: number }
+    | { kind: "cron"; expr: string; tz?: string };
+  /** The schedule in words. */
+  scheduleText: string;
+  /** Where it wakes the agent: a channel (and the thread in it), or the person's own chat. */
+  where: { channelId?: string; rootId?: string; own?: boolean };
+  /** What the agent kept for itself to read next time. */
+  memo: string;
+  status: "active" | "paused" | "done";
+  nextRunAt?: string;
+  lastRunAt?: string;
+  /** How the last wake-up went: running, done, failed or stopped, or why it could not start. */
+  lastResult?: string;
+  failures: number;
+  fires: number;
+  scope: { type: "person" | "project" | "channel" | "team"; id?: string };
+  createdBy: string;
+  createdAt: string;
 }
 export interface Idea {
   id: string;
@@ -326,8 +336,8 @@ export interface AgentNotification {
   createdAt: string;
   read: boolean;
 }
-/** What the workspace's machine tells of the agent: everything but the board, which the chat service keeps. */
-export type AgentMachineView = Omit<AgentWorkspace, "tasks" | "projects">;
+/** What the workspace's machine tells of the agent: everything but the board and the goals, which the chat service keeps. */
+export type AgentMachineView = Omit<AgentWorkspace, "tasks" | "projects" | "goals" | "routines">;
 export interface AgentIdentity {
   name: string;
   tone: "warm" | "concise" | "thoughtful";
@@ -337,8 +347,8 @@ export interface AgentIdentity {
 export interface AgentWorkspace {
   tasks: AgentTask[];
   goals: Goal[];
+  routines: Routine[];
   projects: Project[];
-  monitors: Monitor[];
   ideas: Idea[];
   memories: AgentMemory[];
   artifacts: AgentArtifact[];
@@ -355,7 +365,7 @@ const isoDate = z
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(160).optional(),
   prompt: z.string().trim().min(1).max(12000).optional(),
-  kind: z.enum(["agent", "document", "monitor", "finance", "plan", "manual"]).default("agent"),
+  kind: z.enum(["agent", "document", "finance", "plan", "manual"]).default("agent"),
   goalId: z.string().optional(),
   projectId: z.string().trim().min(1).max(80).optional(),
   channelId: z.string().trim().min(1).max(80).optional(),
@@ -618,26 +628,31 @@ export interface ChannelThread {
    */
   opencodeSessionId?: string;
 }
-export const monitorInputSchema = z
-  .object({
-    title: z.string().min(1).max(160),
-    url: z.url().max(4096),
-    condition: z.enum(["change", "contains", "price_below"]).default("change"),
-    value: z.string().max(300).default(""),
-    intervalMinutes: z.number().int().min(1).max(10080).default(15),
-  })
-  .superRefine((v, c) => {
-    if (v.condition !== "change" && !v.value.trim())
-      c.addIssue({ code: "custom", message: "Enter a condition value" });
-    if (
-      v.condition === "price_below" &&
-      (!Number.isFinite(Number(v.value)) || Number(v.value) <= 0)
-    )
-      c.addIssue({ code: "custom", message: "Enter a positive price" });
-  });
+export const goalScopeSchema = z.object({
+  type: z.enum(["person", "project", "channel", "team"]),
+  id: z.string().max(100).optional(),
+});
 export const goalInputSchema = z.object({
   title: z.string().trim().min(1).max(160),
   description: z.string().max(4000).default(""),
   category: z.string().max(80).default(""),
   milestones: z.array(z.string().min(1).max(200)).max(20).default([]),
+  /** Whose it is. Left out, the place it was made in says: the team's from a public channel, the channel's from a private one, the person's from their own chat. */
+  scope: goalScopeSchema.optional(),
+});
+export const goalPatchSchema = z.object({
+  title: z.string().trim().min(1).max(160).optional(),
+  description: z.string().max(4000).optional(),
+  category: z.string().max(80).optional(),
+  status: z.enum(["active", "paused", "completed"]).optional(),
+  milestones: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(200),
+        title: z.string().trim().min(1).max(200),
+        done: z.boolean(),
+      }),
+    )
+    .max(100)
+    .optional(),
 });

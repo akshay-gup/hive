@@ -9,6 +9,7 @@ import type { AgentFlags } from "../../../packages/chat-core/src/agent-flags.ts"
 import { agentOn, agentRefusal } from "../../../packages/chat-core/src/agent-trigger.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Files } from "../../../packages/chat-core/src/files.ts";
+import type { Goals } from "../../../packages/chat-core/src/goals.ts";
 import type { Message, Messages } from "../../../packages/chat-core/src/messages.ts";
 import { isActive, RUN_LIMITS, type Run, type Runs } from "../../../packages/chat-core/src/runs.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
@@ -39,6 +40,7 @@ import {
 import { withHandles } from "../../../packages/domain/src/mentions.ts";
 import { makeTicket, readTicket, TICKET_MS } from "./board-ticket.ts";
 import type { Filing } from "./filing.ts";
+import type { Routines } from "./routines.ts";
 import { signedPath } from "./uploads.ts";
 
 /** The agent's machine, as the room can reach it: the one connection it holds. */
@@ -74,6 +76,8 @@ export interface AgentLinkDeps {
   tasks: Tasks;
   /** The board's rules: what the agent does to it it does as the person it works for. */
   work: Work;
+  goals: Goals;
+  routines: Routines;
   files: Files;
   filing: Filing;
   /** The machine's connection, if there is one. The room may sleep, so this is asked for each time. */
@@ -348,13 +352,14 @@ export class AgentLink {
    * holds, never from the frame: it can do what that person could do, and nothing of anyone else's.
    */
   private async workCall(frame: Extract<RunnerFrame, { t: "work.call" }>) {
-    const { runs, tasks, work } = this.deps;
+    const { runs, tasks, work, goals, routines } = this.deps;
     const refuse = (error: string, status: number) =>
       void this.send({ t: "work.result", reqId: frame.reqId, ok: false, error, status });
     let actor: string;
     let channelId: string | undefined;
+    let run: Run | null = null;
     if (frame.runId) {
-      const run = runs.get(frame.runId);
+      run = runs.get(frame.runId);
       if (!run || !isActive(run)) return refuse("This run is over", 409);
       actor = run.askedBy;
       channelId = run.channelId;
@@ -430,8 +435,47 @@ export class AgentLink {
             ),
           };
           break;
-        case "goal.pause":
-          body = await work.pauseGoal(actor, String(args.goalId ?? ""));
+        case "routine.create":
+          body = await routines.create(actor, args, {
+            ...home,
+            ...(run ? { rootId: run.rootId } : {}),
+          });
+          break;
+        case "routine.list":
+          body = { routines: await routines.list(actor) };
+          break;
+        case "routine.update": {
+          const { routineId, ...patch } = args;
+          body = await routines.update(actor, String(routineId ?? ""), patch);
+          break;
+        }
+        case "routine.remove":
+          body = await routines.remove(actor, String(args.routineId ?? ""));
+          break;
+        case "routine.memo":
+          if (!run) return refuse("Only a run a routine woke can keep a memo", 409);
+          body = await routines.setMemo(
+            run.id,
+            run.triggerId,
+            z
+              .string()
+              .max(4000)
+              .parse(args.memo ?? ""),
+          );
+          break;
+        case "goal.create":
+          body = await goals.create(actor, args, {
+            ...home,
+            ...(frame.key ? { id: `goal:${frame.key}`.slice(0, 120) } : {}),
+          });
+          break;
+        case "goal.update": {
+          const { goalId, ...patch } = args;
+          body = await goals.update(actor, String(goalId ?? ""), patch);
+          break;
+        }
+        case "goal.list":
+          body = { goals: await goals.list(actor) };
           break;
         case "review.decided":
           body = await work.reviewDecided(
@@ -444,6 +488,7 @@ export class AgentLink {
           body = {
             tasks: await work.tasksFor(actor),
             projects: await work.projectsFor(actor),
+            goals: await goals.list(actor),
           };
           break;
       }
@@ -823,6 +868,17 @@ export class AgentLink {
     const workspace = this.deps.workspaceId();
     const key = this.deps.linkKey();
     const attached = files.ofMessages([trigger.id]).get(trigger.id) ?? [];
+    // A routine woke the agent: it is told which, and what it kept for itself.
+    const woke = this.deps.routines.byTrigger(trigger.id);
+    const routineStart = woke
+      ? {
+          routine: {
+            id: woke.id,
+            title: String((woke.data as { title?: unknown }).title ?? ""),
+            memo: String((woke.data as { memo?: unknown }).memo ?? ""),
+          },
+        }
+      : {};
     // Sent before, and the reply has something: the agent carries on from there.
     const reply = run.attempt > 0 ? messages.get(run.replyId) : null;
     const earlier = (reply?.extra as Partial<AgentExtra> | null)?.steps ?? [];
@@ -840,6 +896,7 @@ export class AgentLink {
         visibility: channel.visibility ?? "public",
       },
       thread: { rootId: run.rootId, messages: context },
+      ...routineStart,
       text: trigger.body,
       asker: {
         id: asker.id,

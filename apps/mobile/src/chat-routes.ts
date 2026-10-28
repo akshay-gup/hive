@@ -1,9 +1,8 @@
 /**
  * Which of the app's calls the chat service answers, and what it calls them. The channel screens were
  * written to speak to the workspace server (`/api/agent/channels/...`); the chat service has the same
- * things under `/v1`, so those calls are sent there without each screen knowing. The board (projects and
- * tasks) is the chat service's too. What belongs to the agent (its threads with it, its working folder, its
- * goals and memory) stays with the workspace server. A path that starts with `/chat/` is the chat service's own and goes there as it is.
+ * things under `/v1`, so those calls are sent there without each screen knowing. The board (projects, tasks and goals) is the chat service's too. What belongs to the agent (its threads with it, its working folder, its
+ * memory) stays with the workspace server. A path that starts with `/chat/` is the chat service's own and goes there as it is.
  */
 const CHANNEL_PARTS =
   /^(members|managers|archive|footprint|mentionable|read|messages|since|threads|files)$/;
@@ -42,7 +41,13 @@ export function chatPathOf(path: string): string | null {
         .join("")}`,
     );
   // The board: `/tasks`, `/tasks/:id`, `/tasks/:id/notes`..., `/projects`, `/projects/people`...
-  if (part[3] === "tasks" || part[3] === "projects") {
+  // Goals are the chat service's too: whose a goal is decides who sees it, which only it can say.
+  if (
+    part[3] === "tasks" ||
+    part[3] === "projects" ||
+    part[3] === "goals" ||
+    part[3] === "routines"
+  ) {
     return to(`/v1/${part.slice(3).join("/")}`);
   }
   if (part[3] === "dms" && part.length <= 5) return to(`/v1/dms${part[4] ? `/${part[4]}` : ""}`);

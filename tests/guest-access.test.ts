@@ -136,7 +136,9 @@ test("what a guest may open in a channel is that channel's conversation, files a
     // A channel they were not added to is not one they are told exists.
     const other = await call("gus", "GET", `/api/agent/channels/${w.hr.id}/${path}`);
     assert.equal(other.status, 404, path);
-    assert.deepEqual(await json(other), { error: "That channel is not there, or you cannot see it." });
+    assert.deepEqual(await json(other), {
+      error: "That channel is not there, or you cannot see it.",
+    });
   }
   assert.equal(
     (await call("gus", "GET", `/api/agent/threads/${w.acmeThread.threadId}/channel`)).status,
@@ -424,7 +426,11 @@ test("the agent is offered a guest only the tools the channel's conversation nee
     "create_project",
     "agent_status",
     "create_goal",
-    "watch_page",
+    "create_routine",
+    "list_routines",
+    "update_routine",
+    "remove_routine",
+    "routine_memo",
     "remember_fact",
   ])
     assert.ok(!guests.includes(name), name);

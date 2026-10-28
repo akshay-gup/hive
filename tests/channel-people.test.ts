@@ -381,64 +381,6 @@ test("what the agent learns in a private channel stays in it", async () => {
   assert.ok(miaSees.some((m) => m.id === shared.id));
 });
 
-test("goals the agent makes in a private channel are shown only to the people in it, and monitors follow their task", async () => {
-  const { channel, thread, task } = await privateWorld();
-  const tool = (name: string, channelId: string) => {
-    const found = conversationTools(
-      world.server.agent,
-      world.owner("max"),
-      {
-        threadId: thread.threadId,
-        runId: "r",
-        messages: [],
-        tools: [],
-        context: [],
-        state: {},
-        forwardedProps: {},
-      },
-      { signal: new AbortController().signal, requestKey: `k-${name}-${channelId}`, channelId },
-    ).find((candidate) => candidate.name === name);
-    assert.ok(found, name);
-    return (found.execute as (args: unknown) => Promise<{ id: string }>)(
-      (found.parameters as { parse: (value: unknown) => unknown }).parse(
-        name === "create_goal"
-          ? { title: "Close the books", description: "", category: "finance", milestones: [] }
-          : { name: "Audit" },
-      ),
-    );
-  };
-  const goal = await tool("create_goal", channel.id);
-  // A monitor belongs to its task, which is its project's.
-  await world.db.put("shared", "monitors", {
-    id: "mon-finance",
-    taskId: task.id,
-    title: "Rates page",
-    url: "https://example.org",
-    condition: "change",
-    value: "",
-    intervalMinutes: 60,
-    status: "paused",
-    nextCheckAt: new Date().toISOString(),
-    checks: 0,
-  });
-  const seen = async (who: Who) =>
-    (await json(await call(who, "GET", "/api/agent"))) as {
-      goals: { id: string }[];
-      monitors: { id: string }[];
-    };
-  const mine = await seen("max");
-  assert.ok(mine.goals.some((g) => g.id === goal.id));
-  assert.ok(mine.monitors.some((m) => m.id === "mon-finance"));
-  for (const who of ["mia", "ada", "olive"] as const)
-    assert.ok(!(await seen(who)).goals.some((g) => g.id === goal.id), who);
-  assert.ok(!(await seen("mia")).monitors.some((m) => m.id === "mon-finance"));
-  for (const who of ["ada", "olive"] as const)
-    assert.ok(
-      (await seen(who)).monitors.some((m) => m.id === "mon-finance"),
-      who,
-    );
-});
-
 test("anyone in a private channel can add and take out people, and the last one cannot leave", async () => {
   const room = await make("max", "Hiring", "private");
   // Someone who is not in it cannot put themselves in.

@@ -29,7 +29,6 @@ export const SHARED_KINDS: ReadonlySet<string> = new Set([
   "run-events",
   "live-runs",
   "goals",
-  "monitors",
   "agent-artifacts",
   "upload-requests",
   "actions",
@@ -52,7 +51,6 @@ export const SHARED_KINDS: ReadonlySet<string> = new Set([
   "agent-settings",
   "ideas",
   "notifications",
-  "sample-pages",
 ]);
 const homeOf = (owner: string, kind: string) => (SHARED_KINDS.has(kind) ? SHARED_OWNER : owner);
 

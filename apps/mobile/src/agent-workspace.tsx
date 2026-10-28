@@ -13,7 +13,9 @@ import type {
   AgentTask,
   AgentWorkspace,
   CreateTaskInput,
+  Goal,
   Project,
+  Routine,
 } from "../../../packages/domain/src/agent";
 import type { ChatNotice } from "../../../packages/domain/src/chat";
 import { useChat } from "./chat-context";
@@ -33,11 +35,9 @@ const asNotification = (notice: ChatNotice): AgentNotification => ({
 });
 
 /** What the machine tells of the agent while the board, which the chat service keeps, comes separately. */
-type Machine = Omit<AgentWorkspace, "tasks" | "projects">;
+type Machine = Omit<AgentWorkspace, "tasks" | "projects" | "goals" | "routines">;
 /** What there is to show of the agent before the machine has answered, or while it is asleep. */
 const NO_MACHINE: Machine = {
-  goals: [],
-  monitors: [],
   ideas: [],
   memories: [],
   artifacts: [],
@@ -69,15 +69,20 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
   const machine = useRef<Machine>(NO_MACHINE);
   // The board as last read, and when: it is read again when the chat service says it changed, after what this
   // person does, and now and then in case a message was missed.
-  const board = useRef<{ tasks: AgentTask[]; projects: Project[]; at: number } | undefined>(
-    undefined,
-  );
+  const board = useRef<
+    | { tasks: AgentTask[]; projects: Project[]; goals: Goal[]; routines: Routine[]; at: number }
+    | undefined
+  >(undefined);
   const readBoard = useCallback(
     () =>
-      api.request<{ tasks: AgentTask[]; projects: Project[] }>("/chat/v1/work").then((read) => {
-        board.current = { ...read, at: Date.now() };
-        return board.current;
-      }),
+      api
+        .request<{ tasks: AgentTask[]; projects: Project[]; goals: Goal[]; routines: Routine[] }>(
+          "/chat/v1/work",
+        )
+        .then((read) => {
+          board.current = { ...read, at: Date.now() };
+          return board.current;
+        }),
     [api],
   );
   const refresh = useCallback(
@@ -101,7 +106,13 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
         ]);
         if (version === requestVersion.current) {
           chatNotices.current = new Set(notices.map((n) => n.id));
-          const next: AgentWorkspace = { ...rest, tasks: shown.tasks, projects: shown.projects };
+          const next: AgentWorkspace = {
+            ...rest,
+            tasks: shown.tasks,
+            projects: shown.projects,
+            goals: shown.goals,
+            routines: shown.routines,
+          };
           setData(
             notices.length
               ? {

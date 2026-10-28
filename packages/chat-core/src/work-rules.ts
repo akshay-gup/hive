@@ -79,6 +79,8 @@ export interface WorkDeps {
   changed?: (change: WorkChange & { removed?: boolean }) => void;
   /** A project was made, changed or removed. */
   projectChanged?: (project: Project, removed?: boolean) => void;
+  /** Whether this person may see a goal, so a task may be pointed at it. */
+  goalVisible?: (owner: string, goalId: string) => Promise<boolean>;
   /** A project was deleted: what is kept in its scope (goals, routines) goes too. */
   projectGone?: (id: string) => Promise<void>;
   /** Whether a channel exists in this workspace, and the person may open it. */
@@ -120,6 +122,13 @@ export class Work {
    */
   private async refuseGuest(owner: string): Promise<void> {
     throw new AppError("Guests can only keep the board of the projects they were added to", 403);
+  }
+
+  /** A task may only point at a goal its person may see; one they may not looks like one that is not there. */
+  private async checkGoal(owner: string, goalId: string | null | undefined): Promise<void> {
+    if (!goalId || !this.deps.goalVisible) return;
+    if (!(await this.deps.goalVisible(owner, goalId)))
+      throw new AppError("That goal is not there, or you cannot see it.", 404);
   }
 
   private async refuseGuestIfGuest(owner: string): Promise<void> {
@@ -393,8 +402,8 @@ export class Work {
     const scope = await this.deps.access.scope(owner);
     if (scope.person?.role === "guest" && (input.kind !== "manual" || !input.projectId))
       throw new AppError("Guests can only keep the board of the projects they were added to", 403);
+    await this.checkGoal(owner, input.goalId);
     // A guest sees no goals; whether any other goal may be named is the goal's to say, where goals are kept.
-    if (input.goalId && scope.person?.role === "guest") throw new AppError("Goal not found", 404);
     const projectId = input.projectId ?? GENERAL_PROJECT_ID;
     await this.assertProjectWork(owner, projectId);
     const channelId = input.channelId ?? ORCHESTRATOR_CHANNEL_ID;
@@ -423,11 +432,9 @@ export class Work {
             "Wait for your decision",
             "Record the outcome",
           ]
-        : input.kind === "monitor"
-          ? ["Check the source", "Compare with the last observation", "Report a meaningful change"]
-          : input.kind === "finance"
-            ? ["Validate transactions", "Calculate the summary", "Save your tracker"]
-            : [];
+        : input.kind === "finance"
+          ? ["Validate transactions", "Calculate the summary", "Save your tracker"]
+          : [];
     if (input.kind !== "manual" && !input.prompt)
       throw new AppError("A prompt is required for agent-executed tasks", 422);
     if (input.startAt && input.dueAt && input.startAt > input.dueAt)
@@ -455,7 +462,7 @@ export class Work {
         plan: titles.map((title, i) => ({ id: String(i), title, status: "pending" as const })),
         evidence: [],
         input: input.input,
-        state: options.held && input.kind === "monitor" ? { initializingMonitor: true } : {},
+        state: {},
         createdAt: now,
         updatedAt: now,
         attempts: 0,
@@ -559,8 +566,7 @@ export class Work {
     }
     if (input.priority !== undefined) patch.priority = input.priority;
     if (input.goalId !== undefined) {
-      if (input.goalId && (await this.deps.access.scope(owner)).person?.role === "guest")
-        throw new AppError("Goal not found", 404);
+      await this.checkGoal(owner, input.goalId);
       patch.goalId = input.goalId ?? undefined;
     }
     if (input.projectId !== undefined) {
@@ -591,9 +597,6 @@ export class Work {
       patch.status = input.status;
       patch.leaseId = null;
       patch.leaseUntil = null;
-      // A new watch's task waits until the watch is recorded; starting it ends that wait.
-      if (input.status === "queued" && task.state?.initializingMonitor)
-        patch.state = { ...task.state, initializingMonitor: false };
       if (input.status === "cancelled") {
         patch.result = "Stopped by you.";
         patch.error = null as unknown as undefined;
@@ -663,14 +666,8 @@ export class Work {
           : task.actionId
             ? "waiting_approval"
             : "queued";
-    // A watch that is started again starts counting its failures afresh.
-    const state =
-      task.kind === "monitor" && (action === "resume" || action === "retry")
-        ? { ...task.state, failures: 0, notice: null, initializingMonitor: false }
-        : undefined;
     return this.change(task, {
       status,
-      ...(state ? { state } : {}),
       leaseId: null,
       leaseUntil: null,
       error: null as unknown as undefined,

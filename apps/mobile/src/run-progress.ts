@@ -41,7 +41,7 @@ export const CARD_TOOLS: ReadonlySet<string> = new Set([
   "request_upload",
   "delegate_task",
   "create_goal",
-  "watch_page",
+  "create_routine",
   "remember_fact",
 ]);
 

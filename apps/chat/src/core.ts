@@ -18,6 +18,7 @@ import { EntryRules } from "../../../packages/chat-core/src/entry-rules.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { type ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
 import { Files } from "../../../packages/chat-core/src/files.ts";
+import { Goals } from "../../../packages/chat-core/src/goals.ts";
 import { Messages } from "../../../packages/chat-core/src/messages.ts";
 import { Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import { Reactions } from "../../../packages/chat-core/src/reactions.ts";
@@ -38,6 +39,7 @@ import type { WorkspaceRole } from "../../../packages/integrations/src/workspace
 import { AgentLink, type RunnerLink } from "./agent-link.ts";
 import { Filing } from "./filing.ts";
 import { Messaging } from "./messaging.ts";
+import { Routines } from "./routines.ts";
 import { WorkNotices } from "./work-notices.ts";
 
 /** Who is asking, as the Worker verified it from the control plane's token. */
@@ -87,6 +89,8 @@ export class ChatCore {
   readonly entries: Entries;
   readonly rules: EntryRules;
   readonly workNotices: WorkNotices;
+  readonly goals: Goals;
+  readonly routines: Routines;
   readonly work: Work;
   /** When each task running on the machine was last announced. */
   private readonly touched = new Map<string, number>();
@@ -192,7 +196,27 @@ export class ChatCore {
       wantsWork: async (owner) => (await this.channels.notificationPrefs(owner)).work,
       emit: (type, data, userId) => this.emit(type, data, { userId }),
     });
+    this.goals = new Goals({
+      rules: this.rules,
+      entries: this.entries,
+      channelPrivate: async (id) =>
+        ((await this.store.get<Channel>(SHARED_OWNER, "channels", id))?.visibility ?? "public") ===
+        "private",
+      pauseTasks: (owner, goalId) => this.work.pauseGoal(owner, goalId),
+    });
+    this.routines = new Routines({
+      rules: this.rules,
+      entries: this.entries,
+      channelExists: async (id) => !!(await this.store.get<Channel>(SHARED_OWNER, "channels", id)),
+      post: (owner, channelId, input) => this.messaging.post(owner, channelId, input),
+      runOf: (triggerId) => this.runs.byTrigger(triggerId),
+      isActive: (run) => run.state === "queued" || run.state === "sent" || run.state === "running",
+      tell: (userId, notice) => this.workNotices.tell(userId, notice),
+      soon: workQueued,
+      clock: options.clock ?? Date.now,
+    });
     this.work = new Work({
+      goalVisible: (owner, goalId) => this.goals.canLink(owner, goalId),
       access: this.access,
       projects: this.projects,
       tasks: this.tasks,
@@ -224,7 +248,11 @@ export class ChatCore {
       changed: ({ task, before, removed }) => {
         void this.workChanged("task.changed", task, removed);
         void this.agent.taskChanged(task, before, removed);
-        if (!removed) this.workNotices.taskChanged(task, before);
+        if (!removed) {
+          this.workNotices.taskChanged(task, before);
+          // A finished task counts toward the goal it points at.
+          if (before?.status !== task.status) void this.goals.countTask(task);
+        }
       },
       projectChanged: (project, removed) =>
         void this.workChanged("project.changed", project, removed),
@@ -240,6 +268,8 @@ export class ChatCore {
       runs: this.runs,
       tasks: this.tasks,
       work: this.work,
+      goals: this.goals,
+      routines: this.routines,
       files: this.files,
       filing: this.filing,
       runner: () => options.runner?.() ?? null,
@@ -480,7 +510,39 @@ export class ChatCore {
       c.json({
         tasks: await this.work.tasksFor(owner(c)),
         projects: await this.work.projectsFor(owner(c)),
+        goals: await this.goals.list(owner(c)),
+        routines: await this.routines.list(owner(c)),
       }),
+    );
+    app.post("/v1/routines", async (c) =>
+      c.json(await this.routines.create(owner(c), await c.req.json()), 201),
+    );
+    const patchRoutine = async (c: {
+      get(key: "owner"): string;
+      req: { param(name: string): string; json(): Promise<unknown> };
+      json(value: unknown): Response;
+    }) => c.json(await this.routines.update(owner(c), c.req.param("id"), await c.req.json()));
+    app.patch("/v1/routines/:id", patchRoutine);
+    app.post("/v1/routines/:id", patchRoutine);
+    app.post("/v1/routines/:id/run", async (c) =>
+      c.json(await this.routines.runNow(owner(c), c.req.param("id"))),
+    );
+    app.delete("/v1/routines/:id", async (c) =>
+      c.json(await this.routines.remove(owner(c), c.req.param("id"))),
+    );
+    app.post("/v1/goals", async (c) =>
+      c.json(await this.goals.create(owner(c), await c.req.json()), 201),
+    );
+    const patchGoal = async (c: {
+      get(key: "owner"): string;
+      req: { param(name: string): string; json(): Promise<unknown> };
+      json(value: unknown): Response;
+    }) => c.json(await this.goals.update(owner(c), c.req.param("id"), await c.req.json()));
+    app.patch("/v1/goals/:id", patchGoal);
+    // The app sends every change as a POST.
+    app.post("/v1/goals/:id", patchGoal);
+    app.delete("/v1/goals/:id", async (c) =>
+      c.json(await this.goals.remove(owner(c), c.req.param("id"))),
     );
     app.get("/v1/projects/people", async (c) => c.json(await this.work.projectPeople(owner(c))));
     app.post("/v1/projects", async (c) =>
