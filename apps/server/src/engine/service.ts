@@ -19,7 +19,7 @@ import {
   type ChannelThread,
   createChannelSchema,
   type Evidence,
-  type Idea,
+  type IdeaBatch,
   type NotificationPrefs,
   notificationPrefsSchema,
   ORCHESTRATOR_CHANNEL_ID,
@@ -35,7 +35,7 @@ import type {
 import { type Mentionable, withHandles } from "../../../../packages/domain/src/mentions.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
-import { type Board, noBoard, type WorkClient } from "../chat-runner/work-link.ts";
+import { type Board, noBoard } from "../chat-runner/work-link.ts";
 import type { Config } from "../config.ts";
 import type { Store } from "../db.ts";
 import type { Files } from "../files.ts";
@@ -75,6 +75,8 @@ export class AgentService {
   board: Board = noBoard;
   /** Report a failed shared mail source to the room, which chooses who is told. */
   sourceFailure?: () => Promise<void>;
+  /** Deliver shared-mail suggestions to the room; only pending transport records stay here. */
+  publishIdeas?: (batch: Omit<IdeaBatch, "id">) => Promise<void>;
   /** Which task ids the board last said a person may see. */
   private readonly visibility = new Map<
     string,
@@ -628,8 +630,7 @@ export class AgentService {
     const scope = await this.access.scope(owner);
     if (scope.person?.role === "guest") return this.guestSnapshot(owner);
     await this.ensure(owner);
-    const [ideas, artifacts, identity] = await Promise.all([
-      this.db.list<Idea>(owner, "ideas"),
+    const [artifacts, identity] = await Promise.all([
       this.db.list<AgentArtifact>(owner, "agent-artifacts"),
       this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
     ]);
@@ -644,7 +645,7 @@ export class AgentService {
     const visible = await this.visibleTaskIds(owner, [...artifacts.map((a) => a.taskId)]);
     return {
       notifications: [],
-      ideas: ideas.filter((idea) => !idea.channelId || scope.allows(idea.channelId)),
+      ideas: [],
       artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: {
@@ -761,136 +762,74 @@ export class AgentService {
     await this.db.remove(SHARED_OWNER, "channels", channelId);
   }
   async refreshIdeas(owner: string) {
+    if (!this.publishIdeas) throw new AppError("Ideas need a connection to the chat service", 503);
     const w = await this.workspace.snapshot(owner);
-    const sentIds = new Set(
-      w.mail.filter((mail) => /^Sent\b/i.test(mail.label)).map((mail) => mail.id),
-    );
-    const completedSources = new Set(
-      (await this.db.list<AgentTask>(owner, "tasks"))
-        .filter(
-          (task) =>
-            (task.status === "succeeded" || task.status === "in_review") &&
-            typeof task.input.messageId === "string",
-        )
-        .map((task) => `${task.kind}:${task.input.messageId}`),
-    );
-    const obsolete = (kind: AgentTask["kind"], messageId: unknown) =>
-      typeof messageId === "string" &&
-      (sentIds.has(messageId) || completedSources.has(`${kind}:${messageId}`));
-    // Retire earlier suggestions as well as preventing new duplicates. A concurrent
-    // acceptance wins its own compare-and-swap and is never overwritten here.
-    for (const idea of await this.db.list<Idea>(owner, "ideas"))
-      if (idea.status === "new" && obsolete(idea.kind, idea.input.messageId))
-        await this.db.compareAndSwap(
-          owner,
-          "ideas",
-          idea.id,
-          { status: "new" },
-          { status: "dismissed" },
-        );
+    const sent = (mail: Mail) => /^Sent\b/i.test(mail.label);
+    const clip = (text: string, length: number) => Array.from(text).slice(0, length).join("");
+    const ideas: IdeaBatch["ideas"] = [];
     for (const mail of w.mail
       .filter(
         (m) =>
-          !obsolete("document", m.id) &&
+          !sent(m) &&
           m.attachments.length &&
           /form|permission|complete|fill|sign/i.test(`${m.subject} ${m.body}`),
       )
       .slice(0, 5)) {
-      const id = hash(`document:${mail.id}:${mail.body}`);
-      const idea: Idea = {
-        id,
-        title: `I can help with ${mail.subject}`,
-        reason: `${mail.sender} sent a document that may need your attention. I can prepare it and a reply for your review.`,
+      ideas.push({
+        id: hash(`document:${mail.id}:${mail.body}`),
+        title: clip(`I can help with ${mail.subject}`, 160),
+        reason: clip(
+          `${mail.sender} sent a document that may need your attention. I can prepare it and a reply for your review.`,
+          4000,
+        ),
         evidence: [this.mailEvidence(mail)],
-        prompt: `Help complete the PDF from “${mail.subject}” and prepare a reply for review.`,
+        prompt: clip(
+          `Help complete the PDF from “${mail.subject}” and prepare a reply for review.`,
+          12000,
+        ),
         kind: "document",
         input: { messageId: mail.id },
         status: "new",
-        createdAt: date(),
-      };
-      await this.db.insertIfAbsent(owner, "ideas", idea);
+      });
     }
     for (const mail of w.mail
-      .filter(
-        (m) =>
-          !obsolete("agent", m.id) &&
-          /coffee|meet|available|schedule/i.test(`${m.subject} ${m.body}`),
-      )
+      .filter((m) => !sent(m) && /coffee|meet|available|schedule/i.test(`${m.subject} ${m.body}`))
       .slice(0, 5)) {
-      await this.db.insertIfAbsent(owner, "ideas", {
+      ideas.push({
         id: hash(`coordination:${mail.id}`),
-        title: `I can help coordinate ${mail.subject}`,
-        reason: `${mail.sender} mentioned getting together. I can check your calendar and prepare a response for review.`,
+        title: clip(`I can help coordinate ${mail.subject}`, 160),
+        reason: clip(
+          `${mail.sender} mentioned getting together. I can check your calendar and prepare a response for review.`,
+          4000,
+        ),
         evidence: [this.mailEvidence(mail)],
-        prompt: `Review the email “${mail.subject}”, check my calendar, and propose a next step. Ask me about missing preferences before preparing a reply.`,
+        prompt: clip(
+          `Review the email “${mail.subject}”, check my calendar, and propose a next step. Ask me about missing preferences before preparing a reply.`,
+          12000,
+        ),
         kind: "agent",
         input: { messageId: mail.id },
         status: "new",
-        createdAt: date(),
-      } satisfies Idea);
+      });
     }
+    await this.publishIdeas({
+      ideas,
+      sentMessageIds: w.mail
+        .filter(sent)
+        .map((m) => m.id)
+        .slice(0, 5000),
+    });
     await this.ensure(owner);
     await this.db.compareAndSwap(owner, "agent-settings", "identity", {}, { lastIdeasAt: date() });
-    return this.db.list<Idea>(owner, "ideas");
-  }
-  async decideIdea(
-    owner: string,
-    id: string,
-    action: "accept" | "dismiss",
-    prompt?: string,
-    board: WorkClient = this.board.forPerson(owner),
-  ) {
-    let idea = await this.db.get<Idea>(owner, "ideas", id);
-    if (!idea || (idea.channelId && !(await this.access.scope(owner)).allows(idea.channelId)))
-      throw new AppError("Idea not found", 404);
-    if (idea.status === "dismissed" || (idea.status === "accepted" && action === "dismiss"))
-      return idea;
-    if (action === "dismiss")
-      return this.db.compareAndSwap<Idea>(
-        owner,
-        "ideas",
-        id,
-        { status: "new" },
-        { status: "dismissed" },
-      );
-    if (idea.status === "new") {
-      const claimed = await this.db.compareAndSwap<Idea>(
-        owner,
-        "ideas",
-        id,
-        { status: "new" },
-        {
-          status: "accepted",
-          taskId: hash(`task:idea:${id}`),
-          prompt: prompt ?? idea.prompt,
-        },
-      );
-      idea = claimed ?? (await this.db.get<Idea>(owner, "ideas", id));
-      if (idea?.status !== "accepted") return idea;
-    }
-    // The goal is the chat service's; asked again, it is the same goal: the board knows the key.
-    const goal = await board.call<{ id: string }>(
-      "goal.create",
-      { title: idea.title, description: idea.reason },
-      `idea-goal:${id}`,
-    );
-    // Asked again, it is the same task: the board knows the key.
-    const task = await board.call<AgentTask>(
-      "task.create",
-      {
-        title: idea.title,
-        prompt: idea.prompt,
-        kind: idea.kind,
-        input: idea.input,
-        goalId: goal.id,
-      },
-      `idea:${id}`,
-    );
-    await this.db.put(owner, "ideas", { ...idea, status: "accepted", taskId: task.id });
-    return this.db.get<Idea>(owner, "ideas", id);
+    return { queued: true };
   }
   mailEvidence(mail: Mail): Evidence {
-    return { id: mail.id, kind: "mail", title: mail.subject, excerpt: mail.body.slice(0, 400) };
+    return {
+      id: mail.id,
+      kind: "mail",
+      title: Array.from(mail.subject).slice(0, 500).join(""),
+      excerpt: mail.body.slice(0, 400),
+    };
   }
   async artifact(
     owner: string,

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/server/src/app.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
-import type { AgentNotification, AgentTask, Idea } from "../packages/domain/src/agent.ts";
+import type { IdeaBatch } from "../packages/domain/src/agent.ts";
 import type { ActionProposal } from "../packages/domain/src/index.ts";
 import {
   answerLocal,
@@ -70,9 +70,6 @@ async function documentTask() {
 }
 
 test("document job runs without a client, waits for review, and resumes from its receipt", async () => {
-  const initialIdeas = await server.agent.refreshIdeas(owner);
-  const originalIdea = initialIdeas.find((idea) => idea.kind === "document");
-  assert.ok(originalIdea);
   const { task, action, originalId } = await documentTask();
   assert.equal((await server.files.get(owner, originalId)).parentId, undefined);
   assert.equal(
@@ -93,12 +90,6 @@ test("document job runs without a client, waits for review, and resumes from its
   assert.equal(
     (await db.list<ActionProposal>(owner, "actions")).filter((a) => a.taskId === task.id).length,
     1,
-  );
-  const refreshedIdeas = await server.agent.refreshIdeas(owner);
-  assert.equal(refreshedIdeas.find((idea) => idea.id === originalIdea.id)?.status, "dismissed");
-  assert.equal(
-    refreshedIdeas.filter((idea) => idea.kind === "document" && idea.status === "new").length,
-    0,
   );
 });
 
@@ -122,7 +113,12 @@ test("ideas ignore sent replies while retaining unfinished incoming requests", a
       attachmentIds: incoming.attachments,
     },
   });
-  const ideas = await server.agent.refreshIdeas(ideaOwner);
+  let batch: Omit<IdeaBatch, "id"> | undefined;
+  server.agent.publishIdeas = async (sent) => {
+    batch = sent;
+  };
+  await server.agent.refreshIdeas(ideaOwner);
+  const ideas = batch!.ideas;
   const sent = (await server.workspace.snapshot(ideaOwner)).mail.find(
     (mail) => mail.sender === "You",
   );
@@ -140,30 +136,4 @@ test("a review for a task that was cancelled cannot be approved", async () => {
   );
   await server.agent.worker.tick();
   assert.equal((await server.agent.getTask(owner, task.id)).status, "cancelled");
-});
-
-test("dismissal racing acceptance never creates work for a dismissed idea", async () => {
-  for (let i = 0; i < 4; i++) {
-    const idea: Idea = {
-      id: `race-${i}`,
-      title: `Plan a walk ${i}`,
-      reason: "User context",
-      prompt: "Plan a walk",
-      kind: "plan",
-      input: {},
-      evidence: [],
-      status: "new",
-      createdAt: new Date().toISOString(),
-    };
-    await db.put(owner, "ideas", idea);
-    await Promise.all([
-      server.agent.decideIdea(owner, idea.id, "dismiss"),
-      server.agent.decideIdea(owner, idea.id, "accept"),
-    ]);
-    const saved = await db.get<Idea>(owner, "ideas", idea.id);
-    const tasks = await db.list<AgentTask>(owner, "tasks");
-    if (saved?.status === "dismissed")
-      assert.equal(tasks.filter((t) => t.title === idea.title).length, 0);
-    else assert.ok(saved?.taskId && tasks.some((t) => t.id === saved.taskId));
-  }
 });

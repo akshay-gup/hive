@@ -14,6 +14,7 @@ import type { PermissionTracker, TrackerReplyDeps } from "../opencode/approvals.
 import { RunRecord } from "../opencode/run-record.ts";
 import type { TaskBorrower } from "./borrow.ts";
 import { buildRunContext, fetchRunFiles } from "./context.ts";
+import type { IdeaDelivery } from "./ideas.ts";
 import type { SourceErrors } from "./source-errors.ts";
 import { prepareRun, threadIdFor } from "./stubs.ts";
 import type { Board, WorkLink } from "./work-link.ts";
@@ -55,6 +56,7 @@ export interface HostDeps {
   /** The board's requests to the chat service, and its answers. */
   work?: WorkLink;
   sourceErrors?: SourceErrors;
+  ideas?: IdeaDelivery;
   /** How the agent changes the board in a run. */
   board: Board;
   /** How many tasks may go at once. */
@@ -145,6 +147,7 @@ export class ChatRunnerHost {
     void this.deps.sourceErrors
       ?.flush()
       .catch((error) => this.log(`source report: ${String(error)}`));
+    void this.deps.ideas?.onOpen().catch((error) => this.log(`ideas delivery: ${String(error)}`));
     for (const frame of this.finals.values()) this.deps.send(frame);
     // The room says which of the channels kept here are gone, whenever they were deleted.
     void this.reportStandIns();
@@ -186,6 +189,11 @@ export class ChatRunnerHost {
 
   onFrame(frame: RoomFrame) {
     switch (frame.t) {
+      case "ideas.ack":
+        void this.deps.ideas
+          ?.ack(frame.id)
+          .catch((error) => this.log(`ideas delivery: ${String(error)}`));
+        return;
       case "source.error.ack":
         void this.deps.sourceErrors
           ?.ack(frame.at)

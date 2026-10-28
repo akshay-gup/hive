@@ -7,6 +7,53 @@ import type { Channel } from "../packages/domain/src/agent.ts";
 import type { ChatNotice } from "../packages/domain/src/chat.ts";
 import { people, wired } from "./helpers/chat-wired.ts";
 
+test("mail suggestions reach the room and are acknowledged without leaving ideas on the machine", async (t) => {
+  const f = await wired(t, ({ say }) => say("ok"));
+  assert.ok(f.server.agent.publishIdeas);
+  await f.server.agent.publishIdeas({
+    ideas: [
+      {
+        id: "wired-mail",
+        title: "Prepare the form",
+        reason: "Mail request",
+        evidence: [{ id: "mail", kind: "mail", title: "Form", excerpt: "Please complete it" }],
+        prompt: "Prepare the form for review",
+        kind: "document",
+        input: { messageId: "mail" },
+        status: "new",
+      },
+    ],
+    sentMessageIds: [],
+  });
+  await f.until(
+    "ideas to be readable from the room",
+    async () => (await f.core.ideas.list(people.max.id)).length === 1,
+  );
+  await f.until(
+    "the pending delivery to be acknowledged",
+    async () => (await f.db.list("system", "idea-delivery")).length === 0,
+  );
+  assert.deepEqual((await f.server.agent.snapshot("acct:acct_max")).ideas, []);
+  assert.deepEqual(await f.db.list("shared", "ideas"), []);
+  const idea = (await f.core.ideas.list(people.max.id))[0]!;
+  assert.equal(
+    (await f.call("max", "POST", `/v1/ideas/${idea.id}`, { action: "dismiss" })).status,
+    200,
+  );
+  assert.equal((await f.core.ideas.list(people.mia.id))[0]?.status, "dismissed");
+  await f.server.workspace.ensureSample("shared", f.server.actions);
+  await f.server.agent.refreshIdeas("shared");
+  await f.until(
+    "generated mailbox ideas to reach chat",
+    async () => (await f.core.ideas.list(people.max.id)).length >= 2,
+  );
+  await f.until(
+    "the generator delivery to be acknowledged",
+    async () => (await f.db.list("system", "idea-delivery")).length === 0,
+  );
+  assert.deepEqual(await f.db.list("shared", "ideas"), []);
+});
+
 test("the machine reports a mail failure to the room and drops its delivery record after acknowledgement", async (t) => {
   const f = await wired(t, ({ say }) => say("Hello"));
   assert.ok(f.server.agent.sourceFailure);

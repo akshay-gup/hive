@@ -15,6 +15,7 @@ import type {
   AgentWorkspace,
   CreateTaskInput,
   Goal,
+  Idea,
   Project,
   Routine,
 } from "../../../packages/domain/src/agent";
@@ -67,15 +68,26 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
   // The board as last read, and when: it is read again when the chat service says it changed, after what this
   // person does, and now and then in case a message was missed.
   const board = useRef<
-    | { tasks: AgentTask[]; projects: Project[]; goals: Goal[]; routines: Routine[]; at: number }
+    | {
+        tasks: AgentTask[];
+        projects: Project[];
+        goals: Goal[];
+        routines: Routine[];
+        ideas: Idea[];
+        at: number;
+      }
     | undefined
   >(undefined);
   const readBoard = useCallback(
     () =>
       api
-        .request<{ tasks: AgentTask[]; projects: Project[]; goals: Goal[]; routines: Routine[] }>(
-          "/chat/v1/work",
-        )
+        .request<{
+          tasks: AgentTask[];
+          projects: Project[];
+          goals: Goal[];
+          routines: Routine[];
+          ideas: Idea[];
+        }>("/chat/v1/work")
         .then((read) => {
           board.current = { ...read, at: Date.now() };
           return board.current;
@@ -108,6 +120,7 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
             projects: shown.projects,
             goals: shown.goals,
             routines: shown.routines,
+            ideas: shown.ideas,
             notifications: notices.map(asNotification),
           };
           setData(next);
@@ -160,7 +173,11 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
       chat.subscribe((frame) => {
         if (frame.t !== "event") return;
         if (frame.type.startsWith("notification.")) void refresh().catch(() => {});
-        else if (frame.type === "task.changed" || frame.type === "project.changed") {
+        else if (
+          frame.type === "task.changed" ||
+          frame.type === "project.changed" ||
+          frame.type === "entry.changed"
+        ) {
           // Many changes arrive together while a task works: the board is read once for them.
           if (boardTimer.current) return;
           boardTimer.current = setTimeout(() => {

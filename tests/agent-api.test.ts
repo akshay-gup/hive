@@ -6,14 +6,8 @@ import { after, before, test } from "node:test";
 import { createApp } from "../apps/server/src/app.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
-import type {
-  AgentNotification,
-  AgentTask,
-  AgentWorkspace,
-  Goal,
-  Idea,
-} from "../packages/domain/src/agent.ts";
-import { controlLocal, localBoard } from "./helpers/local-task.ts";
+import type { AgentMachineView } from "../packages/domain/src/agent.ts";
+import { localBoard } from "./helpers/local-task.ts";
 
 let db: Store, server: Awaited<ReturnType<typeof createApp>>, directory: string, token: string;
 let config: Config;
@@ -70,17 +64,17 @@ test("agent API requires a session and reports the actual worker state", async (
     ).status,
     401,
   );
-  const workspace = await read<AgentWorkspace>("");
+  const workspace = await read<AgentMachineView>("");
   assert.equal(workspace.worker.running, false);
   assert.equal(workspace.identity.name, "Hive");
   assert.equal(workspace.identity.tone, "warm");
 });
 
 test("agent request validation rejects malformed input with useful JSON errors", async () => {
-  for (const [path, body] of [
-    ["/ideas/missing", { action: "accept", prompt: " " }],
-    ["/identity", { name: "Hive", tone: "angry" }],
-  ] satisfies [string, unknown][]) {
+  for (const [path, body] of [["/identity", { name: "Hive", tone: "angry" }]] satisfies [
+    string,
+    unknown,
+  ][]) {
     const response = await request(path, body);
     assert.equal(response.status, 422, path);
     assert.equal(typeof (await response.json()).error, "string", path);
@@ -94,7 +88,7 @@ test("the agent's identity changes persist and are the team's", async () => {
     avatar: "lilac",
     showChatUpdates: false,
   });
-  const snapshot = await read<AgentWorkspace>("");
+  const snapshot = await read<AgentMachineView>("");
   assert.equal(snapshot.identity.name, "Nova");
   assert.equal(snapshot.identity.tone, "concise");
   assert.equal(snapshot.identity.avatar, "lilac");
@@ -110,30 +104,16 @@ test("the agent's identity changes persist and are the team's", async () => {
   );
 });
 
-test("idea dismissal survives refresh and concurrent acceptance creates one task", async () => {
-  const ideas = await read<Idea[]>("/ideas/refresh", {});
-  assert.ok(ideas.length >= 2);
-  assert.ok(ideas.every((idea) => idea.evidence.length > 0));
-  const dismissed = ideas[0],
-    accepted = ideas[1];
-  assert.equal(
-    (await read<Idea>(`/ideas/${dismissed.id}`, { action: "dismiss" })).status,
-    "dismissed",
-  );
-  assert.equal(
-    (await read<Idea[]>("/ideas/refresh", {})).find((idea) => idea.id === dismissed.id)?.status,
-    "dismissed",
-  );
-  const tasksBefore = (await db.list<AgentTask>("local-user", "tasks")).length;
-  const results = await Promise.all([
-    read<Idea>(`/ideas/${accepted.id}`, { action: "accept" }),
-    read<Idea>(`/ideas/${accepted.id}`, { action: "accept" }),
-  ]);
-  assert.equal(results[0].status, "accepted");
-  assert.equal(results[0].taskId, results[1].taskId);
-  assert.equal((await db.list<AgentTask>("local-user", "tasks")).length, tasksBefore + 1);
-  assert.ok(results[0].taskId);
-  await controlLocal(server.agent, "local-user", results[0].taskId, "cancel");
+test("ideas are delivered to chat instead of being stored or decided on the machine", async () => {
+  let count = 0;
+  server.agent.publishIdeas = async (batch) => {
+    count = batch.ideas.length;
+  };
+  assert.deepEqual(await read("/ideas/refresh", {}), { queued: true });
+  assert.ok(count >= 2);
+  assert.deepEqual((await read<AgentMachineView>("")).ideas, []);
+  assert.equal((await db.list("shared", "ideas")).length, 0);
+  assert.equal((await request("/ideas/missing", { action: "accept" })).status, 404);
 });
 
 test("saved sessions validate and logout revokes only the current token", async () => {

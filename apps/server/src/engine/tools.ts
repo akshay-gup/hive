@@ -8,6 +8,7 @@ import {
   createTaskSchema,
   type Goal,
   goalInputSchema,
+  type Idea,
   ORCHESTRATOR_CHANNEL_ID,
   type Project,
 } from "../../../../packages/domain/src/agent.ts";
@@ -417,13 +418,17 @@ export function conversationTools(
         // The board is the chat service's and comes back as the person asking may see it.
         const [snapshot, shown] = await Promise.all([
           service.snapshot(owner),
-          board.call<{ tasks: AgentTask[]; projects: Project[]; goals: Goal[] }>("board", {}),
+          board.call<{ tasks: AgentTask[]; projects: Project[]; goals: Goal[]; ideas: Idea[] }>(
+            "board",
+            {},
+          ),
         ]);
         // Download links are for a person's browser, not for the agent.
         return {
           ...snapshot,
           projects: shown.projects,
           goals: shown.goals,
+          ideas: shown.ideas ?? [],
           tasks: shown.tasks.map((task) =>
             task.attachments
               ? { ...task, attachments: task.attachments.map(({ url: _link, ...file }) => file) }

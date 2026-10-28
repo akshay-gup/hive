@@ -138,6 +138,9 @@ export function DeleteProject({
       (routine) => routine.scope.type === "project" && routine.scope.id === project.id,
     ).length ?? 0;
   const [fate, setFate] = useState<"move" | "delete">("move");
+  const ideaCount =
+    data?.ideas?.filter((idea) => idea.scope?.type === "project" && idea.scope.id === project.id)
+      .length ?? 0;
   const [target, setTarget] = useState(GENERAL_PROJECT_ID);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -213,8 +216,8 @@ export function DeleteProject({
         >
           <Text style={[s.label, { color: colors.danger }]}>Deleted with this project</Text>
           <Text style={s.text}>
-            {goalCount} goal{goalCount === 1 ? "" : "s"} and {routineCount} routine
-            {routineCount === 1 ? "" : "s"}
+            {goalCount} goal{goalCount === 1 ? "" : "s"}, {routineCount} routine
+            {routineCount === 1 ? "" : "s"} and {ideaCount} idea{ideaCount === 1 ? "" : "s"}
           </Text>
           <Text style={s.small}>
             {taskCount > 0

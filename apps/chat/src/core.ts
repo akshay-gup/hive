@@ -19,6 +19,7 @@ import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { type ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
 import { Files } from "../../../packages/chat-core/src/files.ts";
 import { Goals } from "../../../packages/chat-core/src/goals.ts";
+import { Ideas } from "../../../packages/chat-core/src/ideas.ts";
 import { Messages } from "../../../packages/chat-core/src/messages.ts";
 import { Notifications } from "../../../packages/chat-core/src/notifications.ts";
 import { Reactions } from "../../../packages/chat-core/src/reactions.ts";
@@ -92,6 +93,7 @@ export class ChatCore {
   readonly goals: Goals;
   readonly routines: Routines;
   readonly work: Work;
+  readonly ideas: Ideas;
   /** When each task running on the machine was last announced. */
   private readonly touched = new Map<string, number>();
   readonly flags: AgentFlags;
@@ -265,6 +267,16 @@ export class ChatCore {
       // What was kept for a project goes with it (the app has warned who deletes it).
       projectGone: async (id) => void (await this.rules.removeScope({ type: "project", id })),
     });
+    this.ideas = new Ideas({
+      sql,
+      access: this.access,
+      entries: this.entries,
+      rules: this.rules,
+      work: this.work,
+      tasks: this.tasks,
+      channelExists: async (id) => Boolean(await this.store.get(SHARED_OWNER, "channels", id)),
+      changed: (entry) => void this.entryChanged(entry),
+    });
     this.flags = new AgentFlags(sql, options.clock);
     this.agent = new AgentLink({
       store: this.store,
@@ -276,6 +288,7 @@ export class ChatCore {
       work: this.work,
       goals: this.goals,
       routines: this.routines,
+      ideas: this.ideas,
       notices: this.workNotices,
       files: this.files,
       filing: this.filing,
@@ -519,7 +532,15 @@ export class ChatCore {
         projects: await this.work.projectsFor(owner(c)),
         goals: await this.goals.list(owner(c)),
         routines: await this.routines.list(owner(c)),
+        ideas: await this.ideas.list(owner(c)),
       }),
+    );
+    app.get("/v1/ideas", async (c) => c.json(await this.ideas.list(owner(c))));
+    app.post("/v1/ideas", async (c) =>
+      c.json(await this.ideas.create(owner(c), await c.req.json()), 201),
+    );
+    app.post("/v1/ideas/:id", async (c) =>
+      c.json(await this.ideas.decide(owner(c), c.req.param("id"), await c.req.json())),
     );
     app.post("/v1/routines", async (c) =>
       c.json(await this.routines.create(owner(c), await c.req.json()), 201),

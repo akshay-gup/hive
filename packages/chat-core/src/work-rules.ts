@@ -411,6 +411,19 @@ export class Work {
     raw: unknown,
     options: { key?: string; held?: boolean } = {},
   ): Promise<AgentTask> {
+    const prepared = await this.prepareTask(owner, raw, options);
+    const task = prepared.save();
+    prepared.announce();
+    return task;
+  }
+
+  /** Check creation before a synchronous transaction. An idea may attach a goal made in that transaction.
+   * Announce only after the transaction commits; an unsuccessful acceptance publishes no work. */
+  async prepareTask(
+    owner: string,
+    raw: unknown,
+    options: { key?: string; held?: boolean } = {},
+  ): Promise<{ save(goalId?: string): AgentTask; announce(): void }> {
     const input = createTaskSchema.parse(raw);
     this.ensureGeneral();
     const scope = await this.deps.access.scope(owner);
@@ -425,11 +438,10 @@ export class Work {
       throw new AppError("That channel is not there, or you cannot see it.", 404);
     if (options.key) {
       const existing = this.deps.tasks.byKey(options.key);
-      if (existing) return existing;
+      if (existing) return { save: () => existing, announce: () => {} };
     }
     const id = this.id();
     if (input.blockedBy.length) await this.checkBlockedBy(owner, id, input.blockedBy);
-    this.assertTaskRoom(owner);
     // Only the workflows that run as code have steps to start with, because the code ticks them off.
     // What an agent does has none: its plan is the todo list the agent keeps as it works.
     const titles =
@@ -448,39 +460,57 @@ export class Work {
       throw new AppError("A prompt is required for agent-executed tasks", 422);
     if (input.startAt && input.dueAt && input.startAt > input.dueAt)
       throw new AppError("startAt must not be after dueAt", 422);
-    const now = this.now();
-    const task = this.deps.tasks.create(
-      {
-        id,
-        title: input.title ?? input.prompt?.slice(0, 90) ?? "Untitled task",
-        prompt: input.prompt ?? "",
-        kind: input.kind,
-        goalId: input.goalId,
-        projectId,
-        priority: input.priority,
-        startAt: input.startAt ?? null,
-        dueAt: input.dueAt ?? null,
-        blockedBy: input.blockedBy,
-        labels: input.labels,
-        channelId,
-        originChannelId: channelId,
-        delegatedTo: null,
-        threadId: input.threadId,
-        createdBy: owner,
-        status: options.held ? "paused" : "queued",
-        plan: titles.map((title, i) => ({ id: String(i), title, status: "pending" as const })),
-        evidence: [],
-        input: input.input,
-        state: {},
-        createdAt: now,
-        updatedAt: now,
-        attempts: 0,
-        artifactIds: [],
-      } as AgentTask,
-      options.key,
-    );
-    this.deps.changed?.({ task, before: null });
-    return task;
+    let saved: AgentTask | undefined;
+    let made = false;
+    return {
+      save: (goalId) => {
+        if (saved) return saved;
+        if (options.key) {
+          const existing = this.deps.tasks.byKey(options.key);
+          if (existing) return existing;
+        }
+        this.assertTaskRoom(owner);
+        const now = this.now();
+        saved = this.deps.tasks.create(
+          {
+            id,
+            title: input.title ?? input.prompt?.slice(0, 90) ?? "Untitled task",
+            prompt: input.prompt ?? "",
+            kind: input.kind,
+            goalId: goalId ?? input.goalId,
+            projectId,
+            priority: input.priority,
+            startAt: input.startAt ?? null,
+            dueAt: input.dueAt ?? null,
+            blockedBy: input.blockedBy,
+            labels: input.labels,
+            channelId,
+            originChannelId: channelId,
+            delegatedTo: null,
+            threadId: input.threadId,
+            createdBy: owner,
+            status: options.held ? "paused" : "queued",
+            plan: titles.map((title, i) => ({ id: String(i), title, status: "pending" as const })),
+            evidence: [],
+            input: input.input,
+            state: {},
+            createdAt: now,
+            updatedAt: now,
+            attempts: 0,
+            artifactIds: [],
+          } as AgentTask,
+          options.key,
+        );
+        made = true;
+        return saved;
+      },
+      announce: () => {
+        if (made && saved) {
+          made = false;
+          this.deps.changed?.({ task: saved, before: null });
+        }
+      },
+    };
   }
 
   /**

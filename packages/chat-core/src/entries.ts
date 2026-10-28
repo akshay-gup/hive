@@ -8,7 +8,7 @@ export interface EntryScope {
   id?: string;
 }
 
-/** Something the room keeps that is not a task: a notice, a goal, a routine. What it is, is its `kind`. */
+/** Something the room keeps that is not a task: a notice, a goal, a routine, an idea. What it is, is its `kind`. */
 export interface Entry<Data = Record<string, unknown>> {
   id: string;
   kind: string;
@@ -52,7 +52,7 @@ const toEntry = (row: Row): Entry => ({
 
 /** What a caller says of an entry it keeps; the rest (the times) the store fills in. */
 export type EntryInput = Pick<Entry, "id" | "kind" | "scope" | "createdBy"> &
-  Partial<Pick<Entry, "status" | "dueAt" | "data">>;
+  Partial<Pick<Entry, "status" | "dueAt" | "data" | "createdAt">>;
 
 /**
  * The room's entries, as rows. This is only the storage: who may see or change one is entry-rules.ts, and
@@ -97,7 +97,7 @@ export class Entries {
         input.createdBy,
         input.status ?? null,
         due,
-        now,
+        input.createdAt ? Date.parse(input.createdAt) : now,
         now,
         data,
       );

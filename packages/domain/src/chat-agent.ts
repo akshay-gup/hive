@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTask, TaskAttachment, TaskNote } from "./agent.ts";
+import { type AgentTask, ideaBatchSchema, type TaskAttachment, type TaskNote } from "./agent.ts";
 import { WATCH_STOP_TEXT, type WatchMode, watchFindingSchema } from "./agent-watch.ts";
 
 /**
@@ -250,6 +250,7 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("agent.flag"), finding: watchFindingSchema }),
   /** The shared mail source failed. The room chooses the words and recipients; the machine names neither. */
   z.object({ t: z.literal("source.error"), at: z.number().int().nonnegative() }),
+  z.object({ t: z.literal("ideas.batch"), batch: ideaBatchSchema }),
   /** The agent has a file to put in its reply: the room says where to send the bytes. */
   z.object({
     t: z.literal("file.begin"),
@@ -383,6 +384,8 @@ export type RoomFrame =
   | { t: "ack"; runId: string }
   /** The source failure is kept in the room; the machine may forget its delivery record. */
   | { t: "source.error.ack"; at: number }
+  /** The room kept this batch; the machine may clear its delivery record and any old imported rows. */
+  | { t: "ideas.ack"; id: string }
   /** These channels are gone (deleted): what the machine kept for them goes too. */
   | { t: "channels.gone"; ids: string[] }
   /** Where to send a file's bytes: an address on the chat service, good for a few minutes. */

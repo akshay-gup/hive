@@ -20,6 +20,7 @@ import { channelGate } from "./channel-gate.ts";
 import { BorrowedFiles } from "./chat-runner/attachments.ts";
 import { TaskBorrower } from "./chat-runner/borrow.ts";
 import { ChatRunnerHost } from "./chat-runner/host.ts";
+import { IdeaDelivery } from "./chat-runner/ideas.ts";
 import { RunnerLink, type SocketFactory } from "./chat-runner/link.ts";
 import { SourceErrors } from "./chat-runner/source-errors.ts";
 import { standInFor, vouchFor } from "./chat-runner/stubs.ts";
@@ -202,7 +203,6 @@ export async function createApp(
     const session = await auth.session();
     await workspace.ensureSample("local-user", actions);
     await agent.ensure("local-user");
-    if (config.mode === "sample") await agent.refreshIdeas("local-user");
     return c.json(session);
   });
   app.get("/api/google/callback", async (c) => {
@@ -452,6 +452,8 @@ export async function createApp(
         });
         const sourceErrors = new SourceErrors(db, (frame) => link.send(frame));
         agent.sourceFailure = () => sourceErrors.report();
+        const ideas = new IdeaDelivery(db, (frame) => link.send(frame));
+        agent.publishIdeas = (batch) => ideas.report(batch);
         const work = new WorkLink({
           send: (frame) => link.send(frame),
           history: (ask) => agent.history(ask),
@@ -518,6 +520,7 @@ export async function createApp(
         host = new ChatRunnerHost({
           tasks: borrower,
           sourceErrors,
+          ideas,
           outcome: (task) => agent.outcome(task),
           work,
           board,

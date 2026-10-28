@@ -230,17 +230,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     return c.json(binding);
   });
   app.post("/ideas/refresh", async (c) => c.json(await service.refreshIdeas(c.get("owner"))));
-  app.post("/ideas/:id", async (c) => {
-    const body = z
-      .object({
-        action: z.enum(["accept", "dismiss"]),
-        prompt: z.string().trim().min(1).max(12000).optional(),
-      })
-      .parse(await c.req.json());
-    return c.json(
-      await service.decideIdea(c.get("owner"), c.req.param("id"), body.action, body.prompt),
-    );
-  });
   app.post("/identity", async (c) => {
     const body = z
       .object({

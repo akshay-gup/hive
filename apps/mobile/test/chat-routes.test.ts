@@ -28,6 +28,8 @@ test("what the channel screens ask the workspace server is asked of the chat ser
     ["/api/agent/projects", "/v1/projects"],
     ["/api/agent/projects/people", "/v1/projects/people"],
     ["/api/agent/projects/p1", "/v1/projects/p1"],
+    ["/api/agent/ideas", "/v1/ideas"],
+    ["/api/agent/ideas/i1", "/v1/ideas/i1"],
   ];
   for (const [from, to] of pairs) assert.equal(chatPathOf(from), to, from);
 });
@@ -43,6 +45,7 @@ test("what belongs to the agent stays with the workspace server", () => {
     "/api/agent",
     "/api/conversation?threadId=channel:design",
     "/api/agent/notifications",
+    "/api/agent/ideas/refresh",
     "/api/workspace",
     "/api/agent/opencode/channels/design/permissions",
   ])

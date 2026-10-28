@@ -2,6 +2,14 @@
 
 What the automated checks cover, how to run them, and what has not been verified. Hive is an alpha: this lists coverage and its limits, and does not claim that every planned capability is complete.
 
+## Ideas in chat — 2026-10-28
+
+Saved ideas and their decisions now live in the room's scoped entries, alongside goals and routines. The machine generates shared-mail suggestions and retains only pending delivery records. Existing machine ideas transfer on reconnect, with their dates, decisions and channel scope preserved; old rows are deleted only after acknowledgement. Shared-mail suggestions are for non-guest team members. Private entries follow the same scope rules as other entries, including no admin access to personal entries.
+
+Acceptance commits the task, goal and decision together. Concurrent acceptance creates one task; dismissal, replay, a full task cap or an interrupted write cannot leave duplicate or partial work. An interrupted old acceptance reuses its task and goal. A project's ideas go with its goals and routines when the project is deleted, and the app includes them in its deletion warning. Acceptance refuses a project with a wider audience than the idea. A personal or channel idea requires a suitable project; the separate private-channel project-picker work remains deferred.
+
+Validation: 303 affected cloud, server and mobile regression tests passed, followed by targeted rollback and full runner delivery/acknowledgement checks. Production source, changed test and mobile typechecks passed in batches. A browser fixture using the real app provider verified cloud reads, accept/dismiss routing, live entry updates, and ignoring stale machine ideas, with the machine both unavailable and available. Live staging used real Worker endpoints and WebSockets with a stand-in runner: records and decisions remained available after disconnect, replay preserved decisions, private scopes held, concurrent acceptance created one goal/task, and project deletion removed scoped ideas. No model calls or real Google account were used; the temporary workspace was purged.
+
 ## Live limits check — 2026-10-28
 
 Checked against the deployed chat and control services using existing test accounts and temporary private projects and a channel:

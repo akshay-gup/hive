@@ -10,6 +10,7 @@ import { agentOn, agentRefusal } from "../../../packages/chat-core/src/agent-tri
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { Files } from "../../../packages/chat-core/src/files.ts";
 import type { Goals } from "../../../packages/chat-core/src/goals.ts";
+import type { Ideas } from "../../../packages/chat-core/src/ideas.ts";
 import type { Message, Messages } from "../../../packages/chat-core/src/messages.ts";
 import { isActive, RUN_LIMITS, type Run, type Runs } from "../../../packages/chat-core/src/runs.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
@@ -80,6 +81,7 @@ export interface AgentLinkDeps {
   /** The board's rules: what the agent does to it it does as the person it works for. */
   work: Work;
   goals: Goals;
+  ideas: Ideas;
   routines: Routines;
   notices: WorkNotices;
   files: Files;
@@ -228,6 +230,10 @@ export class AgentLink {
       }
       case "work.call":
         return this.workCall(frame);
+      case "ideas.batch":
+        await this.deps.ideas.receive(frame.batch);
+        this.send({ t: "ideas.ack", id: frame.batch.id });
+        return;
       case "source.error": {
         const now = this.deps.clock();
         // Old delivery records and clock skew do not let a machine invent unlimited future notices.
@@ -514,6 +520,7 @@ export class AgentLink {
             tasks: await work.tasksFor(actor),
             projects: await work.projectsFor(actor),
             goals: await goals.list(actor),
+            ideas: await this.deps.ideas.list(actor),
           };
           break;
       }

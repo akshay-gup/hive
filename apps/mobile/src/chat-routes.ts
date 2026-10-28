@@ -50,6 +50,9 @@ export function chatPathOf(path: string): string | null {
   ) {
     return to(`/v1/${part.slice(3).join("/")}`);
   }
+  // Finding fresh suggestions needs the mailbox on the machine; saved ideas and decisions do not.
+  if (part[3] === "ideas" && part.length <= 5 && part[4] !== "refresh")
+    return to(`/v1/${part.slice(3).join("/")}`);
   if (part[3] === "dms" && part.length <= 5) return to(`/v1/dms${part[4] ? `/${part[4]}` : ""}`);
   if (part[3] === "notification-prefs" && part.length === 4) return to("/v1/notification-prefs");
   return null;

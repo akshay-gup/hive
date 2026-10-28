@@ -301,6 +301,8 @@ export interface Idea {
   createdAt: string;
   /** The channel the goal it comes from was made in, when only some of the team can open it: it stays there. */
   channelId?: string;
+  scope?: { type: "person" | "project" | "channel" | "team"; id?: string };
+  createdBy?: string;
 }
 export interface AgentArtifact {
   id: string;
@@ -328,7 +330,7 @@ export interface AgentNotification {
   createdAt: string;
   read: boolean;
 }
-/** What the workspace's machine tells of the agent: everything but the board and the goals, which the chat service keeps. */
+/** What the workspace's machine tells of runtime artifacts, identity and worker state; saved ideas and the board belong to chat. */
 export type AgentMachineView = Omit<AgentWorkspace, "tasks" | "projects" | "goals" | "routines">;
 export interface AgentIdentity {
   name: string;
@@ -623,6 +625,51 @@ export const goalScopeSchema = z.object({
   type: z.enum(["person", "project", "channel", "team"]),
   id: z.string().max(100).optional(),
 });
+export const ideaInputSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  reason: z.string().max(4000),
+  prompt: z.string().trim().min(1).max(12000),
+  kind: z.enum(["agent", "document", "finance", "plan", "manual"]),
+  input: z
+    .record(z.string(), z.unknown())
+    .default({})
+    .refine((input) => JSON.stringify(input).length <= 32_000, "Too much idea data"),
+  evidence: z
+    .array(
+      z.object({
+        id: z.string().max(200),
+        kind: z.enum(["mail", "file", "web", "user"]),
+        title: z.string().max(500),
+        excerpt: z.string().max(4000),
+        url: z.string().max(2000).optional(),
+      }),
+    )
+    .max(20)
+    .default([]),
+  scope: goalScopeSchema.optional(),
+});
+export const ideaDecisionSchema = z.object({
+  action: z.enum(["accept", "dismiss"]),
+  prompt: z.string().trim().min(1).max(12000).optional(),
+  projectId: z.string().min(1).max(100).optional(),
+});
+/** Shared-mail suggestions and a one-time transfer of old machine records. Neither can name a person. */
+export const ideaBatchSchema = z.object({
+  id: z.string().min(1).max(100),
+  ideas: z
+    .array(
+      ideaInputSchema.omit({ scope: true }).extend({
+        id: z.string().min(1).max(100),
+        channelId: z.string().min(1).max(100).optional(),
+        status: z.enum(["new", "accepted", "dismissed"]).default("new"),
+        taskId: z.string().max(100).optional(),
+        createdAt: z.iso.datetime().optional(),
+      }),
+    )
+    .max(10),
+  sentMessageIds: z.array(z.string().max(200)).max(5000).default([]),
+});
+export type IdeaBatch = z.infer<typeof ideaBatchSchema>;
 export const goalInputSchema = z.object({
   title: z.string().trim().min(1).max(160),
   description: z.string().max(4000).default(""),
