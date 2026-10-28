@@ -1558,6 +1558,7 @@ function GoalForm({ onDone }: { onDone: () => void }) {
         onChangeText={setMilestones}
         multiline
       />
+      <Text style={[s.small, { fontWeight: "600", color: colors.text }]}>Whose goal is it?</Text>
       <Segmented label="Whose goal is it?" value={whose} onChange={setWhose} options={places} />
       <ErrorNotice error={error} />
       <Button primary disabled={!title.trim()} busy={busy} onPress={() => void save()}>
