@@ -47,7 +47,6 @@ export const SHARED_KINDS: ReadonlySet<string> = new Set([
   "browser-downloads",
   "browser-shots",
   // The agent
-  "memories",
   "agent-settings",
   "ideas",
   "notifications",

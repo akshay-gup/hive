@@ -7,7 +7,6 @@ import { createApp } from "../apps/server/src/app.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import type {
-  AgentMemory,
   AgentNotification,
   AgentTask,
   AgentWorkspace,
@@ -80,7 +79,6 @@ test("agent API requires a session and reports the actual worker state", async (
 test("agent request validation rejects malformed input with useful JSON errors", async () => {
   for (const [path, body] of [
     ["/ideas/missing", { action: "accept", prompt: " " }],
-    ["/memories", { text: " " }],
     ["/identity", { name: "Hive", tone: "angry" }],
   ] satisfies [string, unknown][]) {
     const response = await request(path, body);
@@ -89,27 +87,7 @@ test("agent request validation rejects malformed input with useful JSON errors",
   }
 });
 
-test("memories can be edited and forgotten while identity changes persist", async () => {
-  const memory = await read<AgentMemory>(
-    "/memories",
-    { text: "I prefer morning meetings", source: "You" },
-    201,
-  );
-  const updated = await read<AgentMemory>(`/memories/${memory.id}`, {
-    text: "I prefer afternoon meetings",
-  });
-  assert.equal(updated.id, memory.id);
-  assert.equal(updated.createdAt, memory.createdAt);
-  assert.equal(updated.source, "You");
-  // Memory belongs to the team: one a teammate saved can be corrected and forgotten like any other.
-  await db.put("other-user", "memories", { ...memory, id: "teammate-memory" });
-  assert.equal((await request("/memories/teammate-memory", { text: "Corrected" })).status, 200);
-  assert.equal(
-    (await db.get<AgentMemory>("other-user", "memories", "teammate-memory"))?.text,
-    "Corrected",
-  );
-  assert.equal((await request("/memories/teammate-memory/forget", {})).status, 200);
-  assert.equal(await db.get("other-user", "memories", "teammate-memory"), null);
+test("the agent's identity changes persist and are the team's", async () => {
   await read("/identity", {
     name: "Nova",
     tone: "concise",
@@ -125,14 +103,11 @@ test("memories can be edited and forgotten while identity changes persist", asyn
     (await request("/identity", { name: "Nova", tone: "warm", avatar: "invalid" })).status,
     422,
   );
-  assert.equal(snapshot.memories.find((item) => item.id === memory.id)?.text, updated.text);
   // The agent's personality is the team's too.
   assert.equal(
     (await db.get<{ name: string }>("other-user", "agent-settings", "identity"))?.name,
     "Nova",
   );
-  assert.deepEqual(await read(`/memories/${memory.id}/forget`, {}), { ok: true });
-  assert.ok(!(await read<AgentWorkspace>("")).memories.some((item) => item.id === memory.id));
 });
 
 test("idea dismissal survives refresh and concurrent acceptance creates one task", async () => {

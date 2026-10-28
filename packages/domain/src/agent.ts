@@ -302,14 +302,6 @@ export interface Idea {
   /** The channel the goal it comes from was made in, when only some of the team can open it: it stays there. */
   channelId?: string;
 }
-export interface AgentMemory {
-  id: string;
-  text: string;
-  source: string;
-  createdAt: string;
-  /** The channel it was learned in, when only some of the team can open that channel: it stays there. */
-  channelId?: string;
-}
 export interface AgentArtifact {
   id: string;
   taskId: string;
@@ -350,7 +342,6 @@ export interface AgentWorkspace {
   routines: Routine[];
   projects: Project[];
   ideas: Idea[];
-  memories: AgentMemory[];
   artifacts: AgentArtifact[];
   notifications: AgentNotification[];
   identity: AgentIdentity;

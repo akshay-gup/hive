@@ -351,7 +351,6 @@ const apart: Record<string, string> = {
   create_goal: "writes a goal for the asker and reads nothing",
   create_routine: "makes a routine for the asker, in the place the run is in, and reads nothing",
   routine_memo: "keeps a note on the one routine that woke this run, and on no other",
-  remember_fact: "writes a memory for the asker and reads nothing",
 };
 
 test("each tool that reaches the board or a channel's records is refused to someone who may not", async () => {

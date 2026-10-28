@@ -41,7 +41,7 @@ Hive is a channel-based team chat with an agent in the loop. It runs its own ser
 
 Chat threads are plain conversation until you mention `@hive` — then the agent wakes with the full thread history and attached files, works as a durable OpenCode session, and asks before risky actions. Delegated tasks run as unattended OpenCode sessions and report back to the originating thread. The agent can browse public pages through the browser worker, work with files and PDFs, and run durable delegated tasks. Graphical desktops and autonomous checkout remain future work.
 
-What the agent does is the team's, not one person's. Everyone who signs in sees the same channels, threads, tasks, files, memories and Google connection, so a note on a task, a file in a channel, or something the agent was told to remember is there for the next person instead of living in one chat. Only each person's own orchestrator chat, their private tab for talking to the agent outside any channel, is private ([Who sees what](#who-sees-what)), and roles beyond who can open which channel are not built yet ([roadmap](#roadmap)).
+What the agent does is the team's, not one person's. Everyone who signs in sees the same channels, threads, tasks, files and Google connection, so a note on a task or a file in a channel is there for the next person instead of living in one chat. Only each person's own orchestrator chat, their private tab for talking to the agent outside any channel, is private ([Who sees what](#who-sees-what)), and roles beyond who can open which channel are not built yet ([roadmap](#roadmap)).
 
 ## Features
 
@@ -56,7 +56,7 @@ What the agent does is the team's, not one person's. Everyone who signs in sees 
 | **Documents** | Email attachment → PDF → requested form values → filled copy → reviewed reply → receipt. Native/web PDF viewing, paging, zoom, supported fields, and sharing. |
 | **Finance** | Import transaction CSV to create a spending summary with categories, transactions, and a savings-goal action. |
 | **Gmail & Calendar** | Google OAuth adapters, complete mail threads, drafts/attachments, calendar discovery, and reviewed event creation/update/deletion. Live credentials required. |
-| **Personality & memory** | The agent's name, tone, and avatar, and what it remembers (editable and forgettable), the same for everyone on the team. Background-update preferences and durable in-app notifications. |
+| **Personality** | The agent's name, tone, and avatar, the same for everyone on the team. Background-update preferences and durable in-app notifications. |
 
 The [feature inventory](docs/FEATURES.md) describes implemented capabilities and planned extensions. Health/bank/social connectors, device push, voice, generated executable tools, and automatic reservations/payments are on the [roadmap](ROADMAP.md).
 
@@ -70,7 +70,7 @@ Where Hive is headed: a self-contained, agent-native team chat.
 - Permissions default to ask with approve/deny in the thread, plus per-channel/per-thread rules.
 - Delegated tasks run as OpenCode sessions in auto-mode; background permission requests surface in the originating thread.
 - Mention-only chat trigger: the agent runs only when the latest message contains `@hive` (env `AGENT_MENTION`); on trigger it receives the full conversation transcript plus attached files.
-- A shared workspace: everyone who signs in sees the same channels, threads, tasks, files, memories and Google connection, and only each person's orchestrator chat is private. See [Who sees what](#who-sees-what).
+- A shared workspace: everyone who signs in sees the same channels, threads, tasks, files and Google connection, and only each person's orchestrator chat is private. See [Who sees what](#who-sees-what).
 - Hosted workspaces: a control plane signs people in, starts a workspace of its own for each team (a machine, a disk and its own agent) on Fly or DigitalOcean, and lets them invite people; the app signs in to it. See [docs/hosted.md](docs/hosted.md).
 
 **Next**
@@ -171,7 +171,7 @@ Or use `docker compose --env-file .env -f infra/compose.yaml up --build -d`. The
 
 ## Review and the task brief
 
-**The agent never marks a task done.** When it says it has finished (`finish_task`, or a final message that ends with `TASK_COMPLETE:`) the task moves to **In Review**, a person looks at the result, and either **Mark done** (the only way agent work reaches *Done*, and the moment a goal's milestone is recorded) or **Send back with changes**, which queues the task again with their note. A run that stops without saying it is finished lands in review too, flagged as such. Documents and spending summaries are plain code with no judgment to review, so they still finish themselves (a document task finishes once you approve its reply), and watches keep running on their schedule. The agent's `update_task` tool cannot set a task to done, and neither can a `PATCH` on a worker task.
+**The agent never marks a task done.** When it says it has finished (`finish_task`, or a final message that ends with `TASK_COMPLETE:`) the task moves to **In Review**, a person looks at the result, and either **Mark done** (the only way agent work reaches *Done*, and the moment a goal's milestone is recorded) or **Send back with changes**, which queues the task again with their note. A run that stops without saying it is finished lands in review too, flagged as such. Documents and spending summaries are plain code with no judgment to review, so they still finish themselves (a document task finishes once you approve its reply), and routines keep running on their schedule. The agent's `update_task` tool cannot set a task to done, and neither can a `PATCH` on a worker task.
 
 **Notes and files** are what the agent is told besides the task itself, and they belong to the task, not to a run:
 
@@ -203,7 +203,7 @@ Channel workspace directories and thread bindings live on the API server's local
 
 ### Who sees what
 
-Hive is a team workspace. Everyone who signs in sees the same channels, threads (with the agent's replies), tasks, boards, goals, watches, reviews and receipts, files, drafts, browser sessions, and the agent's memory, personality, ideas and notifications. The only thing kept per person is the **orchestrator chat**, its threads and the choice cards in them. The tasks it creates are shared like any other.
+Hive is a team workspace. Everyone who signs in sees the same channels, threads (with the agent's replies), tasks, boards, goals, routines, reviews and receipts, files, drafts, browser sessions, and the agent's personality and ideas. The only thing kept per person is the **orchestrator chat**, its threads and the choice cards in them. The tasks it creates are shared like any other.
 
 The workspace has **one Google connection** (Gmail, Calendar, Drive), so the mail, calendar and files that come through it are the team's. Anyone can connect it when there is none, grant it more access, or disconnect it; a different account can only be connected after the connected one is disconnected. Reviews run on that connection, so anyone can approve or decline one; `createdBy` only records who prepared it. Because every signed-in person can read that mailbox and approve what is sent from it, limit who can sign in to people you trust (for example the test users on your Google OAuth consent screen).
 

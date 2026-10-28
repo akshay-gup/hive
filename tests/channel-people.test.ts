@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { conversationTools } from "../apps/server/src/engine/tools.ts";
 import type {
-  AgentMemory,
   AgentTask,
   Channel,
   ChannelThread,
@@ -234,36 +233,12 @@ test("a private channel is found only by the people in it, whoever else is askin
 test("the notices of work in a private project are shown to its people and to those who run the workspace", async () => {
   const { channel, task } = await privateWorld();
   await world.server.agent.notify(world.owner("max"), "Payroll is ready", "Look it over", task.id);
-  await world.db.put("shared", "memories", {
-    id: "mem-finance",
-    text: "Payroll runs on the 25th",
-    source: "chat",
-    createdAt: new Date().toISOString(),
-    channelId: channel.id,
-  } satisfies AgentMemory);
-  await world.db.put("shared", "memories", {
-    id: "mem-team",
-    text: "Standup is at ten",
-    source: "chat",
-    createdAt: new Date().toISOString(),
-  } satisfies AgentMemory);
   const seen = async (who: Who) =>
     (await json(await call(who, "GET", "/api/agent"))) as {
       notifications: { taskId?: string }[];
-      memories: AgentMemory[];
     };
   const mine = await seen("max");
   assert.ok(mine.notifications.some((n) => n.taskId === task.id));
-  assert.deepEqual(mine.memories.map((m) => m.id).sort(), ["mem-finance", "mem-team"]);
-  // What the agent learned in the channel is the channel's; the work is the project's.
-  for (const who of ["mia", "ada", "olive"] as const) {
-    const theirs = await seen(who);
-    assert.deepEqual(
-      theirs.memories.map((m) => m.id),
-      ["mem-team"],
-      who,
-    );
-  }
   const mia = await seen("mia");
   assert.ok(!mia.notifications.some((n) => n.taskId === task.id));
   const notifications = (await json(await call("mia", "GET", "/api/agent/notifications"))) as {
@@ -331,54 +306,6 @@ test("the reviews and receipts of a private channel's work, and clearing notices
   }[];
   assert.ok(left.some((n) => n.title === "Payroll posted"));
   assert.ok(!left.some((n) => n.title === "Team lunch"));
-});
-
-test("what the agent learns in a private channel stays in it", async () => {
-  const { channel, thread } = await privateWorld();
-  const tool = conversationTools(
-    world.server.agent,
-    world.owner("max"),
-    {
-      threadId: thread.threadId,
-      runId: "r",
-      messages: [],
-      tools: [],
-      context: [],
-      state: {},
-      forwardedProps: {},
-    },
-    { signal: new AbortController().signal, requestKey: "remember", channelId: channel.id },
-  ).find((candidate) => candidate.name === "remember_fact");
-  assert.ok(tool);
-  const memory = (await (tool.execute as (args: unknown) => Promise<AgentMemory>)({
-    text: "The audit is in March",
-  })) as AgentMemory;
-  assert.equal(memory.channelId, channel.id);
-  const open = await make("max", "Plans");
-  const elsewhere = conversationTools(
-    world.server.agent,
-    world.owner("max"),
-    {
-      threadId: "t-plans",
-      runId: "r",
-      messages: [],
-      tools: [],
-      context: [],
-      state: {},
-      forwardedProps: {},
-    },
-    { signal: new AbortController().signal, requestKey: "remember-open", channelId: open.id },
-  ).find((candidate) => candidate.name === "remember_fact");
-  assert.ok(elsewhere);
-  const shared = (await (elsewhere.execute as (args: unknown) => Promise<AgentMemory>)({
-    text: "Launch is in June",
-  })) as AgentMemory;
-  assert.equal(shared.channelId, undefined);
-  const miaSees = (
-    (await json(await call("mia", "GET", "/api/agent"))) as { memories: AgentMemory[] }
-  ).memories;
-  assert.ok(!miaSees.some((m) => m.id === memory.id));
-  assert.ok(miaSees.some((m) => m.id === shared.id));
 });
 
 test("anyone in a private channel can add and take out people, and the last one cannot leave", async () => {

@@ -42,7 +42,6 @@ export const CARD_TOOLS: ReadonlySet<string> = new Set([
   "delegate_task",
   "create_goal",
   "create_routine",
-  "remember_fact",
 ]);
 
 /** The agent's own to-do list is scratch work, not something that happened. */

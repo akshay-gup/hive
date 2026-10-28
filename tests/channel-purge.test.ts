@@ -7,7 +7,7 @@ import { createApp } from "../apps/server/src/app.ts";
 import type { Config } from "../apps/server/src/config.ts";
 import { createStore, type Store } from "../apps/server/src/db.ts";
 import { channelWorkspaceDir } from "../apps/server/src/engine/threads.ts";
-import type { AgentMemory, AgentTask, Channel } from "../packages/domain/src/agent.ts";
+import type { AgentTask, Channel } from "../packages/domain/src/agent.ts";
 import { localTask } from "./helpers/local-task.ts";
 
 /**
@@ -67,17 +67,15 @@ async function keepSomething(id: string, createdBy: string) {
     channelId: id,
     input: {},
   });
-  await db.put("shared", "memories", {
-    id: `memory-${id}`,
-    text: "something learned",
-    source: "test",
-    createdAt: now(),
+  await db.put("shared", "ideas", {
+    id: `idea-${id}`,
+    title: "something suggested",
     channelId: id,
-  } as AgentMemory);
+  } as never);
   return { folder, task };
 }
 
-test("everything the machine kept for a deleted channel goes: folder, threads, what it learned, the record; its tasks, which are their projects', stay", async () => {
+test("everything the machine kept for a deleted channel goes: folder, threads, what it suggested, the record; its tasks, which are their projects', stay", async () => {
   const gone = await keepSomething("chat-gone", "chat");
   const kept = await keepSomething("chat-kept", "chat");
   assert.deepEqual((await server.agent.standInIds()).sort(), ["chat-gone", "chat-kept"]);
@@ -87,11 +85,11 @@ test("everything the machine kept for a deleted channel goes: folder, threads, w
   assert.equal(await db.get("shared", "channels", "chat-gone"), null);
   // Tasks belong to projects, not channels.
   assert.ok(await db.get<AgentTask>("shared", "tasks", gone.task.id));
-  assert.equal(await db.get("shared", "memories", "memory-chat-gone"), null);
+  assert.equal(await db.get("shared", "ideas", "idea-chat-gone"), null);
   await assert.rejects(readdir(gone.folder), "the folder is gone");
   // Another channel is left as it was.
   assert.ok(await db.get<AgentTask>("shared", "tasks", kept.task.id));
-  assert.ok(await db.get("shared", "memories", "memory-chat-kept"));
+  assert.ok(await db.get("shared", "ideas", "idea-chat-kept"));
   assert.ok((await readdir(kept.folder)).includes("uploads.txt"));
   assert.deepEqual(await server.agent.standInIds(), ["chat-kept"]);
 });

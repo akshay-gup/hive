@@ -39,7 +39,6 @@ type Machine = Omit<AgentWorkspace, "tasks" | "projects" | "goals" | "routines">
 /** What there is to show of the agent before the machine has answered, or while it is asleep. */
 const NO_MACHINE: Machine = {
   ideas: [],
-  memories: [],
   artifacts: [],
   notifications: [],
   identity: { name: "Hive", tone: "warm" },

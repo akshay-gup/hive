@@ -215,7 +215,6 @@ test("everything that belongs to the whole workspace is closed to a guest", asyn
     ["GET", "/api/browsers/any"],
     ["POST", "/api/agent/channels", { name: "Mine" }],
     ["POST", "/api/agent/goals", {}],
-    ["POST", "/api/agent/memories", { text: "x" }],
     ["POST", "/api/agent/identity", { name: "Eve", tone: "warm" }],
     ["POST", "/api/agent/projects", { name: "P" }],
     ["POST", "/api/agent/threads/bind", { threadId: "t", channelId: "orchestrator" }],
@@ -432,12 +431,11 @@ test("the agent is offered a guest only the tools the channel's conversation nee
     "remove_routine",
     "routine_webhook",
     "routine_memo",
-    "remember_fact",
   ])
     assert.ok(!guests.includes(name), name);
   // Everyone else keeps all of them.
   const team = names(false);
-  for (const name of ["search_mail", "delegate_task", "agent_status", "remember_fact"])
+  for (const name of ["search_mail", "delegate_task", "agent_status"])
     assert.ok(team.includes(name), name);
 });
 

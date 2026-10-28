@@ -31,7 +31,6 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import type { Artifact, BrowserSession } from "../../../packages/domain/src";
 import type {
   AgentArtifact,
-  AgentMemory,
   AgentTask,
   Evidence,
   Goal,
@@ -1861,7 +1860,6 @@ export function AppsScreen() {
   const [tone, setTone] = useState(data?.identity.tone || "warm");
   const [avatar, setAvatar] = useState(data?.identity.avatar || "sky");
   const [showChatUpdates, setShowChatUpdates] = useState(data?.identity.showChatUpdates !== false);
-  const [memory, setMemory] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -1882,7 +1880,6 @@ export function AppsScreen() {
     setError("");
     try {
       await mutate(path, body);
-      if (path === "/memories") setMemory("");
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -1952,7 +1949,7 @@ export function AppsScreen() {
         </Card>
       </View>
       <Button onPress={() => setSettings(!settings)}>
-        {settings ? "Close agent settings" : "Personality & memory"}
+        {settings ? "Close agent settings" : "Personality"}
       </Button>
       {settings && (
         <>
@@ -1997,79 +1994,9 @@ export function AppsScreen() {
               Save preferences
             </Button>
           </Card>
-          <Card style={{ gap: 12 }}>
-            <SectionHeading title="Memory" />
-            <Text style={s.muted}>Context your whole team can inspect, correct or forget.</Text>
-            {data?.memories.map((item) => (
-              <MemoryRow key={item.id} memory={item} />
-            ))}
-            <Field
-              label="Remember something for the team"
-              value={memory}
-              onChangeText={setMemory}
-              placeholder="We ship on Fridays"
-            />
-            <Button
-              busy={busy}
-              disabled={!memory.trim()}
-              onPress={() =>
-                void save("/memories", { text: memory.trim(), source: "User added in Apps" })
-              }
-            >
-              Remember
-            </Button>
-          </Card>
           <PermissionsSettings />
         </>
       )}
-      <ErrorNotice error={error} />
-    </View>
-  );
-}
-function MemoryRow({ memory }: { memory: AgentMemory }) {
-  const { mutate } = useAgentWorkspace();
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(memory.text);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function act(forget: boolean) {
-    setBusy(true);
-    setError("");
-    try {
-      await mutate(`/memories/${memory.id}${forget ? "/forget" : ""}`, forget ? {} : { text });
-      setEditing(false);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <View
-      style={{ gap: 10, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.line }}
-    >
-      {editing ? (
-        <Field label="Memory" value={text} onChangeText={setText} />
-      ) : (
-        <Text style={s.text}>{memory.text}</Text>
-      )}
-      <Text style={s.small}>
-        {memory.source} · {stamp(memory.createdAt)}
-      </Text>
-      <View style={[s.row, { gap: 8 }]}>
-        {editing ? (
-          <Button small busy={busy} disabled={!text.trim()} onPress={() => void act(false)}>
-            Save correction
-          </Button>
-        ) : (
-          <Button small onPress={() => setEditing(true)}>
-            Edit
-          </Button>
-        )}
-        <Button small danger busy={busy} onPress={() => void act(true)}>
-          Forget
-        </Button>
-      </View>
       <ErrorNotice error={error} />
     </View>
   );

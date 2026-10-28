@@ -385,8 +385,6 @@ test("everything else is shared too: drafts, files, browser sessions, memory and
     (await read<Workspace>(tokenB, "/api/workspace")).browsers.some((b) => b.id === "session-1"),
   );
 
-  await agent(tokenA, "/memories", { text: "Prefers short answers" }, 201);
-  assert.equal((await agent<AgentWorkspace>(tokenB, "")).memories.length, 1);
   await agent(tokenA, "/identity", { name: "Sky", tone: "concise" });
   assert.equal((await agent<AgentWorkspace>(tokenB, "")).identity.name, "Sky");
 });

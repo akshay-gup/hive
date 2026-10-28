@@ -257,14 +257,6 @@ export function WorkspaceTools() {
       <ServerToolCard name="Routine" result={result} loading={status !== "complete"} />
     ),
   });
-  useRenderTool({
-    name: "remember_fact",
-    description: "Display saved personal context",
-    parameters: displayParameters,
-    render: ({ result, status }) => (
-      <ServerToolCard name="Memory" result={result} loading={status !== "complete"} />
-    ),
-  });
   return null;
 }
 function ServerToolCard({
@@ -309,15 +301,7 @@ function ServerToolCard({
       )}
       <Button
         small
-        onPress={() =>
-          navigate(
-            name === "Goal" || name === "Routine"
-              ? "goals"
-              : name === "Memory"
-                ? "apps"
-                : "activity",
-          )
-        }
+        onPress={() => navigate(name === "Goal" || name === "Routine" ? "goals" : "activity")}
       >
         View {name.toLowerCase()}
       </Button>

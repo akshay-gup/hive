@@ -15,7 +15,6 @@ import {
   type AgentArtifact,
   type AgentIdentity,
   type AgentMachineView,
-  type AgentMemory,
   type AgentNotification,
   type AgentTask,
   type Channel,
@@ -642,7 +641,6 @@ export class AgentService {
     ]);
     return {
       ideas: [],
-      memories: [],
       artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
       // Only what was said to them: the rest is the workspace's.
       notifications: notices.filter(
@@ -703,9 +701,8 @@ export class AgentService {
     const scope = await this.access.scope(owner);
     if (scope.person?.role === "guest") return this.guestSnapshot(owner, scope);
     await this.ensure(owner);
-    const [ideas, memories, artifacts, notifications, identity] = await Promise.all([
+    const [ideas, artifacts, notifications, identity] = await Promise.all([
       this.db.list<Idea>(owner, "ideas"),
-      this.db.list<AgentMemory>(owner, "memories"),
       this.db.list<AgentArtifact>(owner, "agent-artifacts"),
       this.db.list<AgentNotification>(owner, "notifications"),
       this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
@@ -725,7 +722,6 @@ export class AgentService {
     const prefs = await this.notificationPrefs(owner);
     return {
       ideas: ideas.filter((idea) => !idea.channelId || scope.allows(idea.channelId)),
-      memories: memories.filter((memory) => !memory.channelId || scope.allows(memory.channelId)),
       artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
       notifications: notifications.filter(
         (note) =>
@@ -842,7 +838,7 @@ export class AgentService {
             .forDirectory(directory)
             .session.delete({ sessionID: binding.opencodeSessionId, directory })
             .catch(() => undefined);
-    for (const kind of ["memories", "ideas", "notifications"] as const)
+    for (const kind of ["ideas", "notifications"] as const)
       for (const item of await this.db.list<{ id: string; channelId?: string }>(SHARED_OWNER, kind))
         if (item.channelId === channelId) await this.db.remove(SHARED_OWNER, kind, item.id);
     await rm(directory, { recursive: true, force: true });

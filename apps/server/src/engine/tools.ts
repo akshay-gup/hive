@@ -80,7 +80,7 @@ export function conversationTools(
     ORCHESTRATOR_CHANNEL_ID;
   /**
    * The channel this conversation is in, when it is a private one: what the agent makes here that
-   * the whole workspace would see (a goal, a project, a monitor, a memory) is kept in the channel.
+   * the whole workspace would see (a goal, a project, a routine) is kept in the channel.
    */
   const privateChannel = async () => {
     const channel = await workspaceChannel();
@@ -522,24 +522,6 @@ export function conversationTools(
       execute: async ({ memo, routineId }) =>
         board.call("routine.memo", { memo, ...(routineId ? { routineId } : {}) }),
     }),
-    defineTool({
-      name: "remember_fact",
-      description: "Remember a preference explicitly supplied or confirmed by the user",
-      parameters: z.object({ text: z.string().min(1).max(2000) }),
-      execute: async ({ text }) => {
-        // What is learned in a private channel stays in it, as the channel's own conversation does.
-        const channelId = await privateChannel();
-        const value = {
-          id: createHash("sha256").update(key("memory", text)).digest("hex"),
-          text,
-          source: "User confirmed in chat",
-          createdAt: new Date().toISOString(),
-          ...(channelId ? { channelId } : {}),
-        };
-        await service.db.insertIfAbsent(owner, "memories", value);
-        return value;
-      },
-    }),
   ];
   const offered = guest ? tools.filter((tool) => guestTools.has(tool.name)) : tools;
   return toolset
@@ -576,7 +558,7 @@ export const privateChatTools: ReadonlySet<string> = new Set([
 /**
  * What the agent may be asked to do for a guest: show choices, put an item on their channel's board,
  * share a file from the channel's workspace, ask for an upload, read a page. The rest reaches beyond
- * the channel (the mail, other tasks and projects, goals, the workspace's memory), so it is not theirs.
+ * the channel (the mail, other tasks and projects, goals), so it is not theirs.
  */
 export const guestTools: ReadonlySet<string> = new Set([
   "present_choices",

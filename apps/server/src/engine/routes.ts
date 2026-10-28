@@ -5,16 +5,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { isDm } from "../../../../packages/chat-core/src/access.ts";
 import { AppError } from "../../../../packages/chat-core/src/errors.ts";
-import type {
-  AgentIdentity,
-  AgentMemory,
-  AgentNotification,
-} from "../../../../packages/domain/src/agent.ts";
+import type { AgentIdentity, AgentNotification } from "../../../../packages/domain/src/agent.ts";
 import { byteRange } from "./channel-files.ts";
 import type { AgentService } from "./service.ts";
 
 const text = z.string().trim().min(1).max(4000);
-const memorySchema = z.object({ text, source: z.string().trim().min(1).max(200).optional() });
 
 export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: string } }> {
   const app = new Hono<{ Variables: { owner: string } }>();
@@ -248,33 +243,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     return c.json(
       await service.decideIdea(c.get("owner"), c.req.param("id"), body.action, body.prompt),
     );
-  });
-  app.post("/memories", async (c) => {
-    const body = memorySchema.parse(await c.req.json());
-    const memory: AgentMemory = {
-      id: randomUUID(),
-      text: body.text,
-      source: body.source ?? "You",
-      createdAt: new Date().toISOString(),
-    };
-    return c.json(await service.db.put(c.get("owner"), "memories", memory), 201);
-  });
-  app.post("/memories/:id", async (c) => {
-    const body = memorySchema.parse(await c.req.json());
-    const memory = await service.db.compareAndSwap<AgentMemory>(
-      c.get("owner"),
-      "memories",
-      c.req.param("id"),
-      {},
-      body,
-    );
-    if (!memory) throw new AppError("Memory not found", 404);
-    return c.json(memory);
-  });
-  app.post("/memories/:id/forget", async (c) => {
-    if (!(await service.db.take(c.get("owner"), "memories", c.req.param("id"))))
-      throw new AppError("Memory not found", 404);
-    return c.json({ ok: true });
   });
   app.post("/identity", async (c) => {
     const body = z
