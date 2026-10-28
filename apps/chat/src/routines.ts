@@ -460,7 +460,8 @@ export class Routines {
         fires,
         ...(lastRunAt ? { lastRunAt } : {}),
         ...(lastTriggerId ? { lastTriggerId } : {}),
-        ...(lastResult ? { lastResult } : {}),
+        // What is said of the last time is replaced, not kept beside what came after.
+        lastResult: lastResult || undefined,
       } as never,
     });
   }

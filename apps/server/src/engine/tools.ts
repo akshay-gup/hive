@@ -552,6 +552,7 @@ export const chatTools: ReadonlySet<string> = new Set([
   "browse_web",
   "create_issue",
   "send_file",
+  "create_goal",
   "create_routine",
   "list_routines",
   "update_routine",
@@ -563,6 +564,7 @@ export const chatTools: ReadonlySet<string> = new Set([
 export const privateChatTools: ReadonlySet<string> = new Set([
   "browse_web",
   "send_file",
+  "create_goal",
   "create_routine",
   "list_routines",
   "update_routine",

@@ -272,6 +272,7 @@ test("a routine of someone's own chat wakes the machine, tries again when it is 
   assert.ok(ask.ticket && ask.ticket.includes("."), "it carries a ticket for the board");
   state = (await world.core.routines.list(id("mia")))[0];
   assert.equal(state?.fires, 1);
+  assert.equal(state?.lastResult, undefined, "what was said while it waited is gone");
   // The next time is an hour on from this one.
   assert.equal(state?.nextRunAt, new Date(clock + 60 * 60_000).toISOString());
   // A machine that answers no is a failure, counted.
