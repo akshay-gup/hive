@@ -219,28 +219,6 @@ test("the worker runs a task as the person who asked for it and its run is on th
   assert.ok(seen.events.some((e) => e.title === "Reading the thread"));
 });
 
-test("a task's outcome notifies whoever started it, and no one else", async () => {
-  await localTask(server.agent, ALICE, {
-    title: "Research venues",
-    prompt: "Find venues",
-    kind: "agent",
-    channelId: "team",
-  });
-  // No model is configured, so the task stops to ask for one: an outcome that wants a person.
-  await server.agent.worker.tick();
-  const notes = (token: string) => agent<AgentNotification[]>(token, "/notifications");
-  const forAlice = (await notes(tokenA)).find((n) => n.title === "Your details are needed");
-  assert.ok(forAlice, "Alice sees the notification her task raised");
-  // It is hers: Bob is not shown it, cannot read it, and reading it does not change what she has.
-  assert.equal(
-    (await notes(tokenB)).some((n) => n.id === forAlice.id),
-    false,
-  );
-  await agent(tokenB, `/notifications/${forAlice.id}/read`, {}, 404);
-  await agent(tokenA, `/notifications/${forAlice.id}/read`, {});
-  assert.equal((await notes(tokenA)).find((n) => n.id === forAlice.id)?.read, true);
-});
-
 test("reviews and receipts are shared, and anyone on the team can approve one", async () => {
   const work = await localTask(server.agent, ALICE, {
     title: "Book the venue",

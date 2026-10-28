@@ -89,8 +89,6 @@ test("document job runs without a client, waits for review, and resumes from its
   assert.equal(receipt.status, "succeeded");
   await server.agent.worker.tick();
   assert.equal((await server.agent.getTask(owner, task.id)).status, "succeeded");
-  const notices = await db.list<AgentNotification>(owner, "notifications");
-  assert.equal(notices.filter((n) => n.taskId === task.id && n.title === task.title).length, 1);
   await server.agent.worker.tick();
   assert.equal(
     (await db.list<ActionProposal>(owner, "actions")).filter((a) => a.taskId === task.id).length,

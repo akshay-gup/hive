@@ -75,22 +75,6 @@ after(async () => {
 
 // ---- Review and the brief ----
 
-test("handed-in work is announced once, as ready for review", async () => {
-  const made = await inReview({ title: "Venue shortlist" });
-  const task = await server.agent.getTask(person, made.id);
-  const publish = (
-    server.agent as unknown as { publishOutcome: (owner: string, task: AgentTask) => Promise<void> }
-  ).publishOutcome.bind(server.agent);
-  await publish(person, task);
-  await publish(person, task);
-  const notices = (await server.agent.snapshot(person)).notifications.filter(
-    (n) => n.taskId === task.id,
-  );
-  assert.equal(notices.length, 1);
-  assert.equal(notices[0].title, "Ready for your review");
-  assert.equal(notices[0].body, "Venue shortlist");
-});
-
 test("the worker never picks up work in review", async () => {
   const task = await inReview();
   await server.agent.worker.tick();

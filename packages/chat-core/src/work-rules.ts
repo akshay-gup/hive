@@ -79,6 +79,8 @@ export interface WorkDeps {
   changed?: (change: WorkChange & { removed?: boolean }) => void;
   /** A project was made, changed or removed. */
   projectChanged?: (project: Project, removed?: boolean) => void;
+  /** A project was deleted: what is kept in its scope (goals, routines) goes too. */
+  projectGone?: (id: string) => Promise<void>;
   /** Whether a channel exists in this workspace, and the person may open it. */
   channel?: (id: string) => Promise<{ id: string } | null>;
   /** The files of tasks, kept with the room's other files (see apps/chat/src/filing.ts). */
@@ -160,7 +162,8 @@ export class Work {
     this.ensureGeneral();
     const project = this.deps.projects.get(id);
     const person = (await this.deps.access.scope(owner)).person;
-    if (!project || !canViewProject(person, project)) throw new AppError("That project is not there, or you cannot see it.", 404);
+    if (!project || !canViewProject(person, project))
+      throw new AppError("That project is not there, or you cannot see it.", 404);
     return project;
   }
 
@@ -260,6 +263,8 @@ export class Work {
       await this.assertProjectWork(owner, target);
     }
     const target = input.moveTo ?? GENERAL_PROJECT_ID;
+    // What is kept in the project's scope goes first, while it is still known who could see it.
+    await this.deps.projectGone?.(id);
     this.deps.projects.remove(id);
     this.deps.projectChanged?.(project, true);
     if (input.deleteTasks) {
@@ -280,7 +285,8 @@ export class Work {
     this.ensureGeneral();
     const scope = await this.deps.access.scope(owner);
     const project = task.projectId ? this.deps.projects.get(task.projectId) : null;
-    if (!canSeeTask(scope, project)) throw new AppError("That task is not there, or you cannot see it.", 404);
+    if (!canSeeTask(scope, project))
+      throw new AppError("That task is not there, or you cannot see it.", 404);
     if (write && project && !canWorkInProject(scope.person, project))
       throw new AppError("You can look at this project but not change what is in it", 403);
   }

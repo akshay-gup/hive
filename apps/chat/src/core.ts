@@ -13,6 +13,8 @@ import { AgentFlags } from "../../../packages/chat-core/src/agent-flags.ts";
 import { ChannelPeople } from "../../../packages/chat-core/src/channel-people.ts";
 import { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { DirectMessages } from "../../../packages/chat-core/src/direct-messages.ts";
+import { Entries, type Entry } from "../../../packages/chat-core/src/entries.ts";
+import { EntryRules } from "../../../packages/chat-core/src/entry-rules.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import { type ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
 import { Files } from "../../../packages/chat-core/src/files.ts";
@@ -36,6 +38,7 @@ import type { WorkspaceRole } from "../../../packages/integrations/src/workspace
 import { AgentLink, type RunnerLink } from "./agent-link.ts";
 import { Filing } from "./filing.ts";
 import { Messaging } from "./messaging.ts";
+import { WorkNotices } from "./work-notices.ts";
 
 /** Who is asking, as the Worker verified it from the control plane's token. */
 export interface ChatIdentity {
@@ -81,6 +84,9 @@ export class ChatCore {
   readonly runs: Runs;
   readonly tasks: Tasks;
   readonly projects: Projects;
+  readonly entries: Entries;
+  readonly rules: EntryRules;
+  readonly workNotices: WorkNotices;
   readonly work: Work;
   /** When each task running on the machine was last announced. */
   private readonly touched = new Map<string, number>();
@@ -172,6 +178,20 @@ export class ChatCore {
     this.runs = new Runs(sql, options.clock);
     this.tasks = new Tasks(sql, options.clock);
     this.projects = new Projects(sql, options.clock);
+    this.entries = new Entries(sql, options.clock);
+    this.rules = new EntryRules({
+      access: this.access,
+      entries: this.entries,
+      projects: this.projects,
+      channelOf: (id) => this.store.get<Channel>(SHARED_OWNER, "channels", id),
+      changed: (entry, removed, audience) => void this.entryChanged(entry, removed, audience),
+    });
+    this.workNotices = new WorkNotices({
+      entries: this.entries,
+      rules: this.rules,
+      wantsWork: async (owner) => (await this.channels.notificationPrefs(owner)).work,
+      emit: (type, data, userId) => this.emit(type, data, { userId }),
+    });
     this.work = new Work({
       access: this.access,
       projects: this.projects,
@@ -204,9 +224,12 @@ export class ChatCore {
       changed: ({ task, before, removed }) => {
         void this.workChanged("task.changed", task, removed);
         void this.agent.taskChanged(task, before, removed);
+        if (!removed) this.workNotices.taskChanged(task, before);
       },
       projectChanged: (project, removed) =>
         void this.workChanged("project.changed", project, removed),
+      // What was kept for a project goes with it (the app has warned who deletes it).
+      projectGone: async (id) => void (await this.rules.removeScope({ type: "project", id })),
     });
     this.flags = new AgentFlags(sql, options.clock);
     this.agent = new AgentLink({
@@ -284,6 +307,7 @@ export class ChatCore {
     if (!managesChannel(person, channel))
       throw new AppError("Only a channel manager, an admin or the owner can delete a channel", 403);
     const audience = await this.audience(channelId);
+    await this.rules.removeScope({ type: "channel", id: channelId });
     this.sql.transaction(() => {
       this.files.removeOfChannel(channelId);
       this.sql.run("DELETE FROM reactions WHERE channel_id = ?", channelId);
@@ -364,6 +388,19 @@ export class ChatCore {
       if (sees)
         this.emit(type, { id: thing.id, ...(removed ? { removed: true } : {}) }, { userId: id });
     }
+  }
+
+  /**
+   * An entry (a notice, a goal, a routine) changed: each person who may see it is told its id, so their screen
+   * asks again. A removed one is told to those who could see it when it went.
+   */
+  private async entryChanged(entry: Entry, removed = false, audience?: string[]) {
+    for (const userId of audience ?? (await this.rules.audience(entry)))
+      this.emit(
+        "entry.changed",
+        { id: entry.id, kind: entry.kind, ...(removed ? { removed: true } : {}) },
+        { userId },
+      );
   }
 
   /** A channel was made: those who can open it are told. */
@@ -710,11 +747,15 @@ export class ChatCore {
     app.get("/v1/usage", async (c) => c.json(this.files.usage()));
 
     // What a person is told
-    app.get("/v1/notifications", async (c) =>
-      c.json(
-        await this.messaging.notices(c.get("owner"), { unreadOnly: c.req.query("unread") === "1" }),
-      ),
-    );
+    app.get("/v1/notifications", async (c) => {
+      const unreadOnly = c.req.query("unread") === "1";
+      // What was said to a person in chat, and what the agent told them of its work, together, newest first.
+      const notices = [
+        ...(await this.messaging.notices(c.get("owner"), { unreadOnly })),
+        ...(await this.workNotices.list(c.get("owner"), { unreadOnly })),
+      ];
+      return c.json(notices.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    });
     const noticeAction =
       (action: "read" | "unread" | "dismiss") =>
       async (c: {
@@ -723,13 +764,23 @@ export class ChatCore {
         json(value: unknown): Response;
       }) =>
         c.json({
-          changed: this.messaging.noticeState(c.get("owner"), action, [c.req.param("id")]),
+          changed:
+            this.messaging.noticeState(c.get("owner"), action, [c.req.param("id")]) +
+            this.workNotices.state(c.get("owner"), action, [c.req.param("id")]),
         });
     app.post("/v1/notifications/read-all", async (c) =>
-      c.json({ changed: this.messaging.noticeState(c.get("owner"), "read") }),
+      c.json({
+        changed:
+          this.messaging.noticeState(c.get("owner"), "read") +
+          this.workNotices.state(c.get("owner"), "read"),
+      }),
     );
     app.post("/v1/notifications/dismiss-all", async (c) =>
-      c.json({ changed: this.messaging.noticeState(c.get("owner"), "dismiss") }),
+      c.json({
+        changed:
+          this.messaging.noticeState(c.get("owner"), "dismiss") +
+          this.workNotices.state(c.get("owner"), "dismiss"),
+      }),
     );
     app.post("/v1/notifications/:id/read", noticeAction("read"));
     app.post("/v1/notifications/:id/unread", noticeAction("unread"));

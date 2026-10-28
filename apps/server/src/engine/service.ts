@@ -1378,15 +1378,13 @@ export class AgentService {
     }
     await this.publishOutcome(owner, task);
   }
+  /**
+   * What the machine does about a task that came to an end or a stop: the person is told of it by the chat
+   * service, which makes the notice itself (and keeps it while this machine sleeps), so what is left here is
+   * what only the machine can do: count a finished task as a goal's milestone.
+   */
   private async publishOutcome(owner: string, task: AgentTask) {
     if (task.status === "succeeded") {
-      await this.notify(
-        owner,
-        task.title,
-        task.result ?? "Work completed",
-        task.id,
-        `task-done:${task.id}`,
-      );
       // Only a goal the person who started the task may see counts it (the board cannot tell; goals are here).
       if (
         task.goalId &&
@@ -1412,38 +1410,6 @@ export class AgentService {
             break;
         }
       }
-    } else if (task.status === "in_review") {
-      await this.notify(
-        owner,
-        "Ready for your review",
-        task.title,
-        task.id,
-        `task-review:${task.id}:${task.attempts}`,
-      );
-    } else if (task.status === "failed") {
-      await this.notify(
-        owner,
-        "Task needs attention",
-        task.error ?? task.title,
-        task.id,
-        `task-error:${task.id}:${task.attempts}`,
-      );
-    } else if (task.status === "waiting_input") {
-      await this.notify(
-        owner,
-        "Your details are needed",
-        task.question ?? task.title,
-        task.id,
-        `input:${task.id}:${hash(task.question ?? "")}`,
-      );
-    } else if (task.status === "waiting_approval") {
-      await this.notify(
-        owner,
-        "Ready for your review",
-        task.title,
-        task.id,
-        `review:${task.actionId}`,
-      );
     }
     const notice = z
       .object({ title: z.string(), body: z.string(), key: z.string() })

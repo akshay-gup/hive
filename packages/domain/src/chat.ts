@@ -64,13 +64,17 @@ export interface ChatMessagePage {
 
 /** One thing a person is told: a mention, a reply in a thread they are in. */
 export interface ChatNotice {
-  /** The message it is about; with the kind, what makes it one notice. */
+  /** The message it is about, or for a notice of the agent's work its own id; with the kind, what makes it one notice. */
   id: string;
-  kind: "mention" | "reply";
-  channelId: string;
-  channelName: string;
-  by: string;
-  byName: string;
+  /** A mention or a reply is about a message; "work" is the agent telling of a task (done, ready for review, needs you). */
+  kind: "mention" | "reply" | "work";
+  /** The channel it is about: not for a notice of work. */
+  channelId?: string;
+  channelName?: string;
+  by?: string;
+  byName?: string;
+  /** The task a notice of work is about. */
+  taskId?: string;
   title: string;
   body: string;
   createdAt: string;

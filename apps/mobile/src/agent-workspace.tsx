@@ -22,6 +22,7 @@ import { useWorkspace } from "./workspace";
 /** A notice from the chat service in the shape the notification screens already show. */
 const asNotification = (notice: ChatNotice): AgentNotification => ({
   id: notice.id,
+  taskId: notice.taskId,
   channelId: notice.channelId,
   by: notice.by,
   byName: notice.byName,

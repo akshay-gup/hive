@@ -255,7 +255,8 @@ export class Access {
    * not added to is not something to tell them about.
    */
   async assertChannel(owner: string, channelId: string): Promise<void> {
-    if (!(await this.scope(owner)).allows(channelId)) throw new AppError("That channel is not there, or you cannot see it.", 404);
+    if (!(await this.scope(owner)).allows(channelId))
+      throw new AppError("That channel is not there, or you cannot see it.", 404);
   }
 
   /** The channels of the list a person may see. */

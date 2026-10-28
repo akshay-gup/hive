@@ -33,7 +33,7 @@ test("the agent makes items as the person who asked, and cannot put one in a pri
     made.map((task) => [task.title, task.createdBy, task.channelId]),
     [["Book the room", people.mia.id, room.id]],
   );
-  assert.match(attempt, /not found/i);
+  assert.match(attempt, /not (found|there)/i);
 });
 
 test("a call for a run that is over, or for a task the machine does not hold, is turned down", async (t) => {

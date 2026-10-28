@@ -154,7 +154,8 @@ export class ChatChannels {
     const person = scope.person;
     if (person?.role === "guest") throw new AppError("A guest can't archive a channel", 403);
     const runs = person?.role === "owner" || person?.role === "admin";
-    if (!runs && !scope.allows(id)) throw new AppError("That channel is not there, or you cannot see it.", 404);
+    if (!runs && !scope.allows(id))
+      throw new AppError("That channel is not there, or you cannot see it.", 404);
     const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", id);
     if (!channel) throw new AppError("That channel is not there, or you cannot see it.", 404);
     if (isDm(channel))

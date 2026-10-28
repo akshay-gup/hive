@@ -152,6 +152,23 @@ const STEPS: string[][] = [
     `CREATE INDEX tasks_leased ON tasks (lease_id) WHERE lease_id IS NOT NULL`,
     `CREATE INDEX tasks_project ON tasks (project_id, created_ms)`,
   ],
+  [
+    // What the agent and the people keep that is not a task: notices, goals, routines, and whatever comes
+    // next. One table for all of them, told apart by `kind`, each with a scope that says whose it is (a
+    // person's, a project's, a channel's, or the whole team's). Who may see one is worked out from its scope
+    // when it is read (see entry-rules.ts), never copied onto it. `status` and `due_ms` are for the kinds that
+    // have a state or a time to be woken at; `data` is the rest, as the app shows it.
+    `CREATE TABLE entries (
+       id TEXT PRIMARY KEY, kind TEXT NOT NULL,
+       scope_type TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '',
+       created_by TEXT NOT NULL, status TEXT, due_ms INTEGER,
+       created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+       data TEXT NOT NULL DEFAULT '{}'
+     )`,
+    `CREATE INDEX entries_scope ON entries (kind, scope_type, scope_id)`,
+    `CREATE INDEX entries_due ON entries (kind, due_ms) WHERE due_ms IS NOT NULL`,
+    `CREATE INDEX entries_by ON entries (kind, created_by, updated_ms)`,
+  ],
 ];
 
 /** The newest version of the tables. */

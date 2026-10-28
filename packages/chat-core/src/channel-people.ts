@@ -53,7 +53,8 @@ export class ChannelPeople {
       channelId === ORCHESTRATOR_CHANNEL_ID
         ? null
         : await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
-    if (!channel || !canOpen(person, channel)) throw new AppError("That channel is not there, or you cannot see it.", 404);
+    if (!channel || !canOpen(person, channel))
+      throw new AppError("That channel is not there, or you cannot see it.", 404);
     return channel;
   }
 

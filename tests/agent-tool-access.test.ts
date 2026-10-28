@@ -212,7 +212,10 @@ const reaching: Record<string, () => Promise<void>> = {
     const ideas = await server.agent.refreshIdeas(owner("max"));
     const idea = ideas.find((candidate) => candidate.input.goalId === hushGoalId);
     assert.ok(idea, "the goal in the private channel is suggested to the one who made it");
-    await assert.rejects(server.agent.decideIdea(owner("mia"), idea.id, "accept"), /not found/i);
+    await assert.rejects(
+      server.agent.decideIdea(owner("mia"), idea.id, "accept"),
+      /not (found|there)/i,
+    );
     const mia = (await use("mia", "agent_status", {})).said;
     for (const secretText of [
       secret.id,
@@ -229,7 +232,7 @@ const reaching: Record<string, () => Promise<void>> = {
   },
   async update_task() {
     const hidden = await use("mia", "update_task", { taskId: secretTask.id, title: "Seen" });
-    assert.ok(hidden.failed && /not found/i.test(hidden.said), hidden.said);
+    assert.ok(hidden.failed && /not (found|there)/i.test(hidden.said), hidden.said);
     const seen = await use("mia", "update_task", { taskId: limitedTask.id, title: "Mine now" });
     assert.ok(seen.failed && /not change|look at/i.test(seen.said), seen.said);
     assert.equal((await stored(secretTask.id))?.title, "Draft the layoffs memo");
@@ -243,9 +246,9 @@ const reaching: Record<string, () => Promise<void>> = {
       taskId: miaTask.id,
       blockedBy: [secretTask.id],
     });
-    assert.ok(waits.failed && /not found/i.test(waits.said), waits.said);
+    assert.ok(waits.failed && /not (found|there)/i.test(waits.said), waits.said);
     const goal = await use("mia", "update_task", { taskId: miaTask.id, goalId: hushGoalId });
-    assert.ok(goal.failed && /not found/i.test(goal.said), goal.said);
+    assert.ok(goal.failed && /not (found|there)/i.test(goal.said), goal.said);
     assert.deepEqual((await stored(miaTask.id))?.blockedBy, []);
   },
   async delete_task() {
@@ -269,11 +272,11 @@ const reaching: Record<string, () => Promise<void>> = {
       prompt: "Do it",
       goalId: hushGoalId,
     });
-    assert.ok(goal.failed && /not found/i.test(goal.said), goal.said);
+    assert.ok(goal.failed && /not (found|there)/i.test(goal.said), goal.said);
   },
   async create_issue() {
     const private_ = await use("mia", "create_issue", { title: "Sneak in", projectId: secret.id });
-    assert.ok(private_.failed && /not found/i.test(private_.said), private_.said);
+    assert.ok(private_.failed && /not (found|there)/i.test(private_.said), private_.said);
     const look = await use("mia", "create_issue", { title: "Sneak in", projectId: limited.id });
     assert.ok(look.failed && /look at/i.test(look.said), look.said);
     // Naming a task she cannot see as what this waits on would tell her it exists.
@@ -281,14 +284,14 @@ const reaching: Record<string, () => Promise<void>> = {
       title: "Wait on it",
       blockedBy: [secretTask.id],
     });
-    assert.ok(blocked.failed && /not found/i.test(blocked.said), blocked.said);
+    assert.ok(blocked.failed && /not (found|there)/i.test(blocked.said), blocked.said);
     const real = await use("mia", "create_issue", {
       title: "Wait on it",
       blockedBy: ["no-such-task"],
     });
     assert.equal(real.said, blocked.said.replace(secretTask.id, "no-such-task"));
     const goal = await use("mia", "create_issue", { title: "For it", goalId: hushGoalId });
-    assert.ok(goal.failed && /not found/i.test(goal.said), goal.said);
+    assert.ok(goal.failed && /not (found|there)/i.test(goal.said), goal.said);
     // A guest has no goals to point at, even the workspace's own.
     const own = (await use("max", "create_goal", { title: "Ship it" })).said;
     const guestGoal = await use("gus", "create_issue", {
