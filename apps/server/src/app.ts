@@ -21,6 +21,7 @@ import { BorrowedFiles } from "./chat-runner/attachments.ts";
 import { TaskBorrower } from "./chat-runner/borrow.ts";
 import { ChatRunnerHost } from "./chat-runner/host.ts";
 import { RunnerLink, type SocketFactory } from "./chat-runner/link.ts";
+import { SourceErrors } from "./chat-runner/source-errors.ts";
 import { standInFor, vouchFor } from "./chat-runner/stubs.ts";
 import { ticketIsFor, WorkLink } from "./chat-runner/work-link.ts";
 import type { Config } from "./config.ts";
@@ -449,6 +450,8 @@ export async function createApp(
           socket: options.chatRunner?.socket,
           log: (line) => console.log(line),
         });
+        const sourceErrors = new SourceErrors(db, (frame) => link.send(frame));
+        agent.sourceFailure = () => sourceErrors.report();
         const work = new WorkLink({
           send: (frame) => link.send(frame),
           history: (ask) => agent.history(ask),
@@ -514,6 +517,7 @@ export async function createApp(
         agent.board = board;
         host = new ChatRunnerHost({
           tasks: borrower,
+          sourceErrors,
           outcome: (task) => agent.outcome(task),
           work,
           board,

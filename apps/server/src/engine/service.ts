@@ -7,7 +7,6 @@ import {
   isIn,
   isPublic,
   managesChannel,
-  type Scope,
 } from "../../../../packages/chat-core/src/access.ts";
 import { ChannelPeople } from "../../../../packages/chat-core/src/channel-people.ts";
 import { AppError } from "../../../../packages/chat-core/src/errors.ts";
@@ -15,7 +14,6 @@ import {
   type AgentArtifact,
   type AgentIdentity,
   type AgentMachineView,
-  type AgentNotification,
   type AgentTask,
   type Channel,
   type ChannelThread,
@@ -34,11 +32,7 @@ import type {
   Mail,
   ProposalInput,
 } from "../../../../packages/domain/src/index.ts";
-import {
-  type Mentionable,
-  mentionedPeople,
-  withHandles,
-} from "../../../../packages/domain/src/mentions.ts";
+import { type Mentionable, withHandles } from "../../../../packages/domain/src/mentions.ts";
 import type { ActionService } from "../actions.ts";
 import type { BrowserService } from "../browser.ts";
 import { type Board, noBoard, type WorkClient } from "../chat-runner/work-link.ts";
@@ -64,7 +58,7 @@ import {
   type ThreadBindingStore,
 } from "./threads.ts";
 import { UploadRequests } from "./upload-requests.ts";
-import { LostLeaseError, type TaskContext, TaskWorker } from "./worker.ts";
+import { type TaskContext, TaskWorker } from "./worker.ts";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const date = () => new Date().toISOString();
@@ -79,6 +73,8 @@ export class AgentService {
   taskFinished?: (owner: string, task: AgentTask) => Promise<void>;
   /** Set by createApp: how the agent's tools change the board, which the chat service keeps. */
   board: Board = noBoard;
+  /** Report a failed shared mail source to the room, which chooses who is told. */
+  sourceFailure?: () => Promise<void>;
   /** Which task ids the board last said a person may see. */
   private readonly visibility = new Map<
     string,
@@ -180,14 +176,9 @@ export class AgentService {
       )) {
         if (value.id !== "identity") continue;
         if (!value.lastIdeasAt || Date.now() - Date.parse(value.lastIdeasAt) > 15 * 60000)
-          await this.refreshIdeas(owner).catch(async () => {
-            await this.notify(
-              owner,
-              "Source refresh needs attention",
-              "Reconnect the source or refresh Ideas to see the error.",
-              undefined,
-              `source-error:${Math.floor(Date.now() / 3600000)}`,
-            );
+          await this.refreshIdeas(owner).catch(async (error) => {
+            backgroundFailure("refresh mail source", error);
+            await this.sourceFailure?.();
           });
       }
     } finally {
@@ -301,43 +292,6 @@ export class AgentService {
       .map(({ email, name, handle, role }) => ({ email, name, handle, role }))
       .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
   }
-  /**
-   * Tell the people a message mentions, in their notifications. Only those who may open the
-   * channel are told, so a mention cannot be used to tell someone a private channel exists.
-   */
-  async notifyMentions(owner: string, channelId: string, text: string): Promise<void> {
-    if (channelId === ORCHESTRATOR_CHANNEL_ID || !text.includes("@")) return;
-    const channel = await this.getChannel(owner, channelId);
-    const sender = await this.access.person(owner);
-    if (!channel || !sender?.email) return;
-    const openers = await this.access.openers(channel);
-    const people = withHandles(openers);
-    const owners = new Map(openers.map((o) => [o.email, o.owner]));
-    const snippet = text.replace(/\s+/g, " ").trim();
-    for (const who of mentionedPeople(text, people)) {
-      const target = owners.get(who.email);
-      if (!target || who.email === sender.email) continue;
-      // The same message said again to the same person is the same notice, so a run that is
-      // repeated does not tell them twice.
-      const id = createHash("sha256")
-        .update(`${channelId}\n${sender.email}\n${who.email}\n${text}`)
-        .digest("hex")
-        .slice(0, 32);
-      if (await this.db.get(target, "notifications", id)) continue;
-      const note: AgentNotification = {
-        id,
-        channelId,
-        to: [who.email],
-        by: sender.email,
-        byName: sender.name || undefined,
-        title: `${sender.name || sender.email} mentioned you in #${channel.name}`,
-        body: snippet.length > 160 ? `${snippet.slice(0, 160)}…` : snippet,
-        createdAt: new Date().toISOString(),
-        read: false,
-      };
-      await this.db.put(target, "notifications", note);
-    }
-  }
   /** Record that someone wrote in a channel, for the unread mark of the others in it. */
   async noteMessage(owner: string, channelId: string): Promise<void> {
     if (channelId === ORCHESTRATOR_CHANNEL_ID) return;
@@ -371,13 +325,6 @@ export class AgentService {
     };
     await this.db.put(owner, "notification-prefs", { id: "me", ...next });
     return next;
-  }
-  /** Whether a notice is one this person has asked to be told: a muted channel's, a mention's and the work's are theirs to turn off. */
-  private wanted(prefs: NotificationPrefs, note: AgentNotification): boolean {
-    if (note.channelId && prefs.muted.includes(note.channelId)) return false;
-    if (note.by) return prefs.mentions;
-    if (note.taskId) return prefs.work;
-    return true;
   }
   /** When this person last had each channel open. */
   async readMarks(owner: string): Promise<Record<string, string>> {
@@ -595,14 +542,6 @@ export class AgentService {
     return found;
   }
   /**
-   * Whether a notice is this person's. One said to someone is theirs alone, and the result of a
-   * task is for whoever started it. What has neither (the workspace's own) is everyone's.
-   */
-  private noticeIsFor(owner: string, email: string | undefined, note: AgentNotification): boolean {
-    if (note.to) return !!email && note.to.includes(email);
-    return !note.forUser || note.forUser === owner;
-  }
-  /**
    * Which of these ids are tasks the person may see. The board is the chat service's, so it is asked, for the
    * ids this machine holds things about and no more; if it cannot answer, none are shown.
    */
@@ -627,29 +566,17 @@ export class AgentService {
     }
     return new Set(wanted.filter((id) => have.seen.has(id)));
   }
-  /** What a guest is shown: the notices, results and watches of tasks they may see, and nothing of the workspace's own. */
-  private async guestSnapshot(owner: string, scope: Scope): Promise<AgentMachineView> {
-    const prefs = await this.notificationPrefs(owner);
-    const [artifacts, identity, notices] = await Promise.all([
+  /** What a guest is shown of the machine: results of tasks they may see. Notices come from the room. */
+  private async guestSnapshot(owner: string): Promise<AgentMachineView> {
+    const [artifacts, identity] = await Promise.all([
       this.db.list<AgentArtifact>(owner, "agent-artifacts"),
       this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
-      this.db.list<AgentNotification>(owner, "notifications"),
     ]);
-    const visible = await this.visibleTaskIds(owner, [
-      ...artifacts.map((a) => a.taskId),
-      ...notices.map((n) => n.taskId),
-    ]);
+    const visible = await this.visibleTaskIds(owner, [...artifacts.map((a) => a.taskId)]);
     return {
+      notifications: [],
       ideas: [],
       artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
-      // Only what was said to them: the rest is the workspace's.
-      notifications: notices.filter(
-        (note) =>
-          this.wanted(prefs, note) &&
-          (!note.channelId || scope.allows(note.channelId)) &&
-          (!note.taskId || visible.has(note.taskId)) &&
-          this.noticeIsFor(owner, scope.person?.email, note),
-      ),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: { running: this.worker.running, lastTickAt: this.worker.lastTickAt },
     };
@@ -699,12 +626,11 @@ export class AgentService {
   /** What the machine keeps of the agent, for the app to lay beside the board (which the chat service keeps). */
   async snapshot(owner: string): Promise<AgentMachineView> {
     const scope = await this.access.scope(owner);
-    if (scope.person?.role === "guest") return this.guestSnapshot(owner, scope);
+    if (scope.person?.role === "guest") return this.guestSnapshot(owner);
     await this.ensure(owner);
-    const [ideas, artifacts, notifications, identity] = await Promise.all([
+    const [ideas, artifacts, identity] = await Promise.all([
       this.db.list<Idea>(owner, "ideas"),
       this.db.list<AgentArtifact>(owner, "agent-artifacts"),
-      this.db.list<AgentNotification>(owner, "notifications"),
       this.db.get<AgentIdentity>(owner, "agent-settings", "identity"),
     ]);
     const heartbeat =
@@ -715,21 +641,11 @@ export class AgentService {
         `tasks:${ORCHESTRATOR_CHANNEL_ID}`,
       ));
     // What belongs to a task of a private channel or project is shown to those who may see the task.
-    const visible = await this.visibleTaskIds(owner, [
-      ...artifacts.map((a) => a.taskId),
-      ...notifications.map((n) => n.taskId),
-    ]);
-    const prefs = await this.notificationPrefs(owner);
+    const visible = await this.visibleTaskIds(owner, [...artifacts.map((a) => a.taskId)]);
     return {
+      notifications: [],
       ideas: ideas.filter((idea) => !idea.channelId || scope.allows(idea.channelId)),
       artifacts: artifacts.filter((artifact) => !artifact.taskId || visible.has(artifact.taskId)),
-      notifications: notifications.filter(
-        (note) =>
-          this.wanted(prefs, note) &&
-          (!note.taskId || visible.has(note.taskId)) &&
-          (!note.channelId || scope.allows(note.channelId)) &&
-          this.noticeIsFor(owner, scope.person?.email, note),
-      ),
       identity: identity ?? { name: "Hive", tone: "warm" },
       worker: {
         running:
@@ -838,7 +754,7 @@ export class AgentService {
             .forDirectory(directory)
             .session.delete({ sessionID: binding.opencodeSessionId, directory })
             .catch(() => undefined);
-    for (const kind of ["ideas", "notifications"] as const)
+    for (const kind of ["ideas"] as const)
       for (const item of await this.db.list<{ id: string; channelId?: string }>(SHARED_OWNER, kind))
         if (item.channelId === channelId) await this.db.remove(SHARED_OWNER, kind, item.id);
     await rm(directory, { recursive: true, force: true });
@@ -972,25 +888,6 @@ export class AgentService {
     );
     await this.db.put(owner, "ideas", { ...idea, status: "accepted", taskId: task.id });
     return this.db.get<Idea>(owner, "ideas", id);
-  }
-  /**
-   * How a person the chat service names (by their account) is known to the sessions here, where a signed-in
-   * person of a managed workspace is `acct:` and the account.
-   */
-  private signedInAs(person: string): string {
-    return this.config.managed && !person.startsWith("acct:") ? `acct:${person}` : person;
-  }
-  async notify(owner: string, title: string, body: string, taskId?: string, key?: string) {
-    const value: AgentNotification = {
-      id: key ? hash(key) : randomUUID(),
-      taskId,
-      ...(taskId ? { forUser: this.signedInAs(owner) } : {}),
-      title,
-      body,
-      createdAt: date(),
-      read: false,
-    };
-    await this.db.insertIfAbsent(owner, "notifications", value);
   }
   mailEvidence(mail: Mail): Evidence {
     return { id: mail.id, kind: "mail", title: mail.subject, excerpt: mail.body.slice(0, 400) };

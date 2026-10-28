@@ -4,8 +4,29 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { SHARED_OWNER } from "../packages/chat-core/src/shared.ts";
 import type { Channel } from "../packages/domain/src/agent.ts";
-import type { ChatMessage } from "../packages/domain/src/chat.ts";
+import type { ChatNotice } from "../packages/domain/src/chat.ts";
 import { people, wired } from "./helpers/chat-wired.ts";
+
+test("the machine reports a mail failure to the room and drops its delivery record after acknowledgement", async (t) => {
+  const f = await wired(t, ({ say }) => say("Hello"));
+  assert.ok(f.server.agent.sourceFailure);
+  await f.server.agent.sourceFailure();
+  const notices = async () =>
+    (await (await f.call("max", "GET", "/v1/notifications")).json()) as ChatNotice[];
+  await f.until("the room to keep the mail notice", async () =>
+    (await notices()).some((n) => n.title === "Mail connection needs attention"),
+  );
+  await f.until(
+    "the machine to forget the acknowledged report",
+    async () => (await f.db.list("system", "source-errors")).length === 0,
+  );
+  await f.server.agent.sourceFailure();
+  assert.equal((await notices()).filter((n) => n.kind === "update").length, 1);
+  assert.deepEqual((await f.server.agent.snapshot("acct:acct_max")).notifications, []);
+  assert.deepEqual(await f.db.list("shared", "notifications"), []);
+  const guestNotices = await (await f.call("gus", "GET", "/v1/notifications")).json();
+  assert.deepEqual(guestNotices, []);
+});
 
 test("a mention in a channel is answered in its thread, from the folder of that channel", async (t) => {
   const f = await wired(t, ({ say }) => say("The plan is to ship on Friday."));

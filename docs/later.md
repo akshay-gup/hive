@@ -14,7 +14,7 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **Model provider keys behind a proxy.** The agent would hold a placeholder, not the real key.
 - **Clear a run's work folder after a chat run.** Less left on disk for a later run to read.
 - **Personal chat history off the machine.** Each person's private chat with the agent is on the machine today.
-- **Move ideas into the chat service.** Goals, notices and routines are there (entries with a scope); ideas (made from mail the machine reads) are still on the machine, and so is the history of a task's runs, which is listed separately below. Two notices are still written by the machine: a mention made in the app's own chat, and a failing mail source.
+- **Move ideas into the chat service.** Goals, notices and routines are there (entries with a scope); ideas (made from mail the machine reads) are still on the machine, and so is the history of a task's runs, which is listed separately below.
 - **A sandbox for channel runs only.** A real wall for other people's requests, at the cost of root for those runs. Only if we decide the agent need not always keep root.
 - **Mail and Google credentials.** The workspace's one connection is the whole team's by design, and the agent can read it.
 

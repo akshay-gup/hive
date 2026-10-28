@@ -66,8 +66,8 @@ export interface ChatMessagePage {
 export interface ChatNotice {
   /** The message it is about, or for a notice of the agent's work its own id; with the kind, what makes it one notice. */
   id: string;
-  /** A mention or a reply is about a message; "work" is the agent telling of a task (done, ready for review, needs you). */
-  kind: "mention" | "reply" | "work";
+  /** A mention or a reply is about a message; "work" is news of a task; "update" is a workspace connection problem. */
+  kind: "mention" | "reply" | "work" | "update";
   /** The channel it is about: not for a notice of work. */
   channelId?: string;
   channelName?: string;

@@ -44,6 +44,7 @@ import { makeTicket, readTicket, TICKET_MS } from "./board-ticket.ts";
 import type { Filing } from "./filing.ts";
 import type { Routines } from "./routines.ts";
 import { signedPath } from "./uploads.ts";
+import type { WorkNotices } from "./work-notices.ts";
 
 /** The agent's machine, as the room can reach it: the one connection it holds. */
 export interface RunnerLink {
@@ -80,6 +81,7 @@ export interface AgentLinkDeps {
   work: Work;
   goals: Goals;
   routines: Routines;
+  notices: WorkNotices;
   files: Files;
   filing: Filing;
   /** The machine's connection, if there is one. The room may sleep, so this is asked for each time. */
@@ -109,8 +111,8 @@ export interface AgentLinkDeps {
  * The agent's side of a workspace's chat: what becomes of a mention. A mention makes a run; the run is sent
  * to the machine the agent runs on, which writes the agent's reply as it goes; people answer what the agent
  * asks and can stop it. What a run is lives here, and who may do what is decided here each time, so the
- * machine is trusted with nothing but the words of its own reply: every frame it sends is held to a run
- * that is still going, and only that run's reply is changed.
+ * machine writes only replies bound to a run that is still going. A source-error report carries only a time;
+ * the room chooses its notice text and recipients.
  */
 export class AgentLink {
   private maxRuns: number = RUN_LIMITS.defaultMaxRuns;
@@ -226,6 +228,25 @@ export class AgentLink {
       }
       case "work.call":
         return this.workCall(frame);
+      case "source.error": {
+        const now = this.deps.clock();
+        // Old delivery records and clock skew do not let a machine invent unlimited future notices.
+        if (frame.at <= now + 60_000 && frame.at >= now - 7 * 24 * 60 * 60_000) {
+          const hour = Math.floor(frame.at / 3_600_000);
+          for (const [owner, person] of await this.deps.access.byId()) {
+            // The shared mailbox is available to the team, not to guests.
+            if (person.role === "guest") continue;
+            this.deps.notices.tell(owner, {
+              key: `source-error:${hour}`,
+              kind: "update",
+              title: "Mail connection needs attention",
+              body: "Reconnect the mail connection or refresh Ideas to see the error.",
+            });
+          }
+        }
+        this.send({ t: "source.error.ack", at: frame.at });
+        return;
+      }
       case "work.answer": {
         const waiting = this.asking.get(frame.reqId);
         if (!waiting) return;

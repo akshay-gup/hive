@@ -48,7 +48,6 @@ import { PermissionsSettings } from "./opencode-permissions";
 import { ProjectPeopleStack } from "./project-header";
 import { canChangeTask } from "./project-text";
 import { ActivityScreen, ConnectionsScreen } from "./screens";
-import { useServerFeature } from "./server-features";
 import { TaskAttention } from "./task-attention";
 import {
   ago,
@@ -1773,7 +1772,6 @@ export function NotificationsSheet() {
   const { data, mutate } = useAgentWorkspace();
   const { close, open } = useWorkspace();
   const { select } = useMuseThread();
-  const canDismiss = useServerFeature("notifications-dismiss");
   const [error, setError] = useState("");
   async function read(id: string, taskId?: string, channelId?: string) {
     try {
@@ -1802,7 +1800,7 @@ export function NotificationsSheet() {
     >
       <View style={{ gap: 16 }}>
         <ErrorNotice error={error} />
-        {canDismiss && !!data?.notifications.length && (
+        {!!data?.notifications.length && (
           <Button
             small
             style={{ alignSelf: "flex-end" }}
@@ -1832,11 +1830,9 @@ export function NotificationsSheet() {
                       ? "Read"
                       : "Mark read"}
               </Button>
-              {canDismiss && (
-                <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>
-                  Dismiss
-                </Button>
-              )}
+              <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>
+                Dismiss
+              </Button>
             </View>
           </Card>
         ))}

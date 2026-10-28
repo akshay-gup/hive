@@ -14,6 +14,7 @@ interface NoticeData {
   taskId?: string;
   read: boolean;
   dismissed: boolean;
+  kind?: "update";
 }
 
 export interface WorkNoticesDeps {
@@ -80,7 +81,7 @@ export class WorkNotices {
   /** Tell a person. False if they have already been told this (the key is the same). */
   tell(
     userId: string,
-    notice: { key: string; title: string; body: string; taskId?: string },
+    notice: { key: string; title: string; body: string; taskId?: string; kind?: "update" },
   ): boolean {
     const data: NoticeData = {
       title: notice.title.slice(0, 200),
@@ -89,6 +90,7 @@ export class WorkNotices {
       ...(notice.taskId ? { taskId: notice.taskId } : {}),
       read: false,
       dismissed: false,
+      ...(notice.kind ? { kind: notice.kind } : {}),
     };
     const { entry, made } = this.deps.entries.putIfAbsent({
       id: `notice:${userId}:${notice.key}`.slice(0, 200),
@@ -100,7 +102,7 @@ export class WorkNotices {
     });
     if (!made) return false;
     this.trim(userId);
-    this.deps.emit("notification.new", { kind: "work", id: entry.id }, userId);
+    this.deps.emit("notification.new", { kind: notice.kind ?? "work", id: entry.id }, userId);
     return true;
   }
 
@@ -112,14 +114,19 @@ export class WorkNotices {
 
   /** What this person has been told, newest first, as the chat's notices are shown. */
   async list(owner: string, options: { unreadOnly?: boolean } = {}): Promise<ChatNotice[]> {
-    if (!(await this.deps.wantsWork(owner))) return [];
+    const wantsWork = await this.deps.wantsWork(owner);
     return this.deps.entries
       .inScope(NOTICE, { type: "person", id: owner })
       .map((entry) => ({ entry, data: entry.data as unknown as NoticeData }))
-      .filter(({ data }) => !data.dismissed && !(options.unreadOnly && data.read))
+      .filter(
+        ({ data }) =>
+          (data.kind === "update" || wantsWork) &&
+          !data.dismissed &&
+          !(options.unreadOnly && data.read),
+      )
       .map(({ entry, data }) => ({
         id: entry.id,
-        kind: "work" as const,
+        kind: data.kind ?? ("work" as const),
         ...(data.taskId ? { taskId: data.taskId } : {}),
         title: data.title,
         body: data.body,

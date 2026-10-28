@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import type {
-  AgentWorkspace,
-  Channel,
-  ChannelView,
-  NotificationPrefs,
-} from "../packages/domain/src/agent.ts";
+import type { Channel, ChannelView, NotificationPrefs } from "../packages/domain/src/agent.ts";
 import { managedWorkspace } from "./helpers/managed.ts";
 
 /** What a person is told about is theirs to choose: mentions, the work they asked for, and channels they mute. */
@@ -30,8 +25,6 @@ const call = (who: Who, method: string, path: string, body?: unknown) =>
 const prefs = async (who: Who) =>
   (await (await call(who, "GET", "/api/agent/notification-prefs")).json()) as NotificationPrefs;
 const set = (who: Who, body: unknown) => call(who, "PUT", "/api/agent/notification-prefs", body);
-const noticesOf = async (who: Who) =>
-  ((await (await call(who, "GET", "/api/agent")).json()) as AgentWorkspace).notifications;
 const channel = async (who: Who, id: string) =>
   ((await (await call(who, "GET", "/api/agent/channels")).json()) as ChannelView[]).find(
     (c) => c.id === id,
@@ -55,36 +48,20 @@ test("everything is on until a person turns something off, and what they choose 
   assert.equal((await prefs("gus")).work, false);
 });
 
-test("a mention is not shown to someone who turned mentions off, and is there again when they turn them on", async () => {
-  const made = (await (
-    await call("max", "POST", "/api/agent/channels", { name: "Launch", visibility: "public" })
-  ).json()) as Channel;
-  await world.server.agent.notifyMentions(world.owner("max"), made.id, "over to you @mia");
-  const mentions = async () => (await noticesOf("mia")).filter((n) => n.channelId === made.id);
-  assert.equal((await mentions()).length, 1);
-  await set("mia", { mentions: false });
-  assert.equal((await mentions()).length, 0);
-  await set("mia", { mentions: true });
-  assert.equal((await mentions()).length, 1);
-});
-
 test("a muted channel has no unread mark and tells its person nothing, until it is unmuted", async () => {
   const made = (await (
     await call("max", "POST", "/api/agent/channels", { name: "Chatter", visibility: "public" })
   ).json()) as Channel;
   await call("mia", "POST", `/api/agent/channels/${made.id}/members`, { add: ["mia@example.com"] });
   await world.server.agent.noteMessage(world.owner("max"), made.id);
-  await world.server.agent.notifyMentions(world.owner("max"), made.id, "look @mia");
   const seen = await channel("mia", made.id);
   assert.deepEqual([seen?.unread, seen?.muted], [true, false]);
   const quiet = await set("mia", { muted: [made.id] });
   assert.deepEqual((await quiet.json()).muted, [made.id]);
   const muted = await channel("mia", made.id);
   assert.deepEqual([muted?.unread, muted?.muted], [false, true]);
-  assert.equal((await noticesOf("mia")).filter((n) => n.channelId === made.id).length, 0);
   // Muting is for the one who did it.
   assert.equal((await channel("max", made.id))?.muted, false);
   await set("mia", { muted: [] });
   assert.equal((await channel("mia", made.id))?.unread, true);
-  assert.equal((await noticesOf("mia")).filter((n) => n.channelId === made.id).length, 1);
 });

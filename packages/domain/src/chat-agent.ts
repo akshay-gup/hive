@@ -248,6 +248,8 @@ export const runnerFrameSchema = z.discriminatedUnion("t", [
   }),
   /** The agent touched something of the machine's own (see agent-watch.ts); the service says who asked and where. */
   z.object({ t: z.literal("agent.flag"), finding: watchFindingSchema }),
+  /** The shared mail source failed. The room chooses the words and recipients; the machine names neither. */
+  z.object({ t: z.literal("source.error"), at: z.number().int().nonnegative() }),
   /** The agent has a file to put in its reply: the room says where to send the bytes. */
   z.object({
     t: z.literal("file.begin"),
@@ -379,6 +381,8 @@ export type RoomFrame =
     }
   | { t: "run.stop"; runId: string; by: string; reason: "user" | "access" | "timeout" }
   | { t: "ack"; runId: string }
+  /** The source failure is kept in the room; the machine may forget its delivery record. */
+  | { t: "source.error.ack"; at: number }
   /** These channels are gone (deleted): what the machine kept for them goes too. */
   | { t: "channels.gone"; ids: string[] }
   /** Where to send a file's bytes: an address on the chat service, good for a few minutes. */

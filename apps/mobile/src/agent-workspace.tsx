@@ -9,6 +9,7 @@ import {
 } from "react";
 import { AppState, Platform } from "react-native";
 import type {
+  AgentMachineView,
   AgentNotification,
   AgentTask,
   AgentWorkspace,
@@ -35,12 +36,11 @@ const asNotification = (notice: ChatNotice): AgentNotification => ({
 });
 
 /** What the machine tells of the agent while the board, which the chat service keeps, comes separately. */
-type Machine = Omit<AgentWorkspace, "tasks" | "projects" | "goals" | "routines">;
+type Machine = Omit<AgentMachineView, "notifications">;
 /** What there is to show of the agent before the machine has answered, or while it is asleep. */
 const NO_MACHINE: Machine = {
   ideas: [],
   artifacts: [],
-  notifications: [],
   identity: { name: "Hive", tone: "warm" },
   worker: { running: false },
 };
@@ -62,8 +62,6 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const requestVersion = useRef(0);
   const chat = useChat();
-  // Which of the notices are the chat service's, since they are changed there.
-  const chatNotices = useRef(new Set<string>());
   // The last the machine said, shown while it is asleep.
   const machine = useRef<Machine>(NO_MACHINE);
   // The board as last read, and when: it is read again when the chat service says it changed, after what this
@@ -92,36 +90,27 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
           // The board is the chat service's, so it is there while the machine sleeps.
           options.board === false && board.current ? board.current : readBoard(),
           api
-            .request<AgentWorkspace>("/api/agent")
-            .then(({ tasks: _tasks, projects: _projects, ...kept }) => {
+            .request<AgentMachineView>("/api/agent")
+            .then(({ notifications: _notifications, ...kept }) => {
               machine.current = kept;
               return kept;
             })
             .catch(() => ({ ...machine.current, worker: { running: false } })),
-          // What people said to this person, from the chat service; the agent's own come with the workspace.
+          // All notices are kept by the chat service, including connection failures from the machine.
           api.chat
             ? api.request<ChatNotice[]>("/chat/v1/notifications").catch(() => [] as ChatNotice[])
             : Promise.resolve([] as ChatNotice[]),
         ]);
         if (version === requestVersion.current) {
-          chatNotices.current = new Set(notices.map((n) => n.id));
           const next: AgentWorkspace = {
             ...rest,
             tasks: shown.tasks,
             projects: shown.projects,
             goals: shown.goals,
             routines: shown.routines,
+            notifications: notices.map(asNotification),
           };
-          setData(
-            notices.length
-              ? {
-                  ...next,
-                  notifications: [...next.notifications, ...notices.map(asNotification)].sort(
-                    (a, b) => b.createdAt.localeCompare(a.createdAt),
-                  ),
-                }
-              : next,
-          );
+          setData(next);
           setError("");
         }
       } catch (e) {
@@ -192,16 +181,10 @@ export function AgentWorkspaceProvider({ children }: { children: ReactNode }) {
   );
   const mutate = useCallback(
     async <T,>(path: string, body: unknown): Promise<T> => {
-      const one = /^\/notifications\/([^/]+)\/(read|unread|dismiss)$/.exec(path);
-      const all = /^\/notifications\/(read-all|dismiss-all)$/.exec(path);
-      let result: T;
-      if (api.chat && one && chatNotices.current.has(one[1] ?? "")) {
-        result = await api.request<T>(`/chat/v1/notifications/${one[1]}/${one[2]}`, {});
-      } else if (api.chat && all) {
-        // Everything of the person's: the chat service's notices and the agent's.
-        await api.request(`/chat/v1/notifications/${all[1]}`, {});
-        result = await api.request<T>(`/api/agent${path}`, body).catch(() => ({}) as T);
-      } else result = await api.request<T>(`/api/agent${path}`, body);
+      const result = await api.request<T>(
+        path.startsWith("/notifications/") ? `/chat/v1${path}` : `/api/agent${path}`,
+        body,
+      );
       // The successful mutation stays successful even if the following read fails.
       await refresh().catch(() => {});
       return result;

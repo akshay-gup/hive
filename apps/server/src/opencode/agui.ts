@@ -698,14 +698,6 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   if (!chat) {
     // Someone writing in a channel is what marks it unread for the others in it.
     await deps.service.noteMessage(owner, binding.channelId).catch(() => undefined);
-    // And a person who is mentioned in it is told.
-    await deps.service
-      .notifyMentions(
-        owner,
-        binding.channelId,
-        lastUserText(input.messages as Array<Record<string, unknown>>) ?? "",
-      )
-      .catch(() => undefined);
   }
 
   // Mention-only triggering: without the mention token in the last user

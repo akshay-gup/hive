@@ -527,7 +527,6 @@ describe("opencodeShimRoutes", () => {
       service: {
         access: { isGuest: async () => false, assertChannel: async () => undefined },
         noteMessage: async () => undefined,
-        notifyMentions: async () => undefined,
         ...service,
       },
       bus: new OpencodeEventBus(testConnection),

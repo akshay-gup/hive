@@ -276,6 +276,7 @@ export class ChatCore {
       work: this.work,
       goals: this.goals,
       routines: this.routines,
+      notices: this.workNotices,
       files: this.files,
       filing: this.filing,
       runner: () => options.runner?.() ?? null,

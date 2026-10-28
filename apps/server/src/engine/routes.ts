@@ -1,15 +1,12 @@
-import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
 import { z } from "zod";
 import { isDm } from "../../../../packages/chat-core/src/access.ts";
 import { AppError } from "../../../../packages/chat-core/src/errors.ts";
-import type { AgentIdentity, AgentNotification } from "../../../../packages/domain/src/agent.ts";
+import type { AgentIdentity } from "../../../../packages/domain/src/agent.ts";
 import { byteRange } from "./channel-files.ts";
 import type { AgentService } from "./service.ts";
-
-const text = z.string().trim().min(1).max(4000);
 
 export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: string } }> {
   const app = new Hono<{ Variables: { owner: string } }>();
@@ -264,75 +261,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
     );
     if (!identity) throw new AppError("Agent identity changed; refresh and try again", 409);
     return c.json(identity);
-  });
-  app.get("/notifications", async (c) =>
-    c.json((await service.snapshot(c.get("owner"))).notifications),
-  );
-  /** Everything this person is shown is read: what is not theirs is left as it is. */
-  app.post("/notifications/read-all", async (c) => {
-    const owner = c.get("owner");
-    const mine = (await service.snapshot(owner)).notifications.filter((n) => !n.read);
-    for (const note of mine)
-      await service.db.compareAndSwap<AgentNotification>(
-        owner,
-        "notifications",
-        note.id,
-        {},
-        { read: true },
-      );
-    return c.json({ read: mine.length });
-  });
-  app.post("/notifications/:id/unread", async (c) => {
-    if (
-      !(await service.snapshot(c.get("owner"))).notifications.some(
-        (n) => n.id === c.req.param("id"),
-      )
-    )
-      throw new AppError("Notification not found", 404);
-    const notification = await service.db.compareAndSwap<AgentNotification>(
-      c.get("owner"),
-      "notifications",
-      c.req.param("id"),
-      {},
-      { read: false },
-    );
-    if (!notification) throw new AppError("Notification not found", 404);
-    return c.json(notification);
-  });
-  app.post("/notifications/:id/read", async (c) => {
-    // Only a notice that is theirs: the rest is not something to tell them exists.
-    if (
-      !(await service.snapshot(c.get("owner"))).notifications.some(
-        (n) => n.id === c.req.param("id"),
-      )
-    )
-      throw new AppError("Notification not found", 404);
-    const notification = await service.db.compareAndSwap<AgentNotification>(
-      c.get("owner"),
-      "notifications",
-      c.req.param("id"),
-      {},
-      { read: true },
-    );
-    if (!notification) throw new AppError("Notification not found", 404);
-    return c.json(notification);
-  });
-  // Notifications belong to the workspace, as reading one does: dismissing removes it for everyone.
-  app.post("/notifications/dismiss-all", async (c) => {
-    const owner = c.get("owner");
-    // Only what this person is shown: the notices of a private channel's work are not theirs to clear.
-    const all = (await service.snapshot(owner)).notifications;
-    for (const notification of all)
-      await service.db.remove(owner, "notifications", notification.id);
-    return c.json({ removed: all.length });
-  });
-  app.post("/notifications/:id/dismiss", async (c) => {
-    const owner = c.get("owner");
-    const id = c.req.param("id");
-    if (!(await service.snapshot(owner)).notifications.some((n) => n.id === id))
-      throw new AppError("Notification not found", 404);
-    await service.db.remove(owner, "notifications", id);
-    return c.json({ ok: true });
   });
   return app;
 }

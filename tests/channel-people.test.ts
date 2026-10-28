@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { conversationTools } from "../apps/server/src/engine/tools.ts";
 import type {
   AgentTask,
   Channel,
@@ -230,24 +229,7 @@ test("a private channel is found only by the people in it, whoever else is askin
   );
 });
 
-test("the notices of work in a private project are shown to its people and to those who run the workspace", async () => {
-  const { channel, task } = await privateWorld();
-  await world.server.agent.notify(world.owner("max"), "Payroll is ready", "Look it over", task.id);
-  const seen = async (who: Who) =>
-    (await json(await call(who, "GET", "/api/agent"))) as {
-      notifications: { taskId?: string }[];
-    };
-  const mine = await seen("max");
-  assert.ok(mine.notifications.some((n) => n.taskId === task.id));
-  const mia = await seen("mia");
-  assert.ok(!mia.notifications.some((n) => n.taskId === task.id));
-  const notifications = (await json(await call("mia", "GET", "/api/agent/notifications"))) as {
-    taskId?: string;
-  }[];
-  assert.ok(!notifications.some((n) => n.taskId === task.id));
-});
-
-test("the reviews and receipts of a private channel's work, and clearing notices, are for the people in it", async () => {
+test("the reviews and receipts of a private channel's work, are for the people in it", async () => {
   const { task } = await privateWorld();
   const now = new Date().toISOString();
   await world.db.put("shared", "actions", {
@@ -296,16 +278,6 @@ test("the reviews and receipts of a private channel's work, and clearing notices
     ["act-team"],
   );
   assert.deepEqual(theirs.activity, []);
-  // Someone who clears their notices does not clear the ones they were never shown.
-  await world.server.agent.notify(world.owner("max"), "Payroll posted", "Done", task.id, "k-pay");
-  await world.server.agent.notify(world.owner("max"), "Team lunch", "Noon");
-  const cleared = await call("mia", "POST", "/api/agent/notifications/dismiss-all", {});
-  assert.equal(cleared.status, 200);
-  const left = (await json(await call("max", "GET", "/api/agent/notifications"))) as {
-    title: string;
-  }[];
-  assert.ok(left.some((n) => n.title === "Payroll posted"));
-  assert.ok(!left.some((n) => n.title === "Team lunch"));
 });
 
 test("anyone in a private channel can add and take out people, and the last one cannot leave", async () => {

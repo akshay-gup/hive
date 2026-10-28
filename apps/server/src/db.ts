@@ -49,7 +49,6 @@ export const SHARED_KINDS: ReadonlySet<string> = new Set([
   // The agent
   "agent-settings",
   "ideas",
-  "notifications",
 ]);
 const homeOf = (owner: string, kind: string) => (SHARED_KINDS.has(kind) ? SHARED_OWNER : owner);
 
