@@ -531,7 +531,7 @@ export function conversationTools(
     defineTool({
       name: "routine_memo",
       description:
-        "Keep a short note for yourself for the next time this routine wakes you (what you saw, what changed, what to look at next). It replaces the last one. In a channel it is for the routine that started this run; in your own chat, pass the routine id you were given.",
+        "Keep a short note for yourself for the next time this routine wakes you (what you saw, what changed, what to look at next). It replaces the last one. It is for the routine that started this run (in a channel, your own chat with the agent included); where nothing started this run from a routine, pass the routine id you were given.",
       parameters: z.object({
         memo: z.string().max(4000),
         routineId: z.string().max(200).optional(),
