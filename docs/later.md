@@ -11,7 +11,9 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **A separate user for the server's data.** The agent keeps `sudo`, but reading the data then takes a visible, logged `sudo`; add sudo input/output logging. A speed bump, not a wall.
 - **Model provider keys behind a proxy.** The agent would hold a placeholder, not the real key.
 - **Clear a run's work folder after a chat run.** Less left on disk for a later run to read.
-- **Personal chat history off the machine.** Each person's private chat with the agent is on the machine today.
+- **Wipe the agent's session of a personal chat after each run.** The chat itself is kept by the chat service, but the agent's own session of it stays on the machine's disk for the next run to continue, and a run with root can read it. Deleting it after each run and giving the next run the chat back from the room would close that, at the cost of the agent's tool memory and longer prompts.
+- **Take the older own-chat code off the machine.** The machine still has the page-driven chat (`/api/conversation`, the opencode run routes, the board ticket, `where: own` routines) for workspaces with no chat service; it can go if local mode is dropped.
+- **Choice cards and upload requests in the personal chat.** The first chat had `present_choices` and `request_upload`; the personal channel does not offer them yet.
 - **A sandbox for channel runs only.** A real wall for other people's requests, at the cost of root for those runs. Only if we decide the agent need not always keep root.
 - **Mail and Google credentials.** The workspace's one connection is the whole team's by design, and the agent can read it.
 
