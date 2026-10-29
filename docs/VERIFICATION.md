@@ -2,6 +2,12 @@
 
 What the automated checks cover, how to run them, and what has not been verified. Hive is an alpha: this lists coverage and its limits, and does not claim that every planned capability is complete.
 
+## Workspace image rebake — 2026-10-29
+
+Baked `sha-4c57d4f`, pinned to its published registry digest, into DigitalOcean snapshot `252046298` (`hive-workspace-202610290736`). The snapshot is 5.23 GB, needs a disk of at least 50 GB, and is available in Toronto, New York and Richmond (`tor1`, `nyc3`, `ric1`). It replaces `251783494` as the control plane's `DO_IMAGE` for new workspaces. The previous image is retained.
+
+The bake passed its real startup checks, including Chromium and kernel audit support. A separate Droplet made from the snapshot passed ten fresh-boot checks: the expected build and workspace health, browser configuration, managed sign-in with a test key, active workspace/watch/audit/firewall services, enabled updater/watch units, the agent's sudo access, root-only first-boot settings, the server running as the workspace user, the new board lookup tool, and enabled kernel audit. Both temporary Droplets, the temporary firewall/tag and diagnostic SSH key were removed. No model calls or real Google account were used.
+
 ## Shared board lookups in channel chat — 2026-10-29
 
 Public and private channel runs can look up tasks, projects, goals and routines with `read_board`, by words, kind or exact id. The chat service checks every current channel reader, including unjoined readers of public channels and named guests. Project viewers may read; an admin asking does not override another reader's access. An item is excluded if any reader cannot see it, including personal entries outside a sole-reader channel, narrower private scopes, unknown projects and hidden linked task/goal details. Existing routine listing uses the same check. Personal tickets and leased task workers keep their existing actor access; DMs remain excluded.

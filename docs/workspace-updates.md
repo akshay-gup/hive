@@ -5,13 +5,13 @@
 - **Step 1, built:** `/api/health` reports `version` and `features`; the app hides Dismiss and Clear
   all on a workspace that does not list `notifications-dismiss` (`apps/mobile/src/server-features.ts`).
   The image is built with `HIVE_VERSION=<tag>` and carries `/app/VERSION`.
-- **Step 2, built and tested, not yet on a machine:** `apps/workspace/vm/hive-update` with its service,
+- **Step 2, built, deployed and tested on a real machine:** `apps/workspace/vm/hive-update` with its service,
   timer and path units, and `crane` baked in by `bake.sh`. `tests/workspace-updater.test.ts` runs it on
   folders (update, no-op, rollback, digest mismatch, malformed input, asking the control plane, busy,
   force, request file). It was also run once with the real `crane` against
   `ghcr.io/akshay-gup/hive-workspace:sha-e43cc73` into a scratch folder: about 16 seconds.
-  **Not verified:** the systemd units and the new `bake.sh` stage on a real Droplet.
-- **Step 3, built and tested (not deployed):** `apps/control/src/releases.ts` and routes in `app.ts`.
+  The 2026-10-29 rebake and fresh-Droplet boot checked the real `bake.sh` stages, systemd units and kernel audit support; see [Verification](VERIFICATION.md).
+- **Step 3, built, tested and deployed:** `apps/control/src/releases.ts` and routes in `app.ts`.
   A machine asks `GET /v1/release/<workspaceId>` (public, rate limited, answers a public image's tag and
   digest or `{}`); first boot writes `/etc/hive/updater.json` with that address (`cloudConfig`). Publishing
   is `PUT /internal/release` with `Authorization: Bearer $CONTROL_RELEASE_TOKEN`; `PUT /internal/release/paused`
