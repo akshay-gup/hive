@@ -128,7 +128,7 @@ test("what the agent does with its tools is shown as steps, and a board item it 
   assert.equal(task?.createdBy, people.max.id);
 });
 
-test("private channels offer task creation without board reading, and guests get their own tools", async (t) => {
+test("public and private channels offer shared board reading, and guests get their own tools", async (t) => {
   const offered: string[][] = [];
   const f = await wired(t, ({ tools, say }) => {
     offered.push([...tools].sort());
@@ -153,6 +153,7 @@ test("private channels offer task creation without board reading, and guests get
       "create_issue",
       "create_routine",
       "list_routines",
+      "read_board",
       "remove_routine",
       "routine_memo",
       "routine_webhook",
@@ -165,13 +166,14 @@ test("private channels offer task creation without board reading, and guests get
       "create_issue",
       "create_routine",
       "list_routines",
+      "read_board",
       "remove_routine",
       "routine_memo",
       "routine_webhook",
       "send_file",
       "update_routine",
     ],
-    ["browse_web", "create_issue", "send_file"],
+    ["browse_web", "create_issue", "read_board", "send_file"],
   ]);
   // The machine was told the private channel is private, and nothing of who is in it but those who can ask.
   const stub = await f.db.get<Channel>(SHARED_OWNER, "channels", secret.id);

@@ -621,6 +621,8 @@ export interface ChannelThread {
    * the first prompt so the thread can always find its session.
    */
   opencodeSessionId?: string;
+  /** Channel board access generation for this model session. */
+  boardAccessKey?: string;
 }
 export const goalScopeSchema = z.object({
   type: z.enum(["person", "project", "channel", "team"]),

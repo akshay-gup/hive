@@ -27,8 +27,8 @@ export async function vouchFor(
  * What the agent's machine keeps of a channel it was mentioned in, so its session and its working folder
  * have somewhere to be: a record with the channel's id and name and, for a private one, no members. Who
  * is in a channel is the chat service's to know and is never told to this machine (anyone holding root
- * here could read it), so a private stub opens to no one and the tools that look at a channel are not
- * offered in it (see `privateChatTools`).
+ * here could read it), so a private stub opens to no one. Board lookups go to the chat service, which
+ * knows the real audience; the stub grants no access to local records.
  */
 export async function standInFor(
   service: AgentService,
@@ -85,13 +85,22 @@ export async function prepareRun(
   const bound = (await service.threads.list(start.asker.id, start.channel.id)).find(
     (b) => b.threadId === threadId,
   );
-  if (bound) return { binding: bound, channel };
+  if (bound) {
+    if (bound.boardAccessKey !== start.boardAccessKey) {
+      const { opencodeSessionId: _session, ...fresh } = bound;
+      const binding = { ...fresh, boardAccessKey: start.boardAccessKey };
+      await service.threads.write(start.asker.id, binding);
+      return { binding, channel };
+    }
+    return { binding: bound, channel };
+  }
   const binding: ChannelThread = {
     threadId,
     channelId: start.channel.id,
     name: `${start.channel.name} thread`.slice(0, 80),
     createdAt: now,
     parentMessageId: start.thread.rootId,
+    boardAccessKey: start.boardAccessKey,
   };
   await service.threads.write(start.asker.id, binding);
   return { binding, channel };

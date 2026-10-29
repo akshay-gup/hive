@@ -203,6 +203,37 @@ let routineId = "";
 
 /** The tools that reach the board or a channel's records, each run as someone who must not get through. */
 const reaching: Record<string, () => Promise<void>> = {
+  async read_board() {
+    const channel = await core.channels.create(owner("olive"), {
+      name: "Board lookup",
+      visibility: "public",
+    });
+    const asked = await core.messaging.post(owner("olive"), channel.id, {
+      body: "@hive read the board",
+    });
+    const run = core.runs.byTrigger(asked.id);
+    assert.ok(run);
+    const tools = conversationTools(server.agent, owner("olive"), input, {
+      signal: new AbortController().signal,
+      requestKey: "channel-read-access",
+      toolset: "chat",
+      channelId: channel.id,
+      work: server.agent.board.forRun(run.id),
+    }) as unknown as Tool[];
+    const tool = tools.find((tool) => tool.name === "read_board");
+    assert.ok(tool);
+    const result = await (tool.execute as (args: unknown) => Promise<unknown>)({ limit: 50 });
+    const said = JSON.stringify(result);
+    for (const hidden of [
+      secret.id,
+      secretTask.id,
+      "layoffs",
+      hush.id,
+      "Quietly replace the vendor",
+    ])
+      assert.ok(!said.includes(hidden), `channel readers are not shown ${hidden}`);
+    assert.ok(said.includes("Plan the autumn release"));
+  },
   async agent_status() {
     // The goal in the private channel is its people's: the one who made it sees it, and no one else.
     const max = (await use("max", "agent_status", {})).said;
@@ -362,14 +393,23 @@ test("each tool that reaches the board or a channel's records is refused to some
   }
 });
 
-test("a guest is offered no tool that reads the board", async () => {
+test("a guest's personal tools exclude machine status and task administration", async () => {
   const guest = toolsFor("gus").map((tool) => tool.name);
   for (const name of ["agent_status", "update_task", "delete_task", "delegate_task"])
     assert.ok(!guest.includes(name), name);
 });
 
 test("a tool cannot be added without saying whether it reaches the board or a channel's records", () => {
-  const offered = toolsFor("olive").map((tool) => tool.name);
+  const offered = [
+    ...new Set([
+      ...toolsFor("olive").map((tool) => tool.name),
+      ...conversationTools(server.agent, owner("olive"), input, {
+        signal: new AbortController().signal,
+        requestKey: "channel-tools",
+        toolset: "chat",
+      }).map((tool) => tool.name),
+    ]),
+  ];
   const named = [...Object.keys(reaching), ...Object.keys(apart)];
   assert.deepEqual(
     offered.filter((name) => !named.includes(name)),

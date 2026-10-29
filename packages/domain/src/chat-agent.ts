@@ -325,6 +325,8 @@ export interface RoutineFireAsk {
 /** What the room says to the machine. */
 export interface RunStart {
   id: string;
+  /** Opaque access generation for cached board results; changed permissions require a new model session. */
+  boardAccessKey?: string;
   attempt: number;
   channel: { id: string; name: string; topic: string; visibility: "public" | "private" };
   /** The message that started it, and the thread it is in (the first message is the thread's root). */

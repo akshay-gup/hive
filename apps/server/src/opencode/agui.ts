@@ -77,7 +77,8 @@ export interface OpencodeShimDeps {
 /**
  * A run that the chat service started for a mention in a channel. It runs as any other, except that
  * nothing about it is kept here (the chat service keeps the conversation), none of the orchestrator's
- * choices, mail or board tools are offered, and everything it asks for is asked of the people in the channel.
+ * choices or mail tools are offered. Board lookups are checked against every channel reader by the chat service,
+ * and everything it asks for is asked of the people in the channel.
  */
 export interface ChatOrigin {
   /** Where the session lives: a stand-in for the channel (see chat-runner/stubs.ts). */

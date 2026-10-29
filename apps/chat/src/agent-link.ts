@@ -46,6 +46,7 @@ import {
 } from "../../../packages/domain/src/chat-agent.ts";
 import { withHandles } from "../../../packages/domain/src/mentions.ts";
 import { makeTicket, readTicket, TICKET_MS } from "./board-ticket.ts";
+import { BOARD_ACCESS_CHANGED, type ChannelBoard } from "./channel-board.ts";
 import type { Filing } from "./filing.ts";
 import type { Routines } from "./routines.ts";
 import { signedPath } from "./uploads.ts";
@@ -89,6 +90,7 @@ export interface AgentLinkDeps {
   ideas: Ideas;
   taskRequests: TaskRequests;
   routines: Routines;
+  channelBoard: ChannelBoard;
   notices: WorkNotices;
   files: Files;
   filing: Filing;
@@ -351,12 +353,17 @@ export class AgentLink {
   }
 
   private async say(frame: Extract<RunnerFrame, { t: "run.say" }>) {
+    if (!(await this.boardReplyCurrent(frame.runId))) return;
     const taken = this.deps.runs.say(frame.runId, frame.n);
     if (!taken.taken) return;
     await this.write(frame.runId, { body: frame.body, steps: frame.steps }, taken.keep);
   }
 
   private async end(frame: Extract<RunnerFrame, { t: "run.end" }>) {
+    if (!(await this.boardReplyCurrent(frame.runId))) {
+      this.send({ t: "ack", runId: frame.runId });
+      return;
+    }
     await this.finish(
       frame.runId,
       frame.status,
@@ -373,6 +380,14 @@ export class AgentLink {
   }
 
   // The board, as the agent changes it
+
+  private async boardReplyCurrent(runId: string): Promise<boolean> {
+    const run = this.deps.runs.get(runId);
+    if (!run || !isActive(run)) return true;
+    if (this.deps.channelBoard.current(run)) return true;
+    await this.finish(runId, "failed", "access", { body: BOARD_ACCESS_CHANGED, steps: [] });
+    return false;
+  }
 
   /** What the app hands the machine so the agent can change the board for this person in the app's own chat. */
   boardTicket(userId: string): { ticket: string; expiresAt: number } {
@@ -417,6 +432,8 @@ export class AgentLink {
     const home: { channelId?: string } =
       channelId && channelId !== ORCHESTRATOR_CHANNEL_ID ? { channelId } : {};
     try {
+      if (run && !(await this.boardReplyCurrent(run.id)))
+        throw new AppError(BOARD_ACCESS_CHANGED, 409);
       let body: unknown;
       switch (frame.op) {
         case "task.create":
@@ -496,39 +513,55 @@ export class AgentLink {
           break;
         case "task.update": {
           const { taskId, ...patch } = args;
+          if (run) await this.deps.channelBoard.require(run, "tasks", String(taskId ?? ""));
           body = await work.updateTask(actor, String(taskId ?? ""), patch, "agent");
+          if (run) body = await this.deps.channelBoard.require(run, "tasks", String(taskId ?? ""));
           break;
         }
         case "task.delete":
+          if (run) await this.deps.channelBoard.require(run, "tasks", String(args.taskId ?? ""));
           body = await work.deleteTask(actor, String(args.taskId ?? ""));
+          if (run) this.deps.channelBoard.changed(run, "task", String(args.taskId ?? ""));
           break;
         case "project.create":
           body = await work.createProject(actor, args);
           break;
         case "project.update": {
           const { projectId, ...patch } = args;
+          if (run) await this.deps.channelBoard.require(run, "projects", String(projectId ?? ""));
           body = await work.updateProject(actor, String(projectId ?? ""), patch);
+          if (run)
+            body = await this.deps.channelBoard.require(run, "projects", String(projectId ?? ""));
           break;
         }
         case "project.delete":
+          if (run)
+            await this.deps.channelBoard.require(run, "projects", String(args.projectId ?? ""));
           body = await work.deleteProject(actor, String(args.projectId ?? ""));
+          if (run) this.deps.channelBoard.changed(run, "project", String(args.projectId ?? ""));
           break;
         case "task.get":
-          body = (
-            await work.present(actor, [await work.getTask(actor, String(args.taskId ?? ""))])
-          )[0];
+          body = run
+            ? await this.deps.channelBoard.require(run, "tasks", String(args.taskId ?? ""))
+            : (
+                await work.present(actor, [await work.getTask(actor, String(args.taskId ?? ""))])
+              )[0];
           break;
         case "task.control":
+          if (run) await this.deps.channelBoard.require(run, "tasks", String(args.taskId ?? ""));
           body = await work.control(
             actor,
             String(args.taskId ?? ""),
             z.enum(["pause", "resume", "cancel", "retry"]).parse(args.action),
           );
+          if (run)
+            body = await this.deps.channelBoard.require(run, "tasks", String(args.taskId ?? ""));
           break;
         case "tasks.visible":
           body = {
-            ids: await work.visibleIds(
-              actor,
+            ids: await (run
+              ? this.deps.channelBoard.visibleIds.bind(this.deps.channelBoard, run)
+              : work.visibleIds.bind(work, actor))(
               z
                 .array(z.string().max(100))
                 .max(500)
@@ -543,17 +576,27 @@ export class AgentLink {
           });
           break;
         case "routine.list":
-          body = { routines: await routines.list(actor) };
+          body = run
+            ? await this.deps.channelBoard.read(run, { ...args, kind: "routines" })
+            : { routines: await routines.list(actor) };
           break;
         case "routine.update": {
           const { routineId, ...patch } = args;
+          if (run) await this.deps.channelBoard.require(run, "routines", String(routineId ?? ""));
           body = await routines.update(actor, String(routineId ?? ""), patch);
+          if (run)
+            body = await this.deps.channelBoard.require(run, "routines", String(routineId ?? ""));
           break;
         }
         case "routine.remove":
+          if (run)
+            await this.deps.channelBoard.require(run, "routines", String(args.routineId ?? ""));
           body = await routines.remove(actor, String(args.routineId ?? ""));
+          if (run) this.deps.channelBoard.changed(run, "routine", String(args.routineId ?? ""));
           break;
         case "routine.hook":
+          if (run)
+            await this.deps.channelBoard.require(run, "routines", String(args.routineId ?? ""));
           body = await routines.hookOn(actor, String(args.routineId ?? ""), args.change === true);
           break;
         case "routine.memo": {
@@ -564,6 +607,12 @@ export class AgentLink {
           body = run
             ? await routines.setMemo(run.id, run.triggerId, memo)
             : await routines.setMemoFor(actor, String(args.routineId ?? ""), memo);
+          if (run)
+            body = await this.deps.channelBoard.require(
+              run,
+              "routines",
+              this.deps.routines.byTrigger(run.triggerId)?.id ?? "",
+            );
           break;
         }
         case "goal.create":
@@ -574,28 +623,39 @@ export class AgentLink {
           break;
         case "goal.update": {
           const { goalId, ...patch } = args;
+          if (run) await this.deps.channelBoard.require(run, "goals", String(goalId ?? ""));
           body = await goals.update(actor, String(goalId ?? ""), patch);
+          if (run) body = await this.deps.channelBoard.require(run, "goals", String(goalId ?? ""));
           break;
         }
         case "goal.list":
-          body = { goals: await goals.list(actor) };
+          body = run
+            ? await this.deps.channelBoard.read(run, { ...args, kind: "goals" })
+            : { goals: await goals.list(actor) };
           break;
         case "review.decided":
+          if (run) await this.deps.channelBoard.require(run, "tasks", String(args.taskId ?? ""));
           body = await work.reviewDecided(
             actor,
             String(args.taskId ?? ""),
             String(args.actionId ?? ""),
           );
+          if (run)
+            body = await this.deps.channelBoard.require(run, "tasks", String(args.taskId ?? ""));
           break;
         case "board":
-          body = {
-            tasks: await work.tasksFor(actor),
-            projects: await work.projectsFor(actor),
-            goals: await goals.list(actor),
-            ideas: await this.deps.ideas.list(actor),
-          };
+          body = run
+            ? await this.deps.channelBoard.read(run, args)
+            : {
+                tasks: await work.tasksFor(actor),
+                projects: await work.projectsFor(actor),
+                goals: await goals.list(actor),
+                ideas: await this.deps.ideas.list(actor),
+              };
           break;
       }
+      if (run && !this.deps.channelBoard.current(run))
+        throw new AppError(BOARD_ACCESS_CHANGED, 409);
       this.send({ t: "work.result", reqId: frame.reqId, ok: true, body });
     } catch (error) {
       if (error instanceof AppError) refuse(error.message, error.status);
@@ -757,15 +817,21 @@ export class AgentLink {
     const message = run && messages.get(run.replyId);
     if (!run || !message || message.deletedAt) return;
     const before = message.extra as Partial<AgentExtra> | null;
-    let extra = this.extraFor(run, change.steps ?? before?.steps ?? []);
+    const boardCurrent = this.deps.channelBoard.current(run);
+    let extra = this.extraFor(run, boardCurrent ? (change.steps ?? before?.steps ?? []) : []);
     if (JSON.stringify(extra).length > MAX_EXTRA_BYTES) {
       // Too much to keep: the latest of what it did is what matters.
       extra = this.extraFor(run, extra.steps.slice(-80));
       if (JSON.stringify(extra).length > MAX_EXTRA_BYTES) extra = this.extraFor(run, []);
     }
-    const body = change.body ?? message.body;
+    const body = boardCurrent ? (change.body ?? message.body) : BOARD_ACCESS_CHANGED;
     if (!keep) {
-      this.deps.stream(message.channelId, await this.deps.show({ ...message, body, extra }));
+      const shown = await this.deps.show({ ...message, body, extra });
+      if (!this.deps.channelBoard.current(run)) {
+        await this.boardReplyCurrent(run.id);
+        return;
+      }
+      this.deps.stream(message.channelId, shown);
       return;
     }
     const patched = messages.patchAgent(message.id, { body, extra });
@@ -967,6 +1033,13 @@ export class AgentLink {
     if (refusal) return refusal;
     const trigger = messages.get(run.triggerId);
     if (!trigger || trigger.deletedAt) return "access";
+    let boardAccessKey: string;
+    try {
+      boardAccessKey = await this.deps.channelBoard.begin(run);
+    } catch (error) {
+      if (error instanceof AppError) return "access";
+      throw error;
+    }
     const known = await access.byId();
     const nameOf = (id: string) =>
       id === "agent" ? "Hive" : known.get(id)?.name || known.get(id)?.email || "Someone";
@@ -1018,6 +1091,14 @@ export class AgentLink {
     const attached = files.ofMessages([trigger.id]).get(trigger.id) ?? [];
     // A routine woke the agent: it is told which, and what it kept for itself.
     const woke = this.deps.routines.byTrigger(trigger.id);
+    if (woke) {
+      try {
+        await this.deps.channelBoard.require(run, "routines", woke.id);
+      } catch (error) {
+        if (error instanceof AppError) return "access";
+        throw error;
+      }
+    }
     const routineStart = woke
       ? {
           routine: {
@@ -1036,6 +1117,7 @@ export class AgentLink {
         : undefined;
     return {
       id: run.id,
+      boardAccessKey,
       attempt: run.attempt + 1,
       channel: {
         id: channel.id,
@@ -1275,6 +1357,7 @@ export class AgentLink {
       if (saved) this.deps.taskTouched(saved, false);
     }
     runs.prune();
+    this.deps.channelBoard.prune();
     await this.pump();
     return runs.hasActive() || tasks.hasActive() || tasks.hasDue() || tasks.hasReviews();
   }

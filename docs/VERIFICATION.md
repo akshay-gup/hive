@@ -2,6 +2,14 @@
 
 What the automated checks cover, how to run them, and what has not been verified. Hive is an alpha: this lists coverage and its limits, and does not claim that every planned capability is complete.
 
+## Shared board lookups in channel chat — 2026-10-29
+
+Public and private channel runs can look up tasks, projects, goals and routines with `read_board`, by words, kind or exact id. The chat service checks every current channel reader, including unjoined readers of public channels and named guests. Project viewers may read; an admin asking does not override another reader's access. Personal scopes, narrower private scopes, unknown projects and hidden linked task/goal details are excluded. Existing routine listing uses the same check. Personal tickets and leased task workers keep their existing actor access; DMs remain excluded.
+
+Results are bounded, paginated summaries. Machine state, signed file addresses and private routine wake locations are omitted. Access changes during a lookup refuse it; changes to exposed resources or the channel audience stop stale streamed/final replies and clear their tool steps. Persistent access generations survive room restarts and require a new model session for the next run after such a change. This does not erase earlier channel messages or provide a filesystem sandbox.
+
+Validation: 139 focused tests passed: 65 board, entry, routine, task-request and project tests; 48 agent, goal and Worker regressions; all 22 runner/work-call cases in separate processes; three tool-access checks; and the new full runner/tool-bridge test. Source and affected-test typechecks passed. Tests cover guests, public readers who did not join, viewer roles, hidden exact ids, linked-item filtering, Unicode response budgets, scope changes, lookup races, room restart, stale replies, session rotation and unchanged personal/worker access. Live staging passed 16 checks through real Worker endpoints and a stand-in runner, including all four kinds, audience expansion and mid-run revocation. The isolated workspace was purged. No model calls were used.
+
 ## Project access explanations — 2026-10-29
 
 Project creation and settings explain Open, Limited and Private access, plus the Admin, Member and Viewer project roles. The help includes workspace owners/admins' access to every project, guests' need to be added to each project, and Open access allowing workspace members to edit tasks even with the Viewer role. Read-only settings show the current access level and the same explanations.

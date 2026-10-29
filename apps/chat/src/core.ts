@@ -43,6 +43,7 @@ import { plainIssues } from "../../../packages/domain/src/friendly-issues.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
 import { AgentActivityNotices } from "./agent-activity-notices.ts";
 import { AgentLink, type RunnerLink } from "./agent-link.ts";
+import { ChannelBoard } from "./channel-board.ts";
 import { Filing } from "./filing.ts";
 import { Messaging } from "./messaging.ts";
 import { Routines } from "./routines.ts";
@@ -97,6 +98,7 @@ export class ChatCore {
   readonly workNotices: WorkNotices;
   readonly goals: Goals;
   readonly routines: Routines;
+  readonly channelBoard: ChannelBoard;
   readonly work: Work;
   readonly ideas: Ideas;
   readonly taskRequests: TaskRequests;
@@ -322,6 +324,37 @@ export class ChatCore {
       channelExists: async (id) => Boolean(await this.store.get(SHARED_OWNER, "channels", id)),
       changed: (entry) => void this.entryChanged(entry),
     });
+    this.channelBoard = new ChannelBoard({
+      sql,
+      store: this.store,
+      access: this.access,
+      entries: this.entries,
+      projects: this.projects,
+      tasks: this.tasks,
+      work: this.work,
+      goals: this.goals,
+      routines: this.routines,
+      clock: options.clock ?? Date.now,
+      // Only access and resource scopes: ordinary progress updates do not discard a conversation.
+      visibilitySnapshot: () =>
+        JSON.stringify([
+          sql.all(
+            "SELECT id, json_extract(data, '$.email') AS email, json_extract(data, '$.role') AS role FROM records WHERE owner = 'system' AND kind = 'users' ORDER BY id",
+          ),
+          sql.all(
+            "SELECT id, json_extract(data, '$.visibility') AS visibility, json_extract(data, '$.status') AS status, json_extract(data, '$.members') AS members FROM records WHERE owner = ? AND kind = 'channels' ORDER BY id",
+            SHARED_OWNER,
+          ),
+          this.projects
+            .list()
+            .map((p) => [p.id, p.access, p.members])
+            .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+          sql.all("SELECT id, project_id FROM tasks ORDER BY id"),
+          sql.all(
+            "SELECT id, kind, scope_type, scope_id FROM entries WHERE kind IN ('goal', 'routine') ORDER BY id",
+          ),
+        ]),
+    });
     this.flags = new AgentFlags(sql, options.clock);
     this.agentActivity = new AgentActivityNotices({
       access: this.access,
@@ -340,6 +373,7 @@ export class ChatCore {
       work: this.work,
       goals: this.goals,
       routines: this.routines,
+      channelBoard: this.channelBoard,
       ideas: this.ideas,
       taskRequests: this.taskRequests,
       notices: this.workNotices,

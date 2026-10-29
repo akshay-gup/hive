@@ -26,7 +26,6 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 
 - **Keep a task's run history in the chat service (owed).** Today the app asks the machine for a task's steps, artifacts and browser windows, and the machine checks with the chat service that the person may see the task; none of it shows while the machine sleeps. The machine should send a trimmed copy of each run's steps to the chat service, as chat runs already do, so the history is there when the machine is off. We chose to ship the simpler way first and agreed this is to be done.
 
-- **Board tools in chat runs can only create.** The agent can add to-dos but cannot list or read the board, so "what is on the board?" gets "I can't" (kept on purpose for now; the rules make a read call safe).
 - **No terms, privacy or pricing anywhere before or after signing in.** /terms, /privacy and /pricing answer 200 with the sign-in page. A person deciding whether to trust it finds nothing about where data lives, who can read it (the agent has root) or what it costs. The account page can delete the account but not export.
 - **Unexplained shorthand in the app.** "Needs you", "3/3" beside a monitor, ages like "44m", "Computer · take control", and "Delegate" and "Computer" in the left bar still need plain names (waiting on the names).
 - **Terms, Privacy and pricing pages** (waiting on the text and the pricing).
