@@ -64,6 +64,16 @@ test("each tab counts what is unread in it", () => {
   assert.deepEqual(unreadCounts(notes), { all: 2, mention: 1, agent: 0, update: 1 });
 });
 
+test("the activity summary counts as one workspace update and links to agent activity", () => {
+  const summary = note("agent-activity", {
+    target: "agent-activity",
+    body: "57 warnings need review.",
+  });
+  assert.equal(noticeKind(summary), "update");
+  assert.equal(noticeAction(summary), "View agent activity");
+  assert.deepEqual(unreadCounts([summary]), { all: 1, mention: 0, agent: 0, update: 1 });
+});
+
 test("days are named Today and Yesterday, then by date", () => {
   assert.equal(dayLabel("2026-10-22T01:00:00", now), "Today");
   assert.equal(dayLabel("2026-10-21T23:00:00", now), "Yesterday");

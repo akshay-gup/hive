@@ -1,5 +1,5 @@
 import Check from "lucide-react-native/dist/esm/icons/check";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import {
   type FlagRow,
@@ -10,6 +10,7 @@ import {
   flagWhere,
   SEVERITY_WORD,
 } from "./agent-flag-text";
+import { useChat } from "./chat-context";
 import { ago } from "./task-board";
 import { Button, Chip, colors, ErrorNotice, Pending, SectionHeading, s } from "./ui";
 import { useWorkspace } from "./workspace";
@@ -32,23 +33,36 @@ interface Answer {
  * other channels' folders), for an owner or admin. It is a watch and not a lock: the agent has the machine,
  * so this marks what it can see, and says who asked and where.
  */
-export function AgentFlags({ owner }: { owner: boolean }) {
+export function AgentFlags({ owner, heading = true }: { owner: boolean; heading?: boolean }) {
   const { api } = useWorkspace();
+  const { subscribe } = useChat();
+  const version = useRef(0);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
+    const request = ++version.current;
     try {
-      setAnswer(await api.request<Answer>("/chat/v1/agent-flags"));
+      const value = await api.request<Answer>("/chat/v1/agent-flags");
+      if (request !== version.current) return;
+      setAnswer(value);
       setError("");
     } catch (e) {
-      setError(message(e));
+      if (request === version.current) setError(message(e));
     }
   }, [api]);
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(
+    () =>
+      subscribe((frame) => {
+        if (frame.t === "resync" || (frame.t === "event" && frame.type === "agent-flags.changed"))
+          void load();
+      }),
+    [subscribe, load],
+  );
 
   async function look(id?: string) {
     setBusy(id ?? "all");
@@ -84,7 +98,7 @@ export function AgentFlags({ owner }: { owner: boolean }) {
   const rows = [...(answer?.flags ?? [])].sort(flagOrder);
   return (
     <View style={{ gap: 12 }}>
-      <SectionHeading title="Agent activity" />
+      {heading && <SectionHeading title="Agent activity" />}
       <Text style={s.muted}>
         When the agent opens the workspace's own data (its database, keys, other channels' folders),
         it is marked here. The agent runs on the workspace's machine and can reach all of it, so

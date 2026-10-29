@@ -84,5 +84,13 @@ export const noticeFrom = (note: Pick<AgentNotification, "byName" | "by">): stri
   note.byName || note.by || "";
 
 /** What opening a notice does, in words for its button. */
-export const noticeAction = (note: Pick<AgentNotification, "channelId" | "taskId">): string =>
-  note.taskId ? "View task" : note.channelId ? "Open channel" : "";
+export const noticeAction = (
+  note: Pick<AgentNotification, "channelId" | "taskId" | "target">,
+): string =>
+  note.target === "agent-activity"
+    ? "View agent activity"
+    : note.taskId
+      ? "View task"
+      : note.channelId
+        ? "Open channel"
+        : "";

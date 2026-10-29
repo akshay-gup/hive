@@ -27,6 +27,7 @@ import { useWorkspace } from "./workspace";
 const asNotification = (notice: ChatNotice): AgentNotification => ({
   id: notice.id,
   taskId: notice.taskId,
+  target: notice.target,
   channelId: notice.channelId,
   by: notice.by,
   byName: notice.byName,

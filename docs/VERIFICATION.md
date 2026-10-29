@@ -2,6 +2,14 @@
 
 What the automated checks cover, how to run them, and what has not been verified. Hive is an alpha: this lists coverage and its limits, and does not claim that every planned capability is complete.
 
+## Agent activity in the bell — 2026-10-29
+
+Owners and admins get one current notification for all significant, unreviewed agent flags. Further flags update the same item and its count. It links straight to Agent activity, which also refreshes live. The notification contains no command, file path, channel or asker details. Ordinary members and guests receive neither the item nor its live events.
+
+Reading the bell item does not review warnings. Read and dismiss state is personal; a new significant warning makes the same item unread again. Low-severity flags and partial reviews do not reset that state. Reviewing all warnings, or pruning the remaining warnings, removes the item. Existing stored flags are summarized without needing a new report, and role changes apply on every read. There is one stored read/dismiss state per person, rather than a notification history per flag.
+
+Validation: 48 focused service, realtime and mobile helper tests passed, with changed-source/test and mobile typechecks. The browser fixture used the real notification provider, inbox, activity panel and local chat service. Desktop and 375 px phone checks passed for one row and one unread count, click-through, reading without reviewing, live updates and clearing after review. The older notification sheet also opens the same panel; the scoped visual review returned ship with no material fixes. Live staging used a stand-in runner and real owner/admin/member/guest WebSockets: 20 warnings produced one item, only owners/admins received live updates, and read/dismiss/review behavior held. The isolated workspace was purged. No model calls were used.
+
 ## Private-channel tasks — 2026-10-29
 
 Private-channel mentions can stage human tasks through `create_issue`. The room keeps the pending choice; the asker chooses a project and reviews named people outside the channel before sharing. Other channel members cannot see the asker's project choices or approve for them. The same picker is available from a private-channel message. DMs remain excluded, and chat board-reading tools remain off.

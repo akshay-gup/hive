@@ -28,6 +28,7 @@ export type Detail =
   | { type: "notifications" }
   | { type: "computer" }
   | { type: "people" }
+  | { type: "agentActivity" }
   | { type: "account" }
   | { type: "menu" };
 export interface ToastOptions {

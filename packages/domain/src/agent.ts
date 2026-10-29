@@ -316,6 +316,7 @@ export interface AgentArtifact {
 export interface AgentNotification {
   id: string;
   taskId?: string;
+  target?: "agent-activity";
   /** The channel this is about, as when someone mentioned the person in it. */
   channelId?: string;
   /** Who it is for, by email address. Without it, it is the whole workspace's. */

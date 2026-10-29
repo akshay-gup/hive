@@ -42,6 +42,7 @@ import { ComputerSheet } from "./computer";
 import DateTimeEditor from "./DateTimeEditor";
 import { localDateTime, zonedInstant } from "./date-time";
 import { NewMessageSheet } from "./direct-message-new";
+import { AgentActivitySheet } from "./hosted/agent-activity-sheet";
 import { PeopleSheet } from "./hosted/people-sheet";
 import { WorkspaceAccountSheet } from "./hosted/workspace-account";
 import PdfReader from "./PdfReader";
@@ -69,6 +70,7 @@ export function Details({ detail }: { detail: Detail }) {
   const { api, close, navigate } = useWorkspace();
   if (detail.type === "computer") return <ComputerSheet />;
   if (detail.type === "people") return <PeopleSheet />;
+  if (detail.type === "agentActivity") return <AgentActivitySheet />;
   if (detail.type === "account") return <WorkspaceAccountSheet />;
   // A channel's chat has its own files (what people sent); the orchestrator's folder is the agent's.
   if (detail.type === "channelFiles" && api.chat && detail.channelId !== ORCHESTRATOR_CHANNEL_ID)

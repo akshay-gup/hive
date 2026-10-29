@@ -239,7 +239,8 @@ export function InboxScreen() {
   }
   async function go(n: AgentNotification) {
     if (!n.read) await run(n.id, `/notifications/${n.id}/read`);
-    if (n.taskId) open({ type: "task", taskId: n.taskId });
+    if (n.target === "agent-activity") open({ type: "agentActivity" });
+    else if (n.taskId) open({ type: "task", taskId: n.taskId });
     else if (n.channelId) {
       navigate("chat");
       select({ id: `channel:${n.channelId}`, existing: true });

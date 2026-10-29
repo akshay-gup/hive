@@ -121,6 +121,17 @@ export class AgentFlags {
     );
   }
 
+  /** One bell item uses the newest significant flag as its read/dismiss revision, even after review. */
+  attention(): { count: number; latestId: string; at: string } | null {
+    const count = this.unreviewed();
+    if (!count) return null;
+    const latest = first<{ id: string; at_ms: number }>(
+      this.sql,
+      "SELECT id, at_ms FROM agent_flags WHERE severity != 'low' ORDER BY rowid DESC LIMIT 1",
+    );
+    return latest ? { count, latestId: latest.id, at: new Date(latest.at_ms).toISOString() } : null;
+  }
+
   /** Mark one (or, with no id, all) as looked at; how many changed. */
   review(by: string, id?: string): number {
     return this.sql.run(

@@ -75,6 +75,8 @@ export interface ChatNotice {
   byName?: string;
   /** The task a notice of work is about. */
   taskId?: string;
+  /** A workspace notice can link directly to the admin's activity panel. */
+  target?: "agent-activity";
   title: string;
   body: string;
   createdAt: string;

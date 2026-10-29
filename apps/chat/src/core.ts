@@ -41,6 +41,7 @@ import type { ChatMessage } from "../../../packages/domain/src/chat.ts";
 import { choiceSchema } from "../../../packages/domain/src/chat-agent.ts";
 import { plainIssues } from "../../../packages/domain/src/friendly-issues.ts";
 import type { WorkspaceRole } from "../../../packages/integrations/src/workspace-token.ts";
+import { AgentActivityNotices } from "./agent-activity-notices.ts";
 import { AgentLink, type RunnerLink } from "./agent-link.ts";
 import { Filing } from "./filing.ts";
 import { Messaging } from "./messaging.ts";
@@ -102,6 +103,7 @@ export class ChatCore {
   /** When each task running on the machine was last announced. */
   private readonly touched = new Map<string, number>();
   readonly flags: AgentFlags;
+  readonly agentActivity: AgentActivityNotices;
   readonly agent: AgentLink;
   private readonly publishEvent: (event: ChatEvent) => void;
   private readonly workQueued: () => void;
@@ -321,9 +323,16 @@ export class ChatCore {
       changed: (entry) => void this.entryChanged(entry),
     });
     this.flags = new AgentFlags(sql, options.clock);
+    this.agentActivity = new AgentActivityNotices({
+      access: this.access,
+      flags: this.flags,
+      entries: this.entries,
+      emit: (type, data, userId) => this.emit(type, data, { userId }),
+    });
     this.agent = new AgentLink({
       store: this.store,
       flags: this.flags,
+      flagsChanged: () => this.agentActivity.changed(),
       access: this.access,
       messages: this.messages,
       runs: this.runs,
@@ -909,6 +918,7 @@ export class ChatCore {
       const notices = [
         ...(await this.messaging.notices(c.get("owner"), { unreadOnly })),
         ...(await this.workNotices.list(c.get("owner"), { unreadOnly })),
+        ...(await this.agentActivity.list(c.get("owner"), { unreadOnly })),
       ];
       return c.json(notices.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     });
@@ -922,20 +932,23 @@ export class ChatCore {
         c.json({
           changed:
             this.messaging.noticeState(c.get("owner"), action, [c.req.param("id")]) +
-            this.workNotices.state(c.get("owner"), action, [c.req.param("id")]),
+            this.workNotices.state(c.get("owner"), action, [c.req.param("id")]) +
+            (await this.agentActivity.state(c.get("owner"), action, [c.req.param("id")])),
         });
     app.post("/v1/notifications/read-all", async (c) =>
       c.json({
         changed:
           this.messaging.noticeState(c.get("owner"), "read") +
-          this.workNotices.state(c.get("owner"), "read"),
+          this.workNotices.state(c.get("owner"), "read") +
+          (await this.agentActivity.state(c.get("owner"), "read")),
       }),
     );
     app.post("/v1/notifications/dismiss-all", async (c) =>
       c.json({
         changed:
           this.messaging.noticeState(c.get("owner"), "dismiss") +
-          this.workNotices.state(c.get("owner"), "dismiss"),
+          this.workNotices.state(c.get("owner"), "dismiss") +
+          (await this.agentActivity.state(c.get("owner"), "dismiss")),
       }),
     );
     app.post("/v1/notifications/:id/read", noticeAction("read"));
@@ -993,15 +1006,20 @@ export class ChatCore {
       if (person?.role !== "owner") throw new AppError("Not found", 404);
       const { mode } = z.object({ mode: z.enum(WATCH_MODES) }).parse(await body(c));
       await this.agent.setWatchMode(mode);
+      await this.agentActivity.changed();
       return c.json({ mode });
     });
     app.post("/v1/agent-flags/review", async (c) => {
       await watcher(c.get("owner"));
-      return c.json({ changed: this.flags.review(c.get("owner")) });
+      const changed = this.flags.review(c.get("owner"));
+      if (changed) await this.agentActivity.changed();
+      return c.json({ changed });
     });
     app.post("/v1/agent-flags/:id/review", async (c) => {
       await watcher(c.get("owner"));
-      return c.json({ changed: this.flags.review(c.get("owner"), c.req.param("id")) });
+      const changed = this.flags.review(c.get("owner"), c.req.param("id"));
+      if (changed) await this.agentActivity.changed();
+      return c.json({ changed });
     });
 
     // Owners and admins: what channels exist, private ones too, and not what is said in them.

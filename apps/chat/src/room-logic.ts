@@ -122,7 +122,7 @@ export class RoomLogic {
       files.deleted(keys);
     }
     this.core.events.prune();
-    this.core.flags.prune();
+    if (this.core.flags.prune()) await this.core.agentActivity.changed();
     await this.core.taskRequests.prune();
     files.reconcile();
     // Routines whose time has come wake the agent.

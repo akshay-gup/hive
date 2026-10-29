@@ -43,6 +43,7 @@ import { useGuest } from "./access";
 import { useActivityProjects } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
+import { AgentActivityPanel } from "./hosted/agent-activity-sheet";
 import { useLineMaxWidth } from "./line-width";
 import { PermissionsSettings } from "./opencode-permissions";
 import { ProjectPeopleStack } from "./project-header";
@@ -1773,10 +1774,12 @@ export function NotificationsSheet() {
   const { close, open } = useWorkspace();
   const { select } = useMuseThread();
   const [error, setError] = useState("");
-  async function read(id: string, taskId?: string, channelId?: string) {
+  const [activity, setActivity] = useState(false);
+  async function read(id: string, taskId?: string, channelId?: string, target?: "agent-activity") {
     try {
       await mutate(`/notifications/${id}/read`, {});
-      if (taskId) open({ type: "task", taskId });
+      if (target === "agent-activity") setActivity(true);
+      else if (taskId) open({ type: "task", taskId });
       else if (channelId) {
         close();
         select({ id: `channel:${channelId}`, existing: true });
@@ -1794,56 +1797,69 @@ export function NotificationsSheet() {
   }
   return (
     <Sheet
-      title="Notifications"
-      subtitle="Your agents' results, decisions for you, and where you were mentioned."
+      title={activity ? "Agent activity" : "Notifications"}
+      subtitle={
+        activity
+          ? undefined
+          : "Your agents' results, decisions for you, and where you were mentioned."
+      }
       onClose={close}
     >
-      <View style={{ gap: 16 }}>
-        <ErrorNotice error={error} />
-        {!!data?.notifications.length && (
-          <Button
-            small
-            style={{ alignSelf: "flex-end" }}
-            onPress={() => void dismiss("/notifications/dismiss-all")}
-          >
-            Clear all
-          </Button>
-        )}
-        {data?.notifications.map((item) => (
-          <Card
-            key={item.id}
-            style={{ gap: 10, backgroundColor: item.read ? colors.surface : colors.primarySoft }}
-          >
-            <View style={s.between}>
-              <Text style={s.heading}>{item.title}</Text>
-              {!item.read && <Chip>New</Chip>}
-            </View>
-            <Text style={s.muted}>{item.body}</Text>
-            <Text style={s.small}>{stamp(item.createdAt)}</Text>
-            <View style={[s.row, { gap: 8 }]}>
-              <Button small onPress={() => void read(item.id, item.taskId, item.channelId)}>
-                {item.taskId
-                  ? "View task"
-                  : item.channelId
-                    ? "Open channel"
-                    : item.read
-                      ? "Read"
-                      : "Mark read"}
-              </Button>
-              <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>
-                Dismiss
-              </Button>
-            </View>
-          </Card>
-        ))}
-        {!data?.notifications.length && (
-          <Empty
-            icon={Bell}
-            title="You're all caught up"
-            detail="Results, meaningful changes and requests for your input will appear here."
-          />
-        )}
-      </View>
+      {activity ? (
+        <AgentActivityPanel />
+      ) : (
+        <View style={{ gap: 16 }}>
+          <ErrorNotice error={error} />
+          {!!data?.notifications.length && (
+            <Button
+              small
+              style={{ alignSelf: "flex-end" }}
+              onPress={() => void dismiss("/notifications/dismiss-all")}
+            >
+              Clear all
+            </Button>
+          )}
+          {data?.notifications.map((item) => (
+            <Card
+              key={item.id}
+              style={{ gap: 10, backgroundColor: item.read ? colors.surface : colors.primarySoft }}
+            >
+              <View style={s.between}>
+                <Text style={s.heading}>{item.title}</Text>
+                {!item.read && <Chip>New</Chip>}
+              </View>
+              <Text style={s.muted}>{item.body}</Text>
+              <Text style={s.small}>{stamp(item.createdAt)}</Text>
+              <View style={[s.row, { gap: 8 }]}>
+                <Button
+                  small
+                  onPress={() => void read(item.id, item.taskId, item.channelId, item.target)}
+                >
+                  {item.target === "agent-activity"
+                    ? "View agent activity"
+                    : item.taskId
+                      ? "View task"
+                      : item.channelId
+                        ? "Open channel"
+                        : item.read
+                          ? "Read"
+                          : "Mark read"}
+                </Button>
+                <Button small onPress={() => void dismiss(`/notifications/${item.id}/dismiss`)}>
+                  Dismiss
+                </Button>
+              </View>
+            </Card>
+          ))}
+          {!data?.notifications.length && (
+            <Empty
+              icon={Bell}
+              title="You're all caught up"
+              detail="Results, meaningful changes and requests for your input will appear here."
+            />
+          )}
+        </View>
+      )}
     </Sheet>
   );
 }

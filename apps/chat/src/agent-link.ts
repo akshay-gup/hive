@@ -78,6 +78,7 @@ const WAKE_EVERY_MAX_MS = 10 * 60_000;
 export interface AgentLinkDeps {
   store: RecordStore;
   flags: AgentFlags;
+  flagsChanged: () => Promise<void>;
   access: Access;
   messages: Messages;
   runs: Runs;
@@ -276,11 +277,12 @@ export class AgentLink {
         // Who asked and where come from the run the room holds, not from what the machine says.
         const run = frame.finding.runId ? this.deps.runs.get(frame.finding.runId) : null;
         if (frame.finding.runId && !run) return;
-        this.deps.flags.add(
+        const added = this.deps.flags.add(
           crypto.randomUUID(),
           frame.finding,
           run ? { id: run.id, channelId: run.channelId, askedBy: run.askedBy } : null,
         );
+        if (added) await this.deps.flagsChanged();
         return;
       }
       case "renew":
