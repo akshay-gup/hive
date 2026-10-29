@@ -1,4 +1,4 @@
-import { chownSync, existsSync, mkdirSync } from "node:fs";
+import { chownSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { noteStayedUp, startWith, waitIdle, watchSettings } from "./remote-settings.ts";
@@ -17,6 +17,15 @@ import {
   withEnvFile,
 } from "./supervisor.ts";
 
+const runDir = process.env.HIVE_RUN ?? "/run/hive";
+// The kernel watch, which notes who reads the machine's secrets, is told this process reads them at start and may.
+try {
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "supervisor.pid"), String(process.pid));
+  process.on("exit", () => rmSync(join(runDir, "supervisor.pid"), { force: true }));
+} catch {
+  // Not a machine with one: nothing watches from outside.
+}
 // Read before root is given up: a workspace on a machine of its own is set up by a file only root can read.
 // What it was made with is laid under what the control plane says its settings are now (see remote-settings.ts).
 const made = withEnvFile(process.env);
@@ -27,7 +36,6 @@ const started = await startWith(made, {
   volume: volumeDir,
 });
 const env = started.env;
-const runDir = process.env.HIVE_RUN ?? "/run/hive";
 
 // A new machine mounts its volume owned by root. It starts as root only to hand the volume to the
 // workspace's own user, then becomes that user, so what it starts, the agent included, is not root
@@ -61,6 +69,7 @@ const browserToken = ownBrowser ? loadBrowserToken(volumeDir) : undefined;
 const supervisor = new Supervisor({
   agent: {
     name: "opencode",
+    pidFile: join(runDir, "agent.pid"),
     command: ["opencode", "serve", "--hostname", OPENCODE_HOST, "--port", String(OPENCODE_PORT)],
     env: agentEnv(env, secrets, volumeDir, home),
     cwd: volumeDir,

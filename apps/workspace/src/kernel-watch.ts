@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { AUDIT_KEY, AuditParser } from "./kernel-audit.ts";
+import { AUDIT_KEY, AuditParser, type AuditRead } from "./kernel-audit.ts";
 
 /**
  * The kernel watch, run as root. It asks the kernel's audit system to note every read of the workspace's own
@@ -29,6 +29,12 @@ export interface WatcherDeps {
   roots: string[];
   /** Where the supervisor writes the server's process id. */
   serverPidFile: string;
+  /** Process ids (the supervisor's) whose reads are the machine's own: expected, never passed on. */
+  trustedPidFiles?: string[];
+  /** The agent's process id: its own file tools are read by the server's check of each call, so only what its commands read is passed on. */
+  agentPidFile?: string;
+  /** The folder of the agents' work areas (`owners/`), if watched: what a process reads in the folder it works in is not passed on. */
+  ownersRoot?: string;
   /** The audit daemon's log. */
   auditLog: string;
   now?: () => number;
@@ -41,6 +47,7 @@ export interface WatcherDeps {
   log?: (line: string) => void;
 }
 
+const SERVICE_MANAGER = new Set(["/usr/lib/systemd/systemd", "/lib/systemd/systemd"]);
 const READ_AT_MOST = 4 * 1024 * 1024;
 
 export class KernelWatcher {
@@ -66,6 +73,31 @@ export class KernelWatcher {
     } catch {
       return null;
     }
+  }
+
+  private pidOf(file: string | undefined): number | null {
+    if (!file) return null;
+    try {
+      const pid = Number(readFileSync(file, "utf8").trim());
+      return Number.isInteger(pid) && pid > 0 ? pid : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether a read is one nobody needs told of: the machine's own processes, and a process in its own work folder. */
+  private expected(read: AuditRead): boolean {
+    // The service manager hands a unit its credentials (the tunnel's token) from a process of its own.
+    if (read.pid === 1 || read.pid === process.pid || SERVICE_MANAGER.has(read.exe)) return true;
+    if (this.deps.trustedPidFiles?.some((file) => this.pidOf(file) === read.pid)) return true;
+    const owners = this.deps.ownersRoot;
+    if (!owners || !read.path.startsWith(`${owners}/`)) return false;
+    if (read.pid === this.pidOf(this.deps.agentPidFile)) return true;
+    const unit = (path: string) => {
+      const parts = path.slice(owners.length + 1).split("/");
+      return parts[1] === "channels" && parts[2] ? parts.slice(0, 3).join("/") : (parts[0] ?? "");
+    };
+    return read.cwd.startsWith(`${owners}/`) && unit(read.cwd) === unit(read.path);
   }
 
   /** Make the audit rules what they should be: the server left out, each watched path that exists watched. */
@@ -133,7 +165,8 @@ export class KernelWatcher {
     return buffer.toString("utf8");
   }
 
-  private write(reads: ReturnType<AuditParser["push"]>): void {
+  private write(all: AuditRead[]): void {
+    const reads = all.filter((read) => !this.expected(read));
     if (!reads.length) return;
     const file = join(this.deps.dir, "events.jsonl");
     try {

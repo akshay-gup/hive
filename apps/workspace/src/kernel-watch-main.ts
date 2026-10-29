@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { kernelRoots } from "../../server/src/agent-watch/classify.ts";
+import { join, resolve } from "node:path";
+import { kernelRoots, realOrSelf } from "../../server/src/agent-watch/classify.ts";
 import { KernelWatcher } from "./kernel-watch.ts";
 import { withEnvFile } from "./supervisor.ts";
 
@@ -12,11 +12,18 @@ const dataDir = env.DATA_DIR?.trim() || join(volume, "hive");
 const dir = process.env.HIVE_WATCH_DIR ?? "/run/hive-watch";
 mkdirSync(dir, { recursive: true });
 
+const run = process.env.HIVE_RUN ?? "/run/hive";
+const etc = process.env.HIVE_ETC ?? "/etc/hive";
+const roots = kernelRoots(dataDir, etc);
+
 const watcher = new KernelWatcher({
   ctl: (args) => execFileSync("auditctl", args, { encoding: "utf8", timeout: 10_000 }),
   dir,
-  roots: kernelRoots(dataDir),
-  serverPidFile: process.env.HIVE_SERVER_PID ?? "/run/hive/server.pid",
+  roots,
+  serverPidFile: process.env.HIVE_SERVER_PID ?? join(run, "server.pid"),
+  trustedPidFiles: [join(run, "supervisor.pid")],
+  agentPidFile: join(run, "agent.pid"),
+  ownersRoot: join(realOrSelf(resolve(dataDir)), "owners"),
   auditLog: process.env.HIVE_AUDIT_LOG ?? "/var/log/audit/audit.log",
   log: (line) => console.log(line),
 });
@@ -28,4 +35,4 @@ setInterval(() => {
     console.log(`[kernel-watch] ${String(error)}`);
   }
 }, 100);
-console.log(`[kernel-watch] watching ${kernelRoots(dataDir).join(", ")}`);
+console.log(`[kernel-watch] watching ${roots.join(", ")}`);

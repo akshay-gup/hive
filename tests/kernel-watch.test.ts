@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { KernelWatcher } from "../apps/workspace/src/kernel-watch.ts";
+import { KernelWatcher, type WatcherDeps } from "../apps/workspace/src/kernel-watch.ts";
 
 /**
  * The watcher that runs as root: it sets the kernel's audit rules, reads the audit daemon's log, and leaves
@@ -18,7 +18,10 @@ import { KernelWatcher } from "../apps/workspace/src/kernel-watch.ts";
  */
 const sample = readFileSync(new URL("./fixtures/audit-sample.log", import.meta.url), "utf8");
 
-function rig(t: TestContext, options: { status?: () => string; maxEventsBytes?: number } = {}) {
+function rig(
+  t: TestContext,
+  options: { status?: () => string; maxEventsBytes?: number; deps?: Partial<WatcherDeps> } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), "hive-kernel-watch-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const dir = join(root, "watch");
@@ -45,6 +48,7 @@ function rig(t: TestContext, options: { status?: () => string; maxEventsBytes?: 
     alive: (pid) => pid === 4242 || pid === 5151,
     beatEvery: 1,
     maxEventsBytes: options.maxEventsBytes ?? 10_000_000,
+    ...options.deps,
   });
   return {
     watcher,
@@ -186,4 +190,90 @@ test("the events file is started over when it grows too big, and the old one kep
   }
   assert.ok(r.events().length > 0);
   assert.ok(readFileSync(join(r.dir, "events.jsonl.1"), "utf8").length > 0);
+});
+
+/** One read as the audit daemon writes it. */
+const logged = (serial: number, read: { pid: number; exe: string; cwd: string; path: string }) =>
+  [
+    `type=SYSCALL msg=audit(1793051200.${String(serial).padStart(3, "0")}:${serial}): arch=c000003e syscall=257 success=yes exit=3 ppid=1 pid=${read.pid} comm="x" exe="${read.exe}" key="hivedata"`,
+    `type=CWD msg=audit(1793051200.${String(serial).padStart(3, "0")}:${serial}): cwd="${read.cwd}"`,
+    `type=PATH msg=audit(1793051200.${String(serial).padStart(3, "0")}:${serial}): item=0 name="${read.path}" nametype=NORMAL`,
+    "",
+  ].join("\n");
+
+test("the machine's own readers, and a process in its own work folder, are not passed on", (t) => {
+  const owners = "/data/hive/owners";
+  const supervisorPid = join(tmpdir(), `hive-sup-${process.pid}`);
+  const agentPid = join(tmpdir(), `hive-agent-${process.pid}`);
+  t.after(() => {
+    rmSync(supervisorPid, { force: true });
+    rmSync(agentPid, { force: true });
+  });
+  writeFileSync(supervisorPid, "300\n");
+  writeFileSync(agentPid, "400\n");
+  const r = rig(t, {
+    deps: { trustedPidFiles: [supervisorPid], agentPidFile: agentPid, ownersRoot: owners },
+  });
+  r.watcher.tick();
+  const one = `${owners}/shared/channels/one`;
+  const two = `${owners}/shared/channels/two`;
+  const reads = [
+    // The supervisor reading the machine's settings, and the service manager handing over a credential.
+    { pid: 300, exe: "/usr/local/bin/node", cwd: "/app", path: "/etc/hive/workspace.json" },
+    { pid: 1, exe: "/usr/lib/systemd/systemd", cwd: "/", path: "/etc/hive/tunnel-token" },
+    { pid: 901, exe: "/usr/lib/systemd/systemd", cwd: "/", path: "/etc/hive/tunnel-token" },
+    // The agent's own file tool in a work folder, and a command working in the folder it reads.
+    { pid: 400, exe: "/usr/local/bin/opencode", cwd: "/data/hive", path: `${one}/a.txt` },
+    { pid: 500, exe: "/usr/bin/cat", cwd: one, path: `${one}/deep/b.txt` },
+    // What is passed on: a command in one channel's folder reading another's, one reading from elsewhere,
+    // someone else reading the secrets, and a command of the agent's reading the settings.
+    { pid: 501, exe: "/usr/bin/cat", cwd: one, path: `${two}/b.txt` },
+    { pid: 502, exe: "/usr/bin/cat", cwd: "/tmp", path: `${one}/b.txt` },
+    { pid: 503, exe: "/usr/bin/cat", cwd: one, path: "/etc/hive/workspace.json" },
+    {
+      pid: 400,
+      exe: "/usr/local/bin/opencode",
+      cwd: "/data/hive",
+      path: "/etc/hive/workspace.json",
+    },
+  ];
+  appendFileSync(r.auditLog, reads.map((read, i) => logged(i + 1, read)).join(""));
+  r.watcher.tick();
+  r.watcher.tick();
+  r.watcher.tick();
+  assert.deepEqual(
+    r.events().map((e) => `${e.pid} ${e.path}`),
+    [
+      `501 ${two}/b.txt`,
+      `502 ${one}/b.txt`,
+      "503 /etc/hive/workspace.json",
+      "400 /etc/hive/workspace.json",
+    ],
+  );
+});
+
+test("a person's own folder and a channel of theirs are told apart", (t) => {
+  const owners = "/data/hive/owners";
+  const r = rig(t, { deps: { ownersRoot: owners } });
+  r.watcher.tick();
+  appendFileSync(
+    r.auditLog,
+    [
+      // A command of Max's own chat reading Max's files: the same folder. In a channel of Max's, reading a file
+      // of Max's outside any channel (or the reverse) is crossing, and the server decides.
+      { pid: 1, cwd: `${owners}/max`, path: `${owners}/max/notes.txt` },
+      { pid: 2, cwd: `${owners}/max/channels/a`, path: `${owners}/max/notes.txt` },
+      { pid: 3, cwd: `${owners}/max`, path: `${owners}/max/channels/a/f` },
+      { pid: 4, cwd: `${owners}/max/channels/a`, path: `${owners}/max/channels/a/x/f` },
+    ]
+      .map((read, i) => logged(i + 1, { ...read, pid: 600 + read.pid, exe: "/usr/bin/cat" }))
+      .join(""),
+  );
+  r.watcher.tick();
+  r.watcher.tick();
+  r.watcher.tick();
+  assert.deepEqual(
+    r.events().map((e) => e.pid),
+    [602, 603],
+  );
 });

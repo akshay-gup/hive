@@ -342,16 +342,30 @@ export function classifyAsk(args: {
   return [...found.values()];
 }
 
+/** The files of `/etc/hive` that hold secrets: the machine's settings, the tunnel's token, the updater's token. */
+export const SECRET_ETC_FILES = [
+  "workspace.json",
+  "tunnel-token",
+  "update-token",
+  "settings.good.json",
+  "settings.pending.json",
+];
+
 /**
  * What the kernel watch looks at: the files and folders that belong to the workspace's own data and that the
- * agent has no reason to be in. Not `owners/` (the agent's own work folders are there, and a watch on them logs
- * every install it runs) and not `/etc/hive` (the updater reads it on a timer).
+ * agent has no reason to be in. From `/etc/hive` only the files that hold secrets, not the folder: the updater
+ * reads the rest of it on a timer. `owners/` is watched whole, since the agent's work folders are there; what
+ * the watch writes for the server leaves out a run's reads in its own folder (see apps/workspace/src/kernel-watch.ts).
  */
-export function kernelRoots(dataDir: string): string[] {
-  const keep = new Set(["database", "keys", "files"]);
-  return protectedRoots(dataDir)
-    .filter((root) => keep.has(root.rule) && root.path.startsWith(realOrSelf(resolve(dataDir))))
-    .map((root) => root.path);
+export function kernelRoots(dataDir: string, etc = "/etc/hive"): string[] {
+  const keep = new Set(["database", "keys", "files", "other-channel"]);
+  const base = realOrSelf(resolve(dataDir));
+  return [
+    ...protectedRoots(dataDir)
+      .filter((root) => keep.has(root.rule) && root.path.startsWith(base))
+      .map((root) => root.path),
+    ...SECRET_ETC_FILES.map((file) => join(etc, file)),
+  ];
 }
 
 /** The rule a path the kernel saw read falls under, if it is one of the machine's own. */
@@ -359,8 +373,6 @@ export function ruleOfPath(
   path: string,
   dataDir: string,
 ): { rule: WatchRuleName; severity: Severity } | null {
-  // `owners/` is the agent's own work area and the kernel watch does not look at it.
-  const roots = protectedRoots(dataDir).filter((root) => root.rule !== "other-channel");
-  const found = ruleOf(path, roots, []);
+  const found = ruleOf(path, protectedRoots(dataDir), []);
   return found ? { rule: found.rule, severity: found.severity } : null;
 }

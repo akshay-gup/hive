@@ -38,6 +38,8 @@ export interface WatchDeps {
   batchMs?: number;
 }
 
+const within = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`);
+
 /** The most a single run is marked for, and the most kept for a moment when the chat service is out of reach. */
 const PER_RUN = 50;
 const KEPT = 100;
@@ -210,7 +212,8 @@ export class AgentWatch {
       run,
       read: (read: KernelRead) => {
         const found = ruleOfPath(read.path, this.deps.dataDir);
-        if (found)
+        // A run's own folder is its to open; only another's is marked.
+        if (found && !(found.rule === "other-channel" && within(read.path, run.directory)))
           mark({ ...found, target: read.path, source: "kernel" }, read.comm, read.exe, "marked");
       },
       stop: (finding: WatchFinding) => {
@@ -231,6 +234,9 @@ export class AgentWatch {
     const inside = (dir: string) => read.cwd === dir || read.cwd.startsWith(`${dir}/`);
     const runs = [...this.going];
     const matched = runs.filter((entry) => inside(entry.run.directory));
+    // Work folders are opened by the server's own helpers too, so a read there is a run's only if the reader
+    // was working in that run's folder.
+    if (found.rule === "other-channel" && !matched.length) return;
     const targets = matched.length ? matched : runs.length === 1 ? runs : [];
     if (targets.length) {
       for (const entry of targets) entry.read(read);

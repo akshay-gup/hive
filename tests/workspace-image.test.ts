@@ -70,5 +70,6 @@ test("the image has the kernel watch: the audit system, a unit that runs as root
   );
   assert.match(supervisorMain, /HIVE_RUN \?\? "\/run\/hive"/);
   assert.match(supervisorMain, /join\(runDir, "server\.pid"\)/);
-  assert.match(watcherMain, /"\/run\/hive\/server\.pid"/);
+  assert.match(watcherMain, /join\(run, "server\.pid"\)/);
+  assert.match(supervisorMain, /"supervisor\.pid"/);
 });
