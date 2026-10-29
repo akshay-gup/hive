@@ -9,7 +9,7 @@ import type {
   ProjectRole,
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
-import { accessChoices, roleChoices } from "./project-text";
+import { accessChoices, projectAccessNote, projectRoleNote, roleChoices } from "./project-text";
 import { Button, Chip, colors, ErrorNotice, Pending, SectionHeading, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
@@ -94,13 +94,16 @@ export function AccessChoice({
   disabled?: boolean;
 }) {
   return (
-    <RadioRows
-      label="Who can see it"
-      options={accessChoices}
-      value={value}
-      onChange={onChange}
-      disabled={disabled}
-    />
+    <View style={{ gap: 8 }}>
+      <RadioRows
+        label="Project access"
+        options={accessChoices}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+      />
+      <Text style={s.small}>{projectAccessNote}</Text>
+    </View>
   );
 }
 
@@ -156,6 +159,15 @@ export function ProjectPeople({ project }: { project: Project }) {
     <View style={{ gap: 14 }}>
       <SectionHeading title={`People · ${members.length}`} />
       <ErrorNotice error={error} />
+      <View style={{ gap: 4 }}>
+        {roleChoices.map((role) => (
+          <Text key={role.id} style={s.small}>
+            <Text style={{ color: colors.text, fontWeight: "600" }}>{role.title}: </Text>
+            {role.detail}
+          </Text>
+        ))}
+        <Text style={s.small}>{projectRoleNote}</Text>
+      </View>
       {members.length === 0 && (
         <Text style={s.muted}>
           No one is named. Owners and admins of the workspace can always see it.

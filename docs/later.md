@@ -37,7 +37,6 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **Pin or favourite projects.**
 - **A hint when no agent is connected.**
 - **Hide single tasks inside a project.**
-- **A short note on project access** (open, limited, private; admin, member, viewer).
 
 ## Housekeeping
 

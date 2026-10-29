@@ -8,7 +8,7 @@ import {
 import { useAgentWorkspace } from "./agent-workspace";
 import { AccessChoice, ProjectPeople } from "./project-access";
 import { DeleteProject } from "./project-delete";
-import { accessLine } from "./project-text";
+import { accessLine, accessWord, projectAccessNote } from "./project-text";
 import {
   Button,
   colors,
@@ -137,11 +137,10 @@ export function ProjectCreate({ onClose }: { onClose: () => void }) {
           placeholder="—"
         />
         <View style={{ gap: 8 }}>
-          <Text style={s.label}>Who can see it</Text>
+          <Text style={s.label}>Project access</Text>
           <AccessChoice value={access} onChange={setAccess} />
           <Text style={s.small}>
-            You run it, and can change this and who is in it later. Owners and admins of the
-            workspace always see every project.
+            You’ll be the project admin and can change access or add people later.
           </Text>
         </View>
         <Button primary busy={busy} onPress={() => void create()}>
@@ -214,7 +213,7 @@ export function ProjectManage({
           <>
             <Field label="Name" value={name} onChangeText={setName} />
             <View style={{ gap: 8 }}>
-              <Text style={s.label}>Who can see it</Text>
+              <Text style={s.label}>Project access</Text>
               <AccessChoice value={access} onChange={setAccess} disabled={busy} />
             </View>
             <Button
@@ -228,7 +227,11 @@ export function ProjectManage({
           </>
         ) : (
           <View style={{ gap: 4 }}>
-            <Text style={s.text}>{accessLine(project.access)}</Text>
+            <Text style={s.text}>
+              <Text style={{ fontWeight: "600" }}>{accessWord(project.access)}: </Text>
+              {accessLine(project.access)}
+            </Text>
+            <Text style={s.small}>{projectAccessNote}</Text>
             <Text style={s.small}>
               {project.you?.canWork
                 ? "You can work on its tasks. A project admin changes who is in it."

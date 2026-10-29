@@ -2,6 +2,12 @@
 
 What the automated checks cover, how to run them, and what has not been verified. Hive is an alpha: this lists coverage and its limits, and does not claim that every planned capability is complete.
 
+## Project access explanations — 2026-10-29
+
+Project creation and settings explain Open, Limited and Private access, plus the Admin, Member and Viewer project roles. The help includes workspace owners/admins' access to every project, guests' need to be added to each project, and Open access allowing workspace members to edit tasks even with the Viewer role. Read-only settings show the current access level and the same explanations.
+
+Validation: 24 existing project-helper and workspace-permission tests passed. Real-component browser checks covered creation, editable settings and read-only settings at 1440, 768 and 375 px, including long project names and selecting Limited when creating a project. The final text fits without horizontal overflow or browser exceptions; the scoped design scan reported no findings. Mobile typecheck and web export passed, and the deployed app bundle was checked for the new explanations.
+
 ## Agent activity in the bell — 2026-10-29
 
 Owners and admins get one current notification for all significant, unreviewed agent flags. Further flags update the same item and its count. It links straight to Agent activity, which also refreshes live. The notification contains no command, file path, channel or asker details. Ordinary members and guests receive neither the item nor its live events.

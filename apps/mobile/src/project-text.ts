@@ -9,25 +9,31 @@ export const accessChoices: { id: ProjectAccess; title: string; detail: string }
   {
     id: "open",
     title: "Open",
-    detail: "Everyone in the workspace can see it and work on its tasks.",
+    detail: "Workspace members can view the project and edit its tasks.",
   },
   {
     id: "limited",
     title: "Limited",
-    detail: "Everyone can see it. Only the people you add can work on its tasks.",
+    detail: "Workspace members can view it. Project admins and members can edit tasks.",
   },
   {
     id: "private",
     title: "Private",
-    detail: "Only the people you add can see it or its tasks.",
+    detail: "Only people added to the project can view it and its tasks.",
   },
 ];
 
 export const roleChoices: { id: ProjectRole; title: string; detail: string }[] = [
-  { id: "admin", title: "Admin", detail: "Runs the project and who is in it." },
-  { id: "member", title: "Member", detail: "Works on its tasks." },
-  { id: "viewer", title: "Viewer", detail: "Can look, not change." },
+  { id: "admin", title: "Admin", detail: "Manages tasks, settings and people." },
+  { id: "member", title: "Member", detail: "Creates and edits tasks." },
+  { id: "viewer", title: "Viewer", detail: "Views tasks without editing them." },
 ];
+
+export const projectAccessNote =
+  "Workspace owners and admins can view and manage every project, including private ones. Guests need to be added to each project.";
+
+export const projectRoleNote =
+  "Open access lets workspace members edit tasks even with the Viewer role. Guests follow their project role.";
 
 /** One line on how open a project is. */
 export const accessLine = (access: ProjectAccess | undefined): string =>
