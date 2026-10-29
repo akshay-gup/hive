@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Message } from "../packages/chat-core/src/messages.ts";
 import type { ChannelView } from "../packages/domain/src/agent.ts";
 import type { ChatMessage } from "../packages/domain/src/chat.ts";
 import type { AgentExtra } from "../packages/domain/src/chat-agent.ts";
@@ -35,7 +36,7 @@ test("the agent answers every message in a personal chat, below it, in one sessi
   await done(1);
   await send("and then?");
   await done(2);
-  const [first, second] = answers() as [ChatMessage, ChatMessage];
+  const [first, second] = answers() as [Message, Message];
   assert.equal(first.threadRoot, null);
   assert.equal((first.extra as AgentExtra).status, "done");
   assert.equal(first.body, "On it.");
