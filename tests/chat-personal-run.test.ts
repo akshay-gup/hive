@@ -35,11 +35,11 @@ test("the agent answers every message in a personal chat, below it, in one sessi
   await done(1);
   await send("and then?");
   await done(2);
-  const [first, second] = answers();
-  assert.equal(first?.threadRoot, null);
-  assert.equal((first?.extra as AgentExtra).status, "done");
-  assert.equal(first?.body, "On it.");
-  assert.equal((second?.extra as AgentExtra).status, "done");
+  const [first, second] = answers() as [ChatMessage, ChatMessage];
+  assert.equal(first.threadRoot, null);
+  assert.equal((first.extra as AgentExtra).status, "done");
+  assert.equal(first.body, "On it.");
+  assert.equal((second.extra as AgentExtra).status, "done");
   // One session carries on, and the agent has what its first chat had that works through the room.
   assert.equal(f.opencode.prompts[0]?.sessionID, f.opencode.prompts[1]?.sessionID);
   for (const tool of [
