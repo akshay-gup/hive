@@ -28,7 +28,6 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 
 - **Board tools in chat runs can only create.** The agent can add to-dos but cannot list or read the board, so "what is on the board?" gets "I can't" (kept on purpose for now; the rules make a read call safe).
 - **No terms, privacy or pricing anywhere before or after signing in.** /terms, /privacy and /pricing answer 200 with the sign-in page. A person deciding whether to trust it finds nothing about where data lives, who can read it (the agent has root) or what it costs. The account page can delete the account but not export.
-- **Anyone who may work in a goal's scope can change it.** A team goal is the team's, so any member can pause or finish one someone else made. Say whether goals should have an owner.
 - **Unexplained shorthand in the app.** "Needs you", "3/3" beside a monitor, ages like "44m", "Computer · take control", and "Delegate" and "Computer" in the left bar still need plain names (waiting on the names).
 - **Terms, Privacy and pricing pages** (waiting on the text and the pricing).
 - **Tap targets on a phone are bigger to touch, not to look at.** The small buttons now reach 8 px further; a careful redesign could make them taller.
@@ -37,6 +36,10 @@ The agent runs on the workspace's machine with root, so these narrow what it can
 - **Pin or favourite projects.**
 - **A hint when no agent is connected.**
 - **Hide single tasks inside a project.**
+
+## Possible later
+
+- **Goal ownership.** Goals do not need an owner for now. They stay shared within their scope: anyone who can work in that scope can change, pause or finish them. Consider adding an owner later if needed.
 
 ## Housekeeping
 
