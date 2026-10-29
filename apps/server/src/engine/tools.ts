@@ -210,7 +210,7 @@ export function conversationTools(
     defineTool({
       name: "create_issue",
       description:
-        "Create a human task on the board (kanban/timeline). Use for to-dos the person does themselves — no worker runs it. Set priority, due date, labels, dependencies. It goes in the General project unless you name another (projectId).",
+        "Create a human task on the board (kanban/timeline). Use for to-dos the person does themselves — no worker runs it. Set priority, due date, labels, dependencies. Public-channel tasks go in General unless you name projectId. In a private channel, needsProject means the asker has a project picker in the chat: no task exists yet. Ask them to choose there; never claim the task was created until created is true.",
       parameters: z.object({
         title: z.string().trim().min(1).max(160),
         notes: z.string().trim().max(12000).optional(),
@@ -547,9 +547,10 @@ export const chatTools: ReadonlySet<string> = new Set([
   "routine_webhook",
   "routine_memo",
 ]);
-/** In a private channel: what it makes is not kept apart for the people in it, so only reading and sharing into the reply. */
+/** Private-channel tasks are staged by the room until the asker chooses a project and reviews its audience. */
 export const privateChatTools: ReadonlySet<string> = new Set([
   "browse_web",
+  "create_issue",
   "send_file",
   "create_goal",
   "create_routine",

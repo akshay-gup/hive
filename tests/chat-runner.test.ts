@@ -128,7 +128,7 @@ test("what the agent does with its tools is shown as steps, and a board item it 
   assert.equal(task?.createdBy, people.max.id);
 });
 
-test("the tools depend on the channel and the person: a private channel has no board, a guest only what a guest may", async (t) => {
+test("private channels offer task creation without board reading, and guests get their own tools", async (t) => {
   const offered: string[][] = [];
   const f = await wired(t, ({ tools, say }) => {
     offered.push([...tools].sort());
@@ -162,6 +162,7 @@ test("the tools depend on the channel and the person: a private channel has no b
     [
       "browse_web",
       "create_goal",
+      "create_issue",
       "create_routine",
       "list_routines",
       "remove_routine",
@@ -170,13 +171,48 @@ test("the tools depend on the channel and the person: a private channel has no b
       "send_file",
       "update_routine",
     ],
-    ["browse_web", "send_file"],
+    ["browse_web", "create_issue", "send_file"],
   ]);
   // The machine was told the private channel is private, and nothing of who is in it but those who can ask.
   const stub = await f.db.get<Channel>(SHARED_OWNER, "channels", secret.id);
   assert.equal(stub?.visibility, "private");
   assert.deepEqual(stub?.members, []);
   assert.equal(f.opencode.prompts[1]?.context.includes("(private channel)"), true);
+});
+
+test("a private-channel create_issue call shows a picker and returns without waiting for approval", async (t) => {
+  let result: unknown;
+  const f = await wired(t, async ({ call, say }) => {
+    result = await call("create_issue", {
+      title: "Prepare the proposal",
+      notes: "Only these details",
+    });
+    say("Choose a project in the card.");
+  });
+  const channel = await f.channel("max", "Private tasks", "private");
+  await f.call("max", "PATCH", `/v1/channels/${channel.id}`, { agent: true });
+  const asked = await f.post("max", channel.id, "@hive make a task for the proposal");
+  const reply = await f.finished(asked.id);
+  assert.equal((result as { needsProject?: boolean }).needsProject, true);
+  assert.equal(f.core.tasks.all().length, 0);
+  const choice = f.extra(reply).prompts?.[0];
+  assert.equal(choice?.prompt.kind, "task_project");
+  const requestId = choice!.prompt.id;
+  const preview = (await (
+    await f.call("max", "GET", `/v1/task-requests/${requestId}/projects/general`)
+  ).json()) as { fingerprint: string; outside: { id: string }[] };
+  assert.deepEqual(
+    preview.outside.map((p) => p.id),
+    [people.mia.id],
+  );
+  const created = await f.call("max", "POST", `/v1/task-requests/${requestId}/confirm`, {
+    projectId: "general",
+    fingerprint: preview.fingerprint,
+    share: true,
+  });
+  assert.equal(created.status, 200, await created.clone().text());
+  assert.equal(f.core.tasks.all()[0]?.title, "Prepare the proposal");
+  assert.equal(f.core.tasks.all()[0]?.prompt, "Only these details");
 });
 
 test("a thread keeps its session, and another thread has its own", async (t) => {

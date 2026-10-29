@@ -123,6 +123,7 @@ export class RoomLogic {
     }
     this.core.events.prune();
     this.core.flags.prune();
+    await this.core.taskRequests.prune();
     files.reconcile();
     // Routines whose time has come wake the agent.
     await this.core.routines.fireDue();

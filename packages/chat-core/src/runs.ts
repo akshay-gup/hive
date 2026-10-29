@@ -4,6 +4,7 @@ import type {
   PromptState,
   RunPrompt,
   RunReason,
+  TaskProjectPrompt,
 } from "../../domain/src/chat-agent.ts";
 import { first, type Sql } from "./sql.ts";
 
@@ -321,7 +322,12 @@ export class Runs {
   }
 
   /** The agent asks something of the people. */
-  addPrompt(id: string, prompt: RunPrompt, requestId: string, after?: PromptPlace): Run | null {
+  addPrompt(
+    id: string,
+    prompt: RunPrompt | TaskProjectPrompt,
+    requestId: string,
+    after?: PromptPlace,
+  ): Run | null {
     const run = this.get(id);
     if (!run || (run.state !== "running" && run.state !== "sent")) return null;
     if (run.prompts.length >= 40 || run.prompts.some((p) => p.prompt.id === prompt.id)) return run;
@@ -362,6 +368,31 @@ export class Runs {
       this.sql.run("UPDATE runs SET prompts = ? WHERE id = ?", JSON.stringify(prompts), id);
       return prompts[at] ?? null;
     });
+  }
+
+  /** A room-owned task choice can be settled after the agent's run has finished. */
+  settleTaskPrompt(
+    id: string,
+    promptId: string,
+    by: { id: string; name: string },
+    created: boolean,
+  ): void {
+    const run = this.get(id);
+    if (!run) return;
+    const prompts = run.prompts.map((state) =>
+      state.prompt.kind === "task_project" && state.prompt.id === promptId && !state.answered
+        ? {
+            ...state,
+            answered: {
+              by: by.id,
+              byName: by.name,
+              at: new Date(this.clock()).toISOString(),
+              choice: created ? { reply: "once" as const } : { dismiss: true as const },
+            },
+          }
+        : state,
+    );
+    this.sql.run("UPDATE runs SET prompts = ? WHERE id = ?", JSON.stringify(prompts), id);
   }
 
   /** The agent has gone on without waiting (the question was dropped on its side): nothing is left to answer. */

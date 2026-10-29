@@ -28,6 +28,20 @@ const steps = [
   { id: "a2", role: "assistant", toolCalls: [call("c2", "create_issue", { title: "x" })] },
 ];
 
+test("version 2 task choices remain usable after a run ends, and future versions fall back to text", () => {
+  const prompt = {
+    prompt: { kind: "task_project", id: "request", title: "Proposal", askedBy: "u1" },
+    requestId: "room-choice",
+  };
+  const extra = { v: 2, runId: "r1", askedBy: "u1", status: "done", steps: [], prompts: [prompt] };
+  const view = agentView(extra);
+  assert.ok(view);
+  assert.equal(view.working, false);
+  assert.equal(view.prompts[0]?.prompt.kind, "task_project");
+  assert.equal(view.segments[0]?.prompts[0]?.prompt.id, "request");
+  assert.equal(agentView({ ...extra, v: 3 }), null);
+});
+
 test("a run in progress is a view with its steps, the one under way still moving", () => {
   const view = agentView({ v: 1, runId: "r1", askedBy: "u1", status: "working", steps });
   assert.ok(view);
@@ -120,7 +134,7 @@ test("what is not an agent's record, or is one this app does not know, is not a 
     3,
     [],
     {},
-    { v: 2, runId: "r", status: "done" },
+    { v: 3, runId: "r", status: "done" },
     { v: 1, status: "done" },
     { v: 1, runId: "r", status: "nonsense" },
   ])

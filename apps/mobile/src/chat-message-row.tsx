@@ -1,4 +1,5 @@
 import Copy from "lucide-react-native/dist/esm/icons/copy";
+import ListPlus from "lucide-react-native/dist/esm/icons/list-plus";
 import MessageSquare from "lucide-react-native/dist/esm/icons/message-square";
 import Pencil from "lucide-react-native/dist/esm/icons/pencil";
 import RotateCcw from "lucide-react-native/dist/esm/icons/rotate-ccw";
@@ -14,6 +15,7 @@ import { ChatAgentBody } from "./chat-agent-message";
 import type { FeedMessage } from "./chat-feed";
 import { ChatFiles } from "./chat-files";
 import { MentionText } from "./mention-ui";
+import { SourceTaskCreate } from "./task-project-choice";
 import { authorTint } from "./theme";
 import {
   Button,
@@ -29,6 +31,7 @@ import {
   useOver,
   type WebPressState,
 } from "./ui";
+import { useWorkspace } from "./workspace";
 
 /** The pictures offered for a quick reaction. */
 const QUICK = ["👍", "❤️", "😄", "🎉", "👀", "🙏"];
@@ -155,6 +158,7 @@ export function ChatMessageRow({
   grouped,
   mentions,
   canTakePart,
+  canCreateTask = false,
   canDelete,
   selected,
   onReply,
@@ -174,6 +178,8 @@ export function ChatMessageRow({
   mentions: string[];
   /** In the channel, so may react, reply and edit their own. */
   canTakePart: boolean;
+  /** Private channels offer a project picker before copying a message to the board. */
+  canCreateTask?: boolean;
   /** May take this message away (its author, a manager, an admin or the owner). */
   canDelete: boolean;
   selected?: boolean;
@@ -199,11 +205,14 @@ export function ChatMessageRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body);
   const [saving, setSaving] = useState(false);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const { open } = useWorkspace();
   const hoverUi = useDense();
   const mine = message.author.id === me;
   // The agent's reply to a mention, when this app can read how its run is going.
   const run = message.author.kind === "agent" ? agentView(message.extra) : null;
   const toolbar = (hovered || focused || picking) && !editing && !message.pending;
+  const offerTask = canTakePart && canCreateTask && !message.pending && !message.failed;
   const lastReply = message.lastReplyAt ? clock(message.lastReplyAt) : "";
 
   async function copy() {
@@ -360,6 +369,7 @@ export function ChatMessageRow({
           ) : run ? (
             <ChatAgentBody
               view={run}
+              viewerId={me}
               body={message.body}
               canAnswer={!!agent?.canAnswer}
               onAnswer={async (promptId, choice) => {
@@ -424,6 +434,17 @@ export function ChatMessageRow({
           )}
           {!hoverUi && expanded && !editing && !message.pending && (
             <View style={[s.row, { gap: 8, paddingTop: 4, flexWrap: "wrap" }]}>
+              {offerTask && (
+                <Button
+                  small
+                  onPress={() => {
+                    setExpanded(false);
+                    setCreatingTask(true);
+                  }}
+                >
+                  Create task
+                </Button>
+              )}
               {canTakePart && (
                 <Button
                   small
@@ -520,6 +541,9 @@ export function ChatMessageRow({
       </View>
       {hoverUi && (
         <Toolbar visible={toolbar}>
+          {offerTask && (
+            <ToolButton icon={ListPlus} label="Create task" onPress={() => setCreatingTask(true)} />
+          )}
           {canTakePart && (
             <ToolButton
               icon={Smile}
@@ -543,6 +567,16 @@ export function ChatMessageRow({
           {canDelete && <ToolButton icon={Trash2} label="Delete message" onPress={onDelete} />}
           <ToolButton icon={Copy} label="Copy message" onPress={() => void copy()} />
         </Toolbar>
+      )}
+      {creatingTask && (
+        <SourceTaskCreate
+          messageId={message.id}
+          onClose={() => setCreatingTask(false)}
+          onCreated={(taskId) => {
+            onNotify("Task created");
+            open({ type: "task", taskId });
+          }}
+        />
       )}
     </Pressable>
   );

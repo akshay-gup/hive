@@ -71,7 +71,8 @@ const isCall = (value: unknown): value is Call =>
  * not an agent's): the message is then shown as plain words. Nothing in it is trusted to be well formed.
  */
 export function agentView(extra: unknown): AgentView | null {
-  if (!isRecord(extra) || extra.v !== 1 || typeof extra.runId !== "string") return null;
+  if (!isRecord(extra) || (extra.v !== 1 && extra.v !== 2) || typeof extra.runId !== "string")
+    return null;
   const status = extra.status;
   if (!RUN_STATUS.includes(status as AgentExtra["status"])) return null;
   const rawSteps = Array.isArray(extra.steps) ? (extra.steps as unknown[]) : [];

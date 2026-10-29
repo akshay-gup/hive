@@ -141,6 +141,7 @@ function MessageList({
                   grouped={!newDay && continues(previous, message)}
                   mentions={mentions}
                   canTakePart={takePart}
+                  canCreateTask={channel?.kind !== "dm" && channel?.visibility === "private"}
                   canDelete={message.author.id === me || manager}
                   selected={!inThread && threadRoot === message.id}
                   onReply={inThread || !openThread ? undefined : () => openThread(message.id)}

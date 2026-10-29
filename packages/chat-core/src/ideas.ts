@@ -164,7 +164,7 @@ export class Ideas {
         projectId: project.id,
         ...(entry.scope.type === "channel" ? { channelId: entry.scope.id } : {}),
       },
-      { key: `idea:${data.sourceId ?? id}` },
+      { key: `idea:${data.sourceId ?? id}`, privateSource: entry.scope.type === "channel" },
     );
     let goal: Entry | undefined;
     let accepted: Entry | undefined;

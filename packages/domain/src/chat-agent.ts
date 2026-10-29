@@ -76,6 +76,14 @@ export const promptSchema = z.discriminatedUnion("kind", [
 ]);
 export type RunPrompt = z.infer<typeof promptSchema>;
 
+/** A room-owned project choice. Project names and audiences are fetched only by the asker. */
+export interface TaskProjectPrompt {
+  kind: "task_project";
+  id: string;
+  title: string;
+  askedBy: string;
+}
+
 /** What a person chose for a prompt. */
 export const choiceSchema = z.union([
   z.object({ reply: z.enum(["once", "reject"]) }),
@@ -92,7 +100,7 @@ export const promptPlaceSchema = z.object({
 export type PromptPlace = z.infer<typeof promptPlaceSchema>;
 
 export interface PromptState {
-  prompt: RunPrompt;
+  prompt: RunPrompt | TaskProjectPrompt;
   /** Where in the reply it was asked, so the app shows it where it came up. */
   after?: PromptPlace;
   /** What the machine will answer with. Kept by the room; never sent to the app. */
@@ -112,7 +120,8 @@ export const MAX_EXTRA_BYTES = 256 * 1024;
  * `reason` and `prompts` itself; whatever the machine says of those is not taken.
  */
 export interface AgentExtra {
-  v: 1;
+  /** Version 2 adds room-owned task choices; older apps fall back to the message's plain text. */
+  v: 1 | 2;
   runId: string;
   /** Who asked (their id), for who may stop it. */
   askedBy: string;

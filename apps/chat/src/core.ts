@@ -29,6 +29,10 @@ import { migrate } from "../../../packages/chat-core/src/schema.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import { first, type Sql } from "../../../packages/chat-core/src/sql.ts";
 import { SqliteRecordStore } from "../../../packages/chat-core/src/sqlite-store.ts";
+import {
+  type TaskRequestData,
+  TaskRequests,
+} from "../../../packages/chat-core/src/task-requests.ts";
 import { Projects, Tasks } from "../../../packages/chat-core/src/work.ts";
 import { Work } from "../../../packages/chat-core/src/work-rules.ts";
 import type { Channel, ChannelFootprint } from "../../../packages/domain/src/agent.ts";
@@ -94,6 +98,7 @@ export class ChatCore {
   readonly routines: Routines;
   readonly work: Work;
   readonly ideas: Ideas;
+  readonly taskRequests: TaskRequests;
   /** When each task running on the machine was last announced. */
   private readonly touched = new Map<string, number>();
   readonly flags: AgentFlags;
@@ -235,10 +240,7 @@ export class ChatCore {
         return workspace ? this.filing.taskFileLink(workspace, fileId) : null;
       },
       filesGone: workQueued,
-      channel: async (id) => {
-        const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", id);
-        return channel && channel.status !== "archived" ? channel : null;
-      },
+      channel: (id) => this.store.get<Channel>(SHARED_OWNER, "channels", id),
       discussion: async (channelId) => {
         const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
         const recent = this.messages
@@ -267,6 +269,47 @@ export class ChatCore {
       // What was kept for a project goes with it (the app has warned who deletes it).
       projectGone: async (id) => void (await this.rules.removeScope({ type: "project", id })),
     });
+    this.taskRequests = new TaskRequests({
+      sql,
+      sharingSnapshot: (channelId, projectId) =>
+        JSON.stringify({
+          channel: sql.all(
+            "SELECT data FROM records WHERE owner = ? AND kind = 'channels' AND id = ?",
+            SHARED_OWNER,
+            channelId,
+          ),
+          people: sql.all(
+            "SELECT data FROM records WHERE owner = 'system' AND kind = 'users' ORDER BY id",
+          ),
+          project: this.projects.get(projectId),
+        }),
+      entries: this.entries,
+      access: this.access,
+      projects: this.projects,
+      messages: this.messages,
+      work: this.work,
+      channel: (id) => this.store.get<Channel>(SHARED_OWNER, "channels", id),
+      clock: options.clock ?? Date.now,
+      soon: workQueued,
+      changed: async (entry) => {
+        const data = entry.data as unknown as TaskRequestData;
+        this.emit(
+          "task-request.changed",
+          { id: entry.id, status: entry.status },
+          { userId: entry.createdBy },
+        );
+        if (data.runId) {
+          const person = await this.access.person(entry.createdBy);
+          this.runs.settleTaskPrompt(
+            data.runId,
+            entry.id,
+            { id: entry.createdBy, name: person?.name || person?.email || "Someone" },
+            entry.status === "created",
+          );
+          await this.agent.refreshTaskChoice(data.runId);
+        }
+      },
+    });
     this.ideas = new Ideas({
       sql,
       access: this.access,
@@ -289,6 +332,7 @@ export class ChatCore {
       goals: this.goals,
       routines: this.routines,
       ideas: this.ideas,
+      taskRequests: this.taskRequests,
       notices: this.workNotices,
       files: this.files,
       filing: this.filing,
@@ -358,6 +402,7 @@ export class ChatCore {
       throw new AppError("Only a channel manager, an admin or the owner can delete a channel", 403);
     const audience = await this.audience(channelId);
     await this.rules.removeScope({ type: "channel", id: channelId });
+    this.taskRequests.removeChannel(channelId);
     this.sql.transaction(() => {
       this.files.removeOfChannel(channelId);
       this.sql.run("DELETE FROM reactions WHERE channel_id = ?", channelId);
@@ -590,6 +635,21 @@ export class ChatCore {
     );
     app.post("/v1/tasks", async (c) =>
       c.json(await this.work.createTask(owner(c), await c.req.json()), 201),
+    );
+    app.post("/v1/task-requests", async (c) =>
+      c.json(await this.taskRequests.fromMessage(owner(c), await c.req.json()), 201),
+    );
+    app.get("/v1/task-requests/:id", async (c) =>
+      c.json(await this.taskRequests.view(owner(c), c.req.param("id"))),
+    );
+    app.get("/v1/task-requests/:id/projects/:project", async (c) =>
+      c.json(await this.taskRequests.audience(owner(c), c.req.param("id"), c.req.param("project"))),
+    );
+    app.post("/v1/task-requests/:id/confirm", async (c) =>
+      c.json(await this.taskRequests.confirm(owner(c), c.req.param("id"), await c.req.json())),
+    );
+    app.post("/v1/task-requests/:id/cancel", async (c) =>
+      c.json(await this.taskRequests.cancel(owner(c), c.req.param("id"))),
     );
     app.get("/v1/tasks/:id", async (c) =>
       c.json({

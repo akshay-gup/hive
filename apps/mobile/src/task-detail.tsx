@@ -251,7 +251,7 @@ export function TaskDetail({
                     confirm. When it finishes it comes back to you to check, and you decide whether
                     it is done.
                   </Text>
-                  {channelName && (
+                  {channelName && !task.input?.privateConversation && (
                     <CheckRow
                       label={`Include the recent discussion in #${channelName}`}
                       checked={includeDiscussion}
@@ -265,7 +265,9 @@ export function TaskDetail({
                       onPress={() => {
                         void patch({
                           assignee: "agent",
-                          ...(channelName ? { channelContext: includeDiscussion } : {}),
+                          ...(channelName && !task.input?.privateConversation
+                            ? { channelContext: includeDiscussion }
+                            : {}),
                         }).then((saved) => saved && setHanding(false));
                       }}
                     >

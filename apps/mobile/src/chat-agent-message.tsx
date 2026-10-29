@@ -31,12 +31,14 @@ export function ChatAgentBody({
   body,
   canAnswer,
   onAnswer,
+  viewerId,
 }: {
   view: AgentView;
   body: string;
   /** A teammate (not a guest) in the channel. */
   canAnswer: boolean;
   onAnswer: (promptId: string, choice: PromptChoice) => Promise<void>;
+  viewerId?: string;
 }) {
   const text = body.trim();
   const going = view.queued || view.working;
@@ -63,6 +65,7 @@ export function ChatAgentBody({
               <ChatAgentPrompt
                 key={state.prompt.id}
                 state={state}
+                viewerId={viewerId}
                 canAnswer={canAnswer && going}
                 onAnswer={(choice) => onAnswer(state.prompt.id, choice)}
               />

@@ -15,6 +15,10 @@ import type { Message, Messages } from "../../../packages/chat-core/src/messages
 import { isActive, RUN_LIMITS, type Run, type Runs } from "../../../packages/chat-core/src/runs.ts";
 import { SHARED_OWNER } from "../../../packages/chat-core/src/shared.ts";
 import type { RecordStore } from "../../../packages/chat-core/src/store.ts";
+import type {
+  TaskRequestData,
+  TaskRequests,
+} from "../../../packages/chat-core/src/task-requests.ts";
 import type { Tasks } from "../../../packages/chat-core/src/work.ts";
 import { TASK_LIMITS } from "../../../packages/chat-core/src/work.ts";
 import type { Work } from "../../../packages/chat-core/src/work-rules.ts";
@@ -82,6 +86,7 @@ export interface AgentLinkDeps {
   work: Work;
   goals: Goals;
   ideas: Ideas;
+  taskRequests: TaskRequests;
   routines: Routines;
   notices: WorkNotices;
   files: Files;
@@ -415,6 +420,71 @@ export class AgentLink {
         case "task.create":
           {
             const { held, ...fields } = args;
+            const source = run
+              ? await this.deps.store.get<Channel>(SHARED_OWNER, "channels", run.channelId)
+              : null;
+            if (run && source?.kind !== "dm" && source?.visibility === "private") {
+              if (run.prompts.length >= 40)
+                throw new AppError(
+                  "Finish this conversation's pending choices before adding more",
+                  409,
+                );
+              const proposed = await this.deps.taskRequests.propose(
+                actor,
+                { ...fields, ...home },
+                { messageId: run.triggerId, runId: run.id, key: frame.key },
+              );
+              const data = proposed.data as unknown as TaskRequestData;
+              if (
+                proposed.status === "pending" &&
+                (await this.deps.taskRequests.alreadyChosen(actor, proposed)) &&
+                data.task.projectId
+              ) {
+                const audience = await this.deps.taskRequests.audience(
+                  actor,
+                  proposed.id,
+                  data.task.projectId,
+                );
+                const result = await this.deps.taskRequests.confirm(actor, proposed.id, {
+                  projectId: data.task.projectId,
+                  fingerprint: audience.fingerprint,
+                });
+                body = {
+                  id: result.taskId,
+                  title: result.title,
+                  created: result.status === "created",
+                  status: result.status,
+                };
+              } else if (proposed.status === "pending") {
+                this.deps.runs.addPrompt(
+                  run.id,
+                  {
+                    kind: "task_project",
+                    id: proposed.id,
+                    title: data.task.title ?? "New task",
+                    askedBy: actor,
+                  },
+                  `task-project:${proposed.id}`,
+                );
+                await this.rewrite(run.id, true);
+                body = {
+                  created: false,
+                  needsProject: true,
+                  requestId: proposed.id,
+                  instruction:
+                    "The asker has a project picker in the task card. No task has been created yet.",
+                };
+              } else {
+                const result = await this.deps.taskRequests.view(actor, proposed.id);
+                body = {
+                  id: result.taskId,
+                  title: result.title,
+                  created: result.status === "created",
+                  status: result.status,
+                };
+              }
+              break;
+            }
             body = await work.createTask(
               actor,
               { ...fields, ...home },
@@ -664,7 +734,7 @@ export class AgentLink {
   /** `extra` of a run's reply: the room's own words on how it is going, with what the run did. */
   private extraFor(run: Run, steps: unknown[]): AgentExtra {
     return {
-      v: 1,
+      v: run.prompts.some((state) => state.prompt.kind === "task_project") ? 2 : 1,
       runId: run.id,
       askedBy: run.askedBy,
       status: statusOf(run),
@@ -704,6 +774,11 @@ export class AgentLink {
     return this.write(runId, {}, keep);
   }
 
+  /** A room-owned task card may be completed after the agent has finished its reply. */
+  refreshTaskChoice(runId: string): Promise<void> {
+    return this.rewrite(runId, true);
+  }
+
   /** The run is over, one way or another: the reply says so, the person who asked is told, and the next goes. */
   async finish(
     runId: string,
@@ -718,6 +793,7 @@ export class AgentLink {
     const before = runs.get(runId);
     const ended = runs.end(runId, state, reason);
     if (!before || !ended) return;
+    if (state !== "done") await this.deps.taskRequests.cancelRun(runId);
     if (tellMachine && (before.state === "sent" || before.state === "running"))
       this.send({
         t: "run.stop",
@@ -1034,6 +1110,8 @@ export class AgentLink {
     if (!isActive(run)) throw new AppError("This run is over", 409);
     const asked = run.prompts.find((p) => p.prompt.id === promptId);
     if (!asked) throw new AppError("Nothing was asked", 404);
+    if (asked.prompt.kind === "task_project")
+      throw new AppError("Choose a project in the task card", 422);
     const fits =
       asked.prompt.kind === "approval"
         ? "reply" in choice

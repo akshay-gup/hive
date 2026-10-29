@@ -5,7 +5,9 @@ import X from "lucide-react-native/dist/esm/icons/x";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import type { PromptChoice, PromptState, RunPrompt } from "../../../packages/domain/src/chat-agent";
+import { TaskProjectChoice } from "./task-project-choice";
 import { Button, colors, ErrorNotice, fontSize, radius, s, selectedCard } from "./ui";
+import { useWorkspace } from "./workspace";
 
 type Asked = Extract<RunPrompt, { kind: "question" }>["questions"][number];
 
@@ -25,6 +27,19 @@ const answerOf = (pick: Pick): string[] => {
 function settled(state: PromptState): { ok: boolean; parts: { label: string; value: string }[] } {
   const { prompt, answered } = state;
   const choice = answered?.choice;
+  if (prompt.kind === "task_project")
+    return {
+      ok: !!choice && "reply" in choice && choice.reply === "once",
+      parts: [
+        {
+          label: prompt.title,
+          value:
+            choice && "reply" in choice && choice.reply === "once"
+              ? "Task created"
+              : "Task not created",
+        },
+      ],
+    };
   if (prompt.kind === "approval" && choice && "reply" in choice)
     return {
       ok: choice.reply === "once",
@@ -70,11 +85,14 @@ export function ChatAgentPrompt({
   state,
   canAnswer,
   onAnswer,
+  viewerId,
 }: {
   state: PromptState;
   canAnswer: boolean;
   onAnswer: (choice: PromptChoice) => Promise<void>;
+  viewerId?: string;
 }) {
+  const { open } = useWorkspace();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const { prompt } = state;
@@ -90,6 +108,34 @@ export function ChatAgentPrompt({
     }
   }
   if (state.answered) return <SettledPrompt state={state} />;
+  if (prompt.kind === "task_project")
+    return (
+      <View
+        style={{
+          padding: 14,
+          marginTop: 6,
+          gap: 10,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.lineStrong,
+          backgroundColor: colors.paper,
+          alignSelf: "stretch",
+          maxWidth: 560,
+        }}
+      >
+        <Text style={s.heading}>Choose a project for this task</Text>
+        {viewerId === prompt.askedBy ? (
+          <TaskProjectChoice
+            requestId={prompt.id}
+            onCreated={(taskId) => open({ type: "task", taskId })}
+          />
+        ) : (
+          <Text style={s.muted}>
+            The person who asked chooses the project and reviews who can see the task.
+          </Text>
+        )}
+      </View>
+    );
   const frame = {
     gap: 8,
     padding: 12,

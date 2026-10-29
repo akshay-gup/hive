@@ -84,7 +84,9 @@ export interface WorkDeps {
   /** A project was deleted: what is kept in its scope (goals, routines) goes too. */
   projectGone?: (id: string) => Promise<void>;
   /** Whether a channel exists in this workspace, and the person may open it. */
-  channel?: (id: string) => Promise<{ id: string } | null>;
+  channel?: (
+    id: string,
+  ) => Promise<{ id: string; visibility?: string; kind?: string; status?: string } | null>;
   /** The files of tasks, kept with the room's other files (see apps/chat/src/filing.ts). */
   files?: {
     get(id: string): FileRow | null;
@@ -409,7 +411,7 @@ export class Work {
   async createTask(
     owner: string,
     raw: unknown,
-    options: { key?: string; held?: boolean } = {},
+    options: { key?: string; held?: boolean; privateSource?: boolean } = {},
   ): Promise<AgentTask> {
     const prepared = await this.prepareTask(owner, raw, options);
     const task = prepared.save();
@@ -422,7 +424,7 @@ export class Work {
   async prepareTask(
     owner: string,
     raw: unknown,
-    options: { key?: string; held?: boolean } = {},
+    options: { key?: string; held?: boolean; privateSource?: boolean } = {},
   ): Promise<{ save(goalId?: string): AgentTask; announce(): void }> {
     const input = createTaskSchema.parse(raw);
     this.ensureGeneral();
@@ -436,6 +438,11 @@ export class Work {
     const channelId = input.channelId ?? ORCHESTRATOR_CHANNEL_ID;
     if (channelId !== ORCHESTRATOR_CHANNEL_ID && !scope.allows(channelId))
       throw new AppError("That channel is not there, or you cannot see it.", 404);
+    const source =
+      channelId !== ORCHESTRATOR_CHANNEL_ID ? await this.deps.channel?.(channelId) : null;
+    if (source?.status === "archived") throw new AppError("This channel is archived", 409);
+    if (source && source.kind !== "dm" && source.visibility === "private" && !options.privateSource)
+      throw new AppError("Choose a project through this conversation's task picker first", 409);
     if (options.key) {
       const existing = this.deps.tasks.byKey(options.key);
       if (existing) return { save: () => existing, announce: () => {} };
@@ -492,7 +499,12 @@ export class Work {
             status: options.held ? "paused" : "queued",
             plan: titles.map((title, i) => ({ id: String(i), title, status: "pending" as const })),
             evidence: [],
-            input: input.input,
+            input: {
+              ...input.input,
+              ...(source && source.kind !== "dm" && source.visibility === "private"
+                ? { privateConversation: true }
+                : {}),
+            },
             state: {},
             createdAt: now,
             updatedAt: now,
@@ -518,12 +530,21 @@ export class Work {
    * stays as written. Each run's brief is built from it, the notes and files on the task, and (unless the
    * person declines) a snapshot of the channel discussion taken now.
    */
-  private async assignToAgent(task: AgentTask, patch: Partial<AgentTask>, channelContext: boolean) {
+  private async assignToAgent(
+    owner: string,
+    task: AgentTask,
+    patch: Partial<AgentTask>,
+    channelContext: boolean,
+  ) {
     if (task.kind !== "manual")
       throw new AppError("Only manual issues can be assigned to the agent", 422);
     const channelId = task.channelId;
     const context =
-      channelContext && channelId && channelId !== ORCHESTRATOR_CHANNEL_ID
+      channelContext &&
+      !task.input?.privateConversation &&
+      channelId &&
+      channelId !== ORCHESTRATOR_CHANNEL_ID &&
+      (await this.deps.access.scope(owner)).allows(channelId)
         ? ((await this.deps.discussion?.(channelId)) ?? null)
         : null;
     const { discussion: _earlier, ...input } = task.input ?? {};
@@ -593,7 +614,7 @@ export class Work {
       if (input.status !== undefined || input.prompt !== undefined)
         throw new AppError("Cannot change assignee together with status or prompt", 422);
       if (input.assignee === "agent")
-        await this.assignToAgent(task, patch, input.channelContext ?? true);
+        await this.assignToAgent(owner, task, patch, input.channelContext ?? true);
       else this.unassignFromAgent(task, patch);
     }
     if (input.title !== undefined) patch.title = input.title;
@@ -737,7 +758,11 @@ export class Work {
       throw new AppError("Task is running; checkpoint it to waiting before delegating", 409);
     if (target !== ORCHESTRATOR_CHANNEL_ID) {
       const channel = await this.deps.channel?.(target);
-      if (!channel || !(await this.deps.access.scope(owner)).allows(target))
+      if (
+        !channel ||
+        channel.status === "archived" ||
+        !(await this.deps.access.scope(owner)).allows(target)
+      )
         throw new AppError("Target channel not found", 404);
     }
     const saved = this.change(task, {
