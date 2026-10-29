@@ -1311,89 +1311,10 @@ export function GoalsScreen() {
   const { data } = useAgentWorkspace();
   const [adding, setAdding] = useState<string>();
   const [selectedGoal, setSelectedGoal] = useState<string>();
-  const [selectedRoutine, setSelectedRoutine] = useState<string>();
-  const [showAll, setShowAll] = useState(false);
   const goal = data?.goals.find((item) => item.id === selectedGoal);
-  const routine = data?.routines?.find((item) => item.id === selectedRoutine);
-  const routines = data?.routines || [];
   return (
     <View style={{ gap: 24 }}>
       <AgentStatus />
-      <View style={{ gap: 12 }}>
-        <View style={[s.between, { marginBottom: 4 }]}>
-          <View style={[s.row, { gap: 10 }]}>
-            <HaloDot color={colors.success} halo={colors.successBg} />
-            <Text style={s.heading}>Routines</Text>
-          </View>
-        </View>
-        {(showAll ? routines : routines.slice(0, 3)).map((item) => {
-          const failing = item.failures > 0 && item.status === "active";
-          return (
-            <Pressable
-              key={item.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Open routine: ${item.title}`}
-              onPress={() => setSelectedRoutine(item.id)}
-              style={({ hovered }: WebPressState) => [
-                s.row,
-                {
-                  gap: 12,
-                  paddingVertical: 12,
-                  paddingHorizontal: 8,
-                  borderRadius: radius.lg,
-                  backgroundColor: hovered ? colors.surfaceMuted : "transparent",
-                },
-              ]}
-            >
-              <View
-                style={[
-                  s.iconBox,
-                  {
-                    backgroundColor: failing
-                      ? colors.dangerBg
-                      : item.status === "active"
-                        ? colors.successBg
-                        : colors.surfaceMuted,
-                  },
-                ]}
-              >
-                <Clock size={19} color={failing ? colors.danger : colors.text} />
-              </View>
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={s.text} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                <Text numberOfLines={1} style={s.muted}>
-                  {item.status === "active"
-                    ? item.scheduleText
-                    : item.status === "paused"
-                      ? "Paused"
-                      : "Done"}
-                  {item.lastResult ? ` · Last: ${item.lastResult}` : ""}
-                </Text>
-                {failing && (
-                  <Text numberOfLines={1} style={[s.small, { color: colors.danger }]}>
-                    Needs attention: {item.lastResult}
-                  </Text>
-                )}
-              </View>
-              <ChevronRight size={18} color={colors.muted} />
-            </Pressable>
-          );
-        })}
-        {!routines.length && (
-          <Text style={[s.muted, { paddingVertical: 12 }]}>
-            Ask Hive to check something regularly, or to remind you later. It sets a routine for
-            itself.
-          </Text>
-        )}
-        {routines.length > 3 && (
-          <Button small onPress={() => setShowAll(!showAll)}>
-            {showAll ? "Show less" : `Show ${routines.length - 3} more`}
-          </Button>
-        )}
-      </View>
-      <View style={{ height: 1, backgroundColor: colors.line }} />
       <View style={{ gap: 12 }}>
         <View style={[s.between, { marginBottom: 4 }]}>
           <View style={[s.row, { gap: 10 }]}>
@@ -1490,6 +1411,95 @@ export function GoalsScreen() {
           <GoalCard goal={goal} onOpenTask={() => setSelectedGoal(undefined)} />
         </Sheet>
       )}
+    </View>
+  );
+}
+export function RoutinesScreen() {
+  const { data, error, refresh } = useAgentWorkspace();
+  const [selectedRoutine, setSelectedRoutine] = useState<string>();
+  const routines = data?.routines ?? [];
+  const routine = routines.find((item) => item.id === selectedRoutine);
+  if (!data)
+    return error ? (
+      <View style={{ gap: 12 }}>
+        <ErrorNotice error={error} />
+        <Button onPress={() => void refresh().catch(() => {})}>Try again</Button>
+      </View>
+    ) : (
+      <Pending label="Loading routines…" height={160} />
+    );
+  return (
+    <View style={{ gap: 24 }}>
+      <AgentStatus />
+      <View style={{ gap: 12 }}>
+        <View style={[s.between, { marginBottom: 4 }]}>
+          <View style={[s.row, { gap: 10 }]}>
+            <HaloDot color={colors.success} halo={colors.successBg} />
+            <Text style={s.heading}>Routines</Text>
+          </View>
+        </View>
+        {routines.map((item) => {
+          const failing = item.failures > 0 && item.status === "active";
+          return (
+            <Pressable
+              key={item.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Open routine: ${item.title}`}
+              onPress={() => setSelectedRoutine(item.id)}
+              style={({ hovered }: WebPressState) => [
+                s.row,
+                {
+                  gap: 12,
+                  paddingVertical: 12,
+                  paddingHorizontal: 8,
+                  borderRadius: radius.lg,
+                  backgroundColor: hovered ? colors.surfaceMuted : "transparent",
+                },
+              ]}
+            >
+              <View
+                style={[
+                  s.iconBox,
+                  {
+                    backgroundColor: failing
+                      ? colors.dangerBg
+                      : item.status === "active"
+                        ? colors.successBg
+                        : colors.surfaceMuted,
+                  },
+                ]}
+              >
+                <Clock size={19} color={failing ? colors.danger : colors.text} />
+              </View>
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={s.text} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <Text numberOfLines={1} style={s.muted}>
+                  {item.status === "active"
+                    ? item.scheduleText
+                    : item.status === "paused"
+                      ? "Paused"
+                      : "Done"}
+                  {item.lastResult ? ` · Last: ${item.lastResult}` : ""}
+                </Text>
+                {failing && (
+                  <Text numberOfLines={1} style={[s.small, { color: colors.danger }]}>
+                    Needs attention: {item.lastResult}
+                  </Text>
+                )}
+              </View>
+              <ChevronRight size={18} color={colors.muted} />
+            </Pressable>
+          );
+        })}
+        {!routines.length && (
+          <Text style={[s.muted, { paddingVertical: 12 }]}>
+            Ask Hive to check something regularly, or to remind you later. It sets a routine for
+            itself.
+          </Text>
+        )}
+      </View>
       {routine && (
         <Sheet title={routine.title} onClose={() => setSelectedRoutine(undefined)}>
           <RoutineCard routine={routine} onGone={() => setSelectedRoutine(undefined)} />

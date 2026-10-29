@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react-native";
+import Clock from "lucide-react-native/dist/esm/icons/clock";
 import FileText from "lucide-react-native/dist/esm/icons/file-text";
 import MessageCircle from "lucide-react-native/dist/esm/icons/message-circle";
 import PanelsTopLeft from "lucide-react-native/dist/esm/icons/panels-top-left";
@@ -15,6 +16,7 @@ export const places: { id: Section; label: string; icon: LucideIcon; bar: boolea
   { id: "chat", label: "Chat", icon: MessageCircle, bar: true },
   { id: "activity", label: "Activity", icon: PanelsTopLeft, bar: true },
   { id: "goals", label: "Goals", icon: SquareCheck, bar: true },
+  { id: "routines", label: "Routines", icon: Clock, bar: true },
   { id: "apps", label: "Apps", icon: Shapes, bar: true },
   { id: "files", label: "Files", icon: FileText, bar: false },
 ];

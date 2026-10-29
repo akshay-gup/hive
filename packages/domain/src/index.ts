@@ -13,6 +13,7 @@ export type Section =
   | "connections"
   | "ideas"
   | "goals"
+  | "routines"
   | "apps";
 export interface Mail {
   id: string;

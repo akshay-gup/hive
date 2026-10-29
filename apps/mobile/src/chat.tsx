@@ -301,7 +301,9 @@ function ServerToolCard({
       )}
       <Button
         small
-        onPress={() => navigate(name === "Goal" || name === "Routine" ? "goals" : "activity")}
+        onPress={() =>
+          navigate(name === "Routine" ? "routines" : name === "Goal" ? "goals" : "activity")
+        }
       >
         View {name.toLowerCase()}
       </Button>

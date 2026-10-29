@@ -17,7 +17,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { Section, Workspace } from "../../../packages/domain/src";
 import { useGuest } from "./access";
 import { ActivityProjectsProvider } from "./activity-projects";
-import { AgentActivityScreen, AgentStatus, AppsScreen, GoalsScreen, IdeasScreen } from "./agent-ui";
+import {
+  AgentActivityScreen,
+  AgentStatus,
+  AppsScreen,
+  GoalsScreen,
+  IdeasScreen,
+  RoutinesScreen,
+} from "./agent-ui";
 import { AgentWorkspaceProvider } from "./agent-workspace";
 import type { MuseApi } from "./api";
 import { useBrowserBack } from "./browser-history";
@@ -211,7 +218,9 @@ function WorkspaceShell({
                   ? IdeasScreen
                   : section === "goals"
                     ? GoalsScreen
-                    : AppsScreen;
+                    : section === "routines"
+                      ? RoutinesScreen
+                      : AppsScreen;
   const utility = ["mail", "calendar", "browser", "files"].includes(section);
   // How wide a page may grow. Activity is columns and rows of work, so it uses the window, up to a
   // width a list and a feed still read well at; the pages of forms and settings read better in a
@@ -363,6 +372,7 @@ function WorkspaceShell({
                       accessibilityRole="tab"
                       accessibilityLabel={item.label}
                       accessibilityState={{ selected: active }}
+                      aria-selected={active}
                       onPress={() => navigate(item.id)}
                       style={{
                         flex: 1,

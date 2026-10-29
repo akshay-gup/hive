@@ -2,6 +2,12 @@
 
 What the automated checks cover, how to run them, and what has not been verified. Hive is an alpha: this lists coverage and its limits, and does not claim that every planned capability is complete.
 
+## Separate Routines navigation — 2026-10-29
+
+Routines has its own screen beside Goals in the desktop sidebar and phone navigation. Goals contains goal creation and milestones; Routines shows the full saved list and its existing detail sheet/actions. Chat's “View routine” button goes to Routines. Guest navigation remains limited to Chat. The new page includes loading, empty and retry states, and phone tabs expose their selected state on the web.
+
+Validation: all 211 mobile helper tests passed, with mobile and production-source typechecks. A fixture using the real workspace shell, sidebar, header, board provider and goal/routine components passed 50 browser checks at desktop, tablet and phone sizes, plus a 320 px width check. Checks covered separate lists, all six routine rows, the goal creation form, pause/run actions, detail sheets, browser Back, empty/loading states, recovery after an error and guest navigation. The layout detector reported no findings, the independent layout review found no material defects, and the browser console was clean. No model calls were used.
+
 ## Workspace image rebake — 2026-10-29
 
 Baked `sha-4c57d4f`, pinned to its published registry digest, into DigitalOcean snapshot `252046298` (`hive-workspace-202610290736`). The snapshot is 5.23 GB, needs a disk of at least 50 GB, and is available in Toronto, New York and Richmond (`tor1`, `nyc3`, `ric1`). It replaces `251783494` as the control plane's `DO_IMAGE` for new workspaces. The previous image is retained.

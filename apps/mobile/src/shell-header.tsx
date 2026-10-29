@@ -20,8 +20,9 @@ const titles: Partial<Record<Section, { title: string; subtitle: string }>> = {
   ideas: { title: "Ideas", subtitle: "Useful next steps, grounded in your world." },
   goals: {
     title: "Goals",
-    subtitle: "Longer-term goals and things to keep an eye on.",
+    subtitle: "Outcomes and milestones to work toward.",
   },
+  routines: { title: "Routines", subtitle: "Scheduled reminders and regular checks." },
   apps: {
     title: "Apps",
     subtitle: "Connections, capabilities and what the team's agent remembers.",
