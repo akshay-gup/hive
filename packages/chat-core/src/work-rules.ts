@@ -20,6 +20,7 @@ import {
   canSeeTask,
   canViewProject,
   canWorkInProject,
+  isFixed,
   managesProject,
   normalizeEmail,
   projectFor,
@@ -441,7 +442,7 @@ export class Work {
     const source =
       channelId !== ORCHESTRATOR_CHANNEL_ID ? await this.deps.channel?.(channelId) : null;
     if (source?.status === "archived") throw new AppError("This channel is archived", 409);
-    if (source && source.kind !== "dm" && source.visibility === "private" && !options.privateSource)
+    if (source && !isFixed(source) && source.visibility === "private" && !options.privateSource)
       throw new AppError("Choose a project through this conversation's task picker first", 409);
     if (options.key) {
       const existing = this.deps.tasks.byKey(options.key);
@@ -501,7 +502,7 @@ export class Work {
             evidence: [],
             input: {
               ...input.input,
-              ...(source && source.kind !== "dm" && source.visibility === "private"
+              ...(source && !isFixed(source) && source.visibility === "private"
                 ? { privateConversation: true }
                 : {}),
             },

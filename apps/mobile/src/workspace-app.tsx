@@ -33,6 +33,7 @@ import { ChatScreen, WorkspaceTools } from "./chat";
 import { ChatProvider } from "./chat-context";
 import { ComputerDraftProvider } from "./computer-drafts";
 import { Details } from "./details";
+import { useHosted } from "./hosted/context";
 import { ProgressScreen } from "./hosted/progress";
 import { InboxScreen } from "./inbox";
 import { guestPlaces, places } from "./places";
@@ -55,6 +56,7 @@ import {
   radius,
   s,
 } from "./ui";
+import { usePersonalChannel } from "./use-personal-channel";
 import { type Detail, type ToastOptions, useWorkspace, WorkspaceContext } from "./workspace";
 
 /**
@@ -197,7 +199,10 @@ function WorkspaceShell({
   const [threadsOpen, setThreadsOpen] = useState(false);
   const { width } = useWindowDimensions();
   const desktop = width >= 900;
-  const channelChat = section === "chat" && selection.id.startsWith("channel:");
+  const hosted = useHosted();
+  const personalId = usePersonalChannel(!guest);
+  const channelChat =
+    section === "chat" && (selection.id.startsWith("channel:") || (!guest && !!personalId));
   // On a wide window a channel draws its own panels, with the header inside the first.
   const ownPanels = desktop && channelChat;
   const channelHeader = desktop ? <ShellHeader onMenu={() => setThreadsOpen(true)} /> : undefined;
@@ -280,7 +285,7 @@ function WorkspaceShell({
                   paddingBottom: desktop && !ownPanels ? 12 : 0,
                 }}
               >
-                {!channelChat && !guest && <AgentStatus />}
+                {(!channelChat || selection.id === "local") && !guest && <AgentStatus />}
                 {guest && noChannels && (
                   <Empty
                     icon={Hash}
@@ -336,10 +341,24 @@ function WorkspaceShell({
                       flex: 1,
                     }}
                   >
-                    <ChatScreen
-                      prompt={selection.id === "local" ? prompt : undefined}
-                      active={section === "chat" && selection.id === "local"}
-                    />
+                    {personalId ? (
+                      <ChannelChat
+                        channelId={personalId}
+                        active={section === "chat" && selection.id === "local"}
+                        header={channelHeader}
+                        prompt={selection.id === "local" ? prompt : undefined}
+                      />
+                    ) : hosted ? (
+                      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                        <ActivityIndicator color={colors.primary} />
+                      </View>
+                    ) : (
+                      // A workspace with no chat service keeps its conversation on its own machine.
+                      <ChatScreen
+                        prompt={selection.id === "local" ? prompt : undefined}
+                        active={section === "chat" && selection.id === "local"}
+                      />
+                    )}
                   </View>
                 )}
               </View>

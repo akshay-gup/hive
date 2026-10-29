@@ -158,6 +158,7 @@ export function agentOnIn(channel: {
   agent?: boolean;
 }): boolean {
   if (channel.kind === "dm") return false;
+  if (channel.kind === "personal") return true;
   return (channel.visibility ?? "public") === "public"
     ? channel.agent !== false
     : channel.agent === true;

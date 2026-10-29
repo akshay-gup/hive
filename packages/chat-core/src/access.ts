@@ -26,7 +26,13 @@ export const named = (channel: Channel, email: string) =>
   !!email && (channel.members ?? []).includes(email);
 
 /** Whether the channel is a direct message: two people's, found by their names. */
-export const isDm = (channel: Channel) => channel.kind === "dm";
+export const isDm = (channel: { kind?: string }) => channel.kind === "dm";
+
+/** Whether the channel is a person's own conversation with the agent. */
+export const isPersonal = (channel: { kind?: string }) => channel.kind === "personal";
+
+/** Whether the channel is one whose people, privacy and existence nobody changes: a direct message, or a person's own. */
+export const isFixed = (channel: { kind?: string }) => isDm(channel) || isPersonal(channel);
 
 /** Whether the channel is one anyone in the workspace but a guest may find. */
 export const isPublic = (channel: Channel) => (channel.visibility ?? "public") === "public";

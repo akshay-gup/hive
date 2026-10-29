@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   type Access,
   canOpen,
+  isFixed,
+  isPersonal,
   managesChannel,
   type Person,
 } from "../../../packages/chat-core/src/access.ts";
@@ -442,7 +444,7 @@ export class AgentLink {
             const source = run
               ? await this.deps.store.get<Channel>(SHARED_OWNER, "channels", run.channelId)
               : null;
-            if (run && source?.kind !== "dm" && source?.visibility === "private") {
+            if (run && source && !isFixed(source) && source.visibility === "private") {
               if (run.prompts.length >= 40)
                 throw new AppError(
                   "Finish this conversation's pending choices before adding more",
@@ -572,7 +574,8 @@ export class AgentLink {
         case "routine.create":
           body = await routines.create(actor, args, {
             ...home,
-            ...(run ? { rootId: run.rootId } : {}),
+            // A person's own conversation has no message at its head to answer under.
+            ...(run && run.rootId !== run.channelId ? { rootId: run.rootId } : {}),
           });
           break;
         case "routine.list":
@@ -894,7 +897,9 @@ export class AgentLink {
   } {
     const { messages, runs } = this.deps;
     const { channel, trigger, asker } = input;
-    const rootId = trigger.threadRoot ?? trigger.id;
+    // A person's own conversation is one thread without a message at its head, so its session carries on.
+    const own = isPersonal(channel);
+    const rootId = own ? channel.id : (trigger.threadRoot ?? trigger.id);
     const refusal = agentRefusal(channel) ?? runs.check(asker.id, channel.id);
     const id = crypto.randomUUID();
     const extra: AgentExtra = {
@@ -911,7 +916,7 @@ export class AgentLink {
       authorKind: "agent",
       body: refusal ? REASON_TEXT[refusal] : "",
       extra,
-      threadRoot: rootId,
+      ...(own ? {} : { threadRoot: rootId }),
     });
     const run = runs.create({
       id,
@@ -1124,6 +1129,7 @@ export class AgentLink {
         name: channel.name,
         topic: channel.topic ?? "",
         visibility: channel.visibility ?? "public",
+        ...(isPersonal(channel) ? { kind: "personal" as const } : {}),
       },
       thread: { rootId: run.rootId, messages: context },
       ...routineStart,

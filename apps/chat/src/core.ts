@@ -5,7 +5,7 @@ import {
   canOpen,
   canSeeTask,
   canViewProject,
-  isDm,
+  isFixed,
   managesChannel,
   type Person,
 } from "../../../packages/chat-core/src/access.ts";
@@ -212,9 +212,14 @@ export class ChatCore {
     this.goals = new Goals({
       rules: this.rules,
       entries: this.entries,
-      channelPrivate: async (id) =>
-        ((await this.store.get<Channel>(SHARED_OWNER, "channels", id))?.visibility ?? "public") ===
-        "private",
+      channelHome: async (id) => {
+        const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", id);
+        return channel?.kind === "personal"
+          ? "personal"
+          : (channel?.visibility ?? "public") === "private"
+            ? "private"
+            : "public";
+      },
       pauseTasks: (owner, goalId) => this.work.pauseGoal(owner, goalId),
     });
     this.routines = new Routines({
@@ -440,7 +445,7 @@ export class ChatCore {
     const person = await this.access.person(owner);
     const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
     if (!person || !channel) throw new AppError("Channel not found", 404);
-    if (isDm(channel)) throw new AppError("A direct message can't be deleted", 409);
+    if (isFixed(channel)) throw new AppError("A direct message can't be deleted", 409);
     if (!managesChannel(person, channel))
       throw new AppError("Only a channel manager, an admin or the owner can delete a channel", 403);
     const audience = await this.audience(channelId);
@@ -475,7 +480,7 @@ export class ChatCore {
     const channel = await this.store.get<Channel>(SHARED_OWNER, "channels", channelId);
     if (!person || !channel || !canOpen(person, channel))
       throw new AppError("Channel not found", 404);
-    if (isDm(channel) || !managesChannel(person, channel))
+    if (isFixed(channel) || !managesChannel(person, channel))
       throw new AppError("Only a channel manager, an admin or the owner can delete a channel", 403);
     const count = (query: string) => first<{ n: number }>(this.sql, query, channelId)?.n ?? 0;
     return {
@@ -1020,18 +1025,23 @@ export class ChatCore {
       await watcher(c.get("owner"));
       const people = await this.access.byId();
       const channels = new Map(
-        (await this.store.list<Channel>(SHARED_OWNER, "channels")).map((ch) => [ch.id, ch.name]),
+        (await this.store.list<Channel>(SHARED_OWNER, "channels")).map((ch) => [ch.id, ch]),
       );
       return c.json({
         mode: await this.agent.watchMode(),
         unreviewed: this.flags.unreviewed(),
-        flags: this.flags.list().map((flag) => ({
-          ...flag,
-          ...(flag.askerId
+        flags: this.flags.list().map((flag) => {
+          const channel = flag.channelId ? channels.get(flag.channelId) : undefined;
+          const asker = flag.askerId
             ? { askerName: people.get(flag.askerId)?.name || people.get(flag.askerId)?.email }
-            : {}),
-          ...(flag.channelId ? { channelName: channels.get(flag.channelId) } : {}),
-        })),
+            : {};
+          // A person's own conversation is not named to the people who read this list.
+          if (channel?.kind === "personal") {
+            const { channelId: _channelId, ...rest } = flag;
+            return { ...rest, scope: "own-chat" as const, ...asker };
+          }
+          return { ...flag, ...asker, ...(channel ? { channelName: channel.name } : {}) };
+        }),
       });
     });
     // Only the owner changes what is done about it.

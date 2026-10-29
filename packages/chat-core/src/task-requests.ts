@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { type Channel, type CreateTaskInput, createTaskSchema } from "../../domain/src/agent.ts";
 import type { SourceTaskAudience, SourceTaskView } from "../../domain/src/task-source.ts";
-import { type Access, canOpen, canViewProject, canWorkInProject } from "./access.ts";
+import { type Access, canOpen, canViewProject, canWorkInProject, isFixed } from "./access.ts";
 import type { Entries, Entry } from "./entries.ts";
 import { AppError } from "./errors.ts";
 import type { Messages } from "./messages.ts";
@@ -281,7 +281,7 @@ export class TaskRequests {
     await this.deps.access.assertChannel(owner, id);
     const channel = await this.deps.channel(id);
     if (!channel) throw new AppError("Conversation not found", 404);
-    if (channel.kind === "dm" || channel.visibility !== "private")
+    if (isFixed(channel) || channel.visibility !== "private")
       throw new AppError("This task picker is only available in private channels", 409);
     if (channel.status === "archived") throw new AppError("This conversation is archived", 409);
     return channel;

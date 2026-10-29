@@ -328,7 +328,14 @@ export interface RunStart {
   /** Opaque access generation for cached board results; changed permissions require a new model session. */
   boardAccessKey?: string;
   attempt: number;
-  channel: { id: string; name: string; topic: string; visibility: "public" | "private" };
+  channel: {
+    id: string;
+    name: string;
+    topic: string;
+    visibility: "public" | "private";
+    /** A person's own conversation with the agent (see the chat service's personal channel). */
+    kind?: "personal";
+  };
   /** The message that started it, and the thread it is in (the first message is the thread's root). */
   thread: { rootId: string; messages: ContextMessage[] };
   text: string;

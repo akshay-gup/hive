@@ -87,6 +87,8 @@ export interface ChatOrigin {
   guest: boolean;
   /** The channel is a private one. */
   privateChannel: boolean;
+  /** The channel is the person's own conversation with the agent. */
+  personal?: boolean;
   /** What the agent is shown ahead of the person's words, given what it is told of its tools. */
   context: (toolNotes: string) => string;
   /** The person's own words. */
@@ -862,7 +864,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
           guest,
           ...(chat
             ? {
-                toolset: chat.privateChannel ? "chat-private" : "chat",
+                toolset: chat.personal ? "personal" : chat.privateChannel ? "chat-private" : "chat",
                 shareFile: chat.shareFile,
                 work: chat.work,
               }

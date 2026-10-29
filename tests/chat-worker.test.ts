@@ -85,7 +85,9 @@ test("chat answers only to a chat token for that workspace", async () => {
   const ok = await ask("/w/w1/v1/channels", { token: token() });
   assert.equal(ok.status, 200);
   assert.deepEqual(
-    ((await ok.json()) as { id: string }[]).map((c) => c.id),
+    ((await ok.json()) as { id: string; kind?: string }[])
+      .filter((c) => c.kind !== "personal")
+      .map((c) => c.id),
     ["general"],
   );
 });
@@ -104,8 +106,11 @@ test("what is in a workspace's room is not in another's", async () => {
         await ask(`/w/${workspaceId}/v1/channels`, { token: token(max, workspaceId) })
       ).json()) as {
         name: string;
+        kind?: string;
       }[]
-    ).map((c) => c.name);
+    )
+      .filter((c) => c.kind !== "personal")
+      .map((c) => c.name);
   assert.deepEqual((await names("w1")).sort(), ["Design", "general"]);
   assert.deepEqual(await names("w2"), ["general"]);
 });

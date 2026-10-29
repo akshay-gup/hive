@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { ChannelView } from "../../../packages/domain/src/agent";
 import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
 import { useGuest } from "./access";
+import { useAgentWorkspace } from "./agent-workspace";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
 import { agentOnIn, agentView, asksAgent } from "./chat-agent-extra";
 import { ChatComposer } from "./chat-composer";
@@ -36,6 +37,7 @@ import {
   readPanelWidth,
   writePanelWidth,
 } from "./panel-width";
+import { useMuseThread } from "./threads";
 import { Backdrop, Button, colors, ErrorNotice, fontSize, haze, panelStyle, s } from "./ui";
 import { useChannelFeed } from "./use-channel-feed";
 import { useWorkspace } from "./workspace";
@@ -141,7 +143,11 @@ function MessageList({
                   grouped={!newDay && continues(previous, message)}
                   mentions={mentions}
                   canTakePart={takePart}
-                  canCreateTask={channel?.kind !== "dm" && channel?.visibility === "private"}
+                  canCreateTask={
+                    channel?.kind !== "dm" &&
+                    channel?.kind !== "personal" &&
+                    channel?.visibility === "private"
+                  }
                   canDelete={message.author.id === me || manager}
                   selected={!inThread && threadRoot === message.id}
                   onReply={inThread || !openThread ? undefined : () => openThread(message.id)}
@@ -265,10 +271,13 @@ export function ChannelChat({
   channelId,
   active,
   header,
+  prompt,
 }: {
   channelId: string;
   /** The channel on screen: the one that is read as it is looked at. */
   active: boolean;
+  /** Something asked of the agent from another screen, to be said in this channel once. */
+  prompt?: { id: number; text: string };
   /** The bar a channel carries across the top of its own panel on a wide window. */
   header?: React.ReactNode;
 }) {
@@ -309,7 +318,16 @@ export function ChannelChat({
   const thread = threadId ? feeder.feed.messages.find((m) => m.id === threadId) : undefined;
   const takePart = !!channel && channel.joined !== false && channel.status !== "archived";
   const typing = chat.typingIn(channelId);
-  const direct = channel?.kind === "dm" ? channel.name : null;
+  const personal = channel?.kind === "personal";
+  const { data: agentData } = useAgentWorkspace();
+  const agentName = agentData?.identity.name || "Hive";
+  const direct = channel?.kind === "dm" ? channel.name : personal ? agentName : null;
+  const { claimPrompt } = useMuseThread();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: said once, when it arrives
+  useEffect(() => {
+    if (!active || !prompt?.text.trim() || !takePart || !claimPrompt(prompt.id)) return;
+    void feeder.send(prompt.text).catch((e) => notify(String(e.message ?? e), { error: true }));
+  }, [active, prompt?.id, takePart]);
 
   // Another channel closes the thread of this one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the channel is what changes
@@ -335,9 +353,11 @@ export function ChannelChat({
         {direct ? direct : channel ? `#${channel.name}` : "Start the conversation"}
       </Text>
       <Text style={[s.muted, { textAlign: "center", maxWidth: 360 }]}>
-        {direct
-          ? "Only the two of you can see this."
-          : "This is the start of the channel. Say something to get it going."}
+        {personal
+          ? `Your private chat with ${agentName}. Ask for anything: only you can see it.`
+          : direct
+            ? "Only the two of you can see this."
+            : "This is the start of the channel. Say something to get it going."}
       </Text>
     </View>
   );
@@ -411,7 +431,7 @@ export function ChannelChat({
           onSend={async (text, fileIds) => {
             const made = await feeder.send(text, { fileIds });
             // The agent answers in a thread under the message that asked: that thread is opened.
-            if (made && asksAgent(text)) setThreadId(made.id);
+            if (made && !personal && asksAgent(text)) setThreadId(made.id);
           }}
         />
       )}

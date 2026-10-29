@@ -21,7 +21,8 @@ export interface GoalsDeps {
   rules: EntryRules;
   entries: Entries;
   /** Whether a channel is private, to say whose a goal made there is. */
-  channelPrivate: (id: string) => Promise<boolean>;
+  /** Whose a channel is: a person's own conversation, a private channel, or one the team has. */
+  channelHome: (id: string) => Promise<"personal" | "private" | "public">;
   /** A goal was paused: pause its tasks that this person may work on. */
   pauseTasks: (owner: string, goalId: string) => Promise<unknown>;
   newId?: () => string;
@@ -52,6 +53,15 @@ export class Goals {
     };
   }
 
+  private async homeScope(channelId: string): Promise<EntryScope> {
+    const home = await this.deps.channelHome(channelId);
+    return home === "personal"
+      ? { type: "person" }
+      : home === "private"
+        ? { type: "channel", id: channelId }
+        : { type: "team" };
+  }
+
   /** The goals this person may see, newest first. */
   async list(owner: string): Promise<Goal[]> {
     return (await this.deps.rules.visible(owner, GOAL))
@@ -74,12 +84,7 @@ export class Goals {
       if (there && (await this.deps.rules.can(owner, there, "see"))) return this.view(there);
     }
     const scope: EntryScope =
-      input.scope ??
-      (home.channelId
-        ? (await this.deps.channelPrivate(home.channelId))
-          ? { type: "channel", id: home.channelId }
-          : { type: "team" }
-        : { type: "person" });
+      input.scope ?? (home.channelId ? await this.homeScope(home.channelId) : { type: "person" });
     const entry = await this.deps.rules.create(owner, {
       id: home.id,
       kind: GOAL,

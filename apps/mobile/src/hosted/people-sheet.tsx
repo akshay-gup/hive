@@ -40,7 +40,8 @@ const choosable = (channels: ChannelView[]) =>
       (channel) =>
         channel.id !== ORCHESTRATOR_CHANNEL_ID &&
         channel.status !== "archived" &&
-        channel.kind !== "dm",
+        channel.kind !== "dm" &&
+        channel.kind !== "personal",
     )
     .sort((a, b) => a.name.localeCompare(b.name));
 

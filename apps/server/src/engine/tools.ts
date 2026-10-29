@@ -48,7 +48,7 @@ export function conversationTools(
      * A mention in a public or private channel gets tools whose results may be shared with its readers.
      * Board lookups are filtered by the chat service against everyone's current access.
      */
-    toolset?: "chat" | "chat-private";
+    toolset?: "chat" | "chat-private" | "personal";
     /** In a channel run: put a file of the channel's workspace in the agent's reply. */
     shareFile?: (path: string) => Promise<{ sent: true } | { sent: false; error: string }>;
     /**
@@ -543,7 +543,14 @@ export function conversationTools(
   const available = toolset ? tools : tools.filter((tool) => tool.name !== "read_board");
   const offered = guest ? available.filter((tool) => guestTools.has(tool.name)) : available;
   return toolset
-    ? offered.filter((tool) => (toolset === "chat" ? chatTools : privateChatTools).has(tool.name))
+    ? offered.filter((tool) =>
+        (toolset === "chat"
+          ? chatTools
+          : toolset === "personal"
+            ? personalTools
+            : privateChatTools
+        ).has(tool.name),
+      )
     : offered;
 }
 
@@ -574,6 +581,24 @@ export const privateChatTools: ReadonlySet<string> = new Set([
   "remove_routine",
   "routine_webhook",
   "routine_memo",
+]);
+
+/**
+ * What the agent has in a person's own conversation with it: what a channel has, and the rest of what its
+ * first chat had that works through the chat service or reads their own mailbox. The person is the only
+ * one who reads the reply, and the only one who asks.
+ */
+export const personalTools: ReadonlySet<string> = new Set([
+  ...chatTools,
+  "search_mail",
+  "read_mail_thread",
+  "delegate_task",
+  "update_task",
+  "delete_task",
+  "create_project",
+  "update_project",
+  "delete_project",
+  "agent_status",
 ]);
 
 /**

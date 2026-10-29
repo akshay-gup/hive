@@ -5,12 +5,14 @@ import Menu from "lucide-react-native/dist/esm/icons/menu";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import type { Section } from "../../../packages/domain/src";
 import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
+import { useGuest } from "./access";
 import { useActivityTitle } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
 import { ChannelChatBanner } from "./chat";
 import { ComputerEntry } from "./computer";
 import { useMuseThread } from "./threads";
 import { colors, fontSize, GlassBar, IconButton, layout, Mascot, s } from "./ui";
+import { usePersonalChannel } from "./use-personal-channel";
 import { useWorkspace } from "./workspace";
 
 const IDLE = "Here when you need me";
@@ -42,6 +44,7 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
   const { workspace, section, navigate, open } = useWorkspace();
   const { data } = useAgentWorkspace();
   const { selection } = useMuseThread();
+  const personalId = usePersonalChannel(!useGuest());
   const { width } = useWindowDimensions();
   const desktop = width >= 900;
   const channelChat = section === "chat" && selection.id.startsWith("channel:");
@@ -149,7 +152,9 @@ export function ShellHeader({ onMenu }: { onMenu: () => void }) {
         <IconButton
           icon={FolderOpen}
           label="Files in this chat"
-          onPress={() => open({ type: "channelFiles", channelId: ORCHESTRATOR_CHANNEL_ID })}
+          onPress={() =>
+            open({ type: "channelFiles", channelId: personalId ?? ORCHESTRATOR_CHANNEL_ID })
+          }
         />
       )}
       <View>

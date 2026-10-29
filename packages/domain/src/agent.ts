@@ -459,8 +459,10 @@ export interface Channel {
   /**
    * A direct message: a private channel of two people (one, with themself), found by their names.
    * It cannot gain people, be left, made public or archived.
+   * "personal": a person's own conversation with the agent, a private channel of one that the agent answers
+   * without being mentioned. It is made for each person by the chat service and can be changed in no way.
    */
-  kind?: "dm";
+  kind?: "dm" | "personal";
 }
 export type ChannelVisibility = "public" | "private";
 /** A channel as one person is shown it: what the list says of them and the channel. */

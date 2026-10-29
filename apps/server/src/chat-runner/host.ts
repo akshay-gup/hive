@@ -362,6 +362,7 @@ export class ChatRunnerHost {
         binding,
         guest: start.asker.role === "guest",
         privateChannel: start.channel.visibility === "private",
+        personal: start.channel.kind === "personal",
         context: (toolNotes) => buildRunContext(start, toolNotes, files.saved) + missing,
         // The request is said again: the session it was in may be gone, and then it is all the agent has.
         text: start.resume

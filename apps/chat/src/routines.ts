@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { checkHookToken, makeHookToken } from "./hook-token.ts";
 import type { Entries, Entry, EntryScope } from "../../../packages/chat-core/src/entries.ts";
 import type { EntryRules } from "../../../packages/chat-core/src/entry-rules.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
@@ -11,6 +10,7 @@ import {
   type Schedule,
 } from "../../../packages/chat-core/src/schedule.ts";
 import { goalScopeSchema } from "../../../packages/domain/src/agent.ts";
+import { checkHookToken, makeHookToken } from "./hook-token.ts";
 
 export const ROUTINE = "routine";
 

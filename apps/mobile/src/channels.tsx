@@ -56,7 +56,8 @@ export function ChannelsSection({ onClose }: { onClose: () => void }) {
     (channel) =>
       channel.id !== ORCHESTRATOR_CHANNEL_ID &&
       channel.status !== "archived" &&
-      channel.kind !== "dm",
+      channel.kind !== "dm" &&
+      channel.kind !== "personal",
   );
   const userChannels = listed
     .filter((channel) => channel.joined !== false && named(channel))

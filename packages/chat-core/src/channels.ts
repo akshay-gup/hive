@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   type Channel,
   type ChannelView,
@@ -6,7 +7,7 @@ import {
   notificationPrefsSchema,
 } from "../../domain/src/agent.ts";
 import { type Mentionable, withHandles } from "../../domain/src/mentions.ts";
-import { type Access, isDm, isIn, isPublic, managesChannel, type Person } from "./access.ts";
+import { type Access, isFixed, isIn, isPublic, managesChannel, type Person } from "./access.ts";
 import { AppError } from "./errors.ts";
 import type { Messages } from "./messages.ts";
 import type { Reads } from "./reads.ts";
@@ -19,6 +20,11 @@ import type { RecordStore } from "./store.ts";
  * Unlike the workspace server's, there is no private chat with the agent among them: these are the
  * people's.
  */
+/** The id of a person's own conversation: the same for them every time, and no one else's. */
+export function personalChannelId(email: string): string {
+  return `me-${createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 20)}`;
+}
+
 export class ChatChannels {
   constructor(
     private readonly db: RecordStore,
@@ -58,12 +64,41 @@ export class ChatChannels {
     return [(await this.db.get<Channel>(SHARED_OWNER, "channels", general.id)) ?? general];
   }
 
+  /**
+   * Each person who is not a guest has a conversation of their own with the agent: a private channel of one,
+   * made the first time they list their channels. Nobody else can open it, an owner or admin included.
+   */
+  private async ensurePersonal(owner: string, channels: Channel[]): Promise<Channel[]> {
+    const person = await this.access.person(owner);
+    if (!person?.email || person.role === "guest") return channels;
+    const id = personalChannelId(person.email);
+    if (channels.some((channel) => channel.id === id)) return channels;
+    const at = this.now();
+    const channel: Channel = {
+      id,
+      name: "Hive",
+      kind: "personal",
+      status: "active",
+      createdBy: owner,
+      createdAt: at,
+      updatedAt: at,
+      workerPid: null,
+      lastActiveAt: at,
+      visibility: "private",
+      everyone: false,
+      members: [person.email],
+      managers: [],
+    };
+    await this.db.insertIfAbsent(SHARED_OWNER, "channels", channel);
+    return [...channels, (await this.db.get<Channel>(SHARED_OWNER, "channels", id)) ?? channel];
+  }
+
   /** The channels this person may open, as they are shown them. */
   async list(owner: string): Promise<ChannelView[]> {
     const person = await this.access.person(owner);
-    const all = await this.ensureGeneral(
+    const all = await this.ensurePersonal(
       owner,
-      await this.db.list<Channel>(SHARED_OWNER, "channels"),
+      await this.ensureGeneral(owner, await this.db.list<Channel>(SHARED_OWNER, "channels")),
     );
     const visible = await this.access.visibleChannels(owner, all);
     const prefs = await this.notificationPrefs(owner);
@@ -158,7 +193,7 @@ export class ChatChannels {
       throw new AppError("That channel is not there, or you cannot see it.", 404);
     const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", id);
     if (!channel) throw new AppError("That channel is not there, or you cannot see it.", 404);
-    if (isDm(channel))
+    if (isFixed(channel))
       throw scope.allows(id)
         ? new AppError("A direct message can't be archived", 409)
         : new AppError("That channel is not there, or you cannot see it.", 404);

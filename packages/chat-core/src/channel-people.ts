@@ -10,7 +10,7 @@ import type { WorkspaceRole } from "../../integrations/src/workspace-token.ts";
 import {
   type Access,
   canOpen,
-  isDm,
+  isFixed,
   isIn,
   isPublic,
   managesChannel,
@@ -65,7 +65,7 @@ export class ChannelPeople {
     email: string,
     role: WorkspaceRole | null,
   ): string | null {
-    if (isDm(channel)) return DM;
+    if (isFixed(channel)) return DM;
     if (channel.status === "archived") return ARCHIVED;
     if (person.role === "guest")
       return email === person.email
@@ -84,7 +84,7 @@ export class ChannelPeople {
 
   /** Why this person may not leave the channel, if they may not. */
   private leaveDenied(person: Person, channel: Channel): string | null {
-    if (isDm(channel)) return DM;
+    if (isFixed(channel)) return DM;
     if (channel.status === "archived") return ARCHIVED;
     if (person.role !== "guest" && isPublic(channel) && channel.everyone !== false)
       return "Everyone in the workspace is in this channel";
@@ -97,7 +97,7 @@ export class ChannelPeople {
 
   /** Why this person may not take this address out of the channel, if they may not. */
   private removeDenied(person: Person, channel: Channel, email: string): string | null {
-    if (isDm(channel)) return DM;
+    if (isFixed(channel)) return DM;
     if (email === person.email) return this.leaveDenied(person, channel);
     if (channel.status === "archived") return ARCHIVED;
     if (person.role === "guest") return "A guest can't remove people from a channel";
@@ -134,7 +134,7 @@ export class ChannelPeople {
       .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
     const manager = managesChannel(person, channel);
     const inIt = isIn(person, channel);
-    if (isDm(channel))
+    if (isFixed(channel))
       return {
         id: channel.id,
         name: channel.name,
@@ -280,7 +280,7 @@ export class ChannelPeople {
     return (
       channels
         // Direct messages are between the two people; no list shows them to anyone else.
-        .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && !isDm(channel))
+        .filter((channel) => channel.id !== ORCHESTRATOR_CHANNEL_ID && !isFixed(channel))
         .map((channel) => ({
           id: channel.id,
           name: channel.name,
@@ -307,7 +307,7 @@ export class ChannelPeople {
     if (!runs(person)) throw refused("Only an owner or admin can join any channel");
     for (let attempt = 0; attempt < 5; attempt++) {
       const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", channelId);
-      if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID || isDm(channel))
+      if (!channel || channelId === ORCHESTRATOR_CHANNEL_ID || isFixed(channel))
         throw new AppError("That channel is not there, or you cannot see it.", 404);
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
       if (isIn(person, channel)) return this.entry(owner, channelId);
@@ -336,7 +336,7 @@ export class ChannelPeople {
     const person = await this.actor(owner);
     const known = await this.access.known();
     const saved = await this.update(person, channelId, (channel) => {
-      if (isDm(channel)) throw new AppError(DM, 409);
+      if (isFixed(channel)) throw new AppError(DM, 409);
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
       if (!managesChannel(person, channel))
         throw new AppError(
@@ -367,7 +367,7 @@ export class ChannelPeople {
     const person = await this.actor(owner);
     const known = await this.access.known();
     const saved = await this.update(person, channelId, (channel) => {
-      if (isDm(channel)) throw new AppError(DM, 409);
+      if (isFixed(channel)) throw new AppError(DM, 409);
       if (channel.status === "archived") throw new AppError(ARCHIVED, 409);
       if (
         input.topic !== undefined &&

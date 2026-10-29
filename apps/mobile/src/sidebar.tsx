@@ -112,6 +112,7 @@ function SidebarRow({
  */
 const isListed = (channel: ChannelView) =>
   channel.id !== ORCHESTRATOR_CHANNEL_ID &&
+  channel.kind !== "personal" &&
   channel.status !== "archived" &&
   channel.joined !== false;
 
@@ -265,12 +266,16 @@ export function Sidebar({
   const { data } = useAgentWorkspace();
   // Each workspace remembers how many channels it had, to hold room for them while they load.
   const channelsKey = `channels:${hosted?.workspace.id ?? "local"}`;
+  const [channels, setChannels] = useState<ChannelView[] | null>(null);
+  // The agent's row is the person's own conversation, a channel of one the chat service keeps.
+  const personal = channels?.find((channel) => channel.kind === "personal");
   // The channel of the selected chat is the one highlighted in the list.
   const activeChannelId = selection.id.startsWith("channel:")
     ? selection.id.slice("channel:".length)
-    : null;
+    : selection.id === "local"
+      ? (personal?.id ?? null)
+      : null;
 
-  const [channels, setChannels] = useState<ChannelView[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [find, setFind] = useState("");
@@ -451,6 +456,7 @@ export function Sidebar({
           dense={dense}
           icon={Bot}
           label={agentName}
+          unread={!!personal?.unread && !(section === "chat" && isMainActive)}
           active={section === "chat" && isMainActive}
           onPress={() => conversation(mainSelection)}
         />

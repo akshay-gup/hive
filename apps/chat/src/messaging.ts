@@ -1,6 +1,6 @@
 import type { Access, Person } from "../../../packages/chat-core/src/access.ts";
-import { isIn, managesChannel } from "../../../packages/chat-core/src/access.ts";
-import { wantsAgent } from "../../../packages/chat-core/src/agent-trigger.ts";
+import { isIn, isPersonal, managesChannel } from "../../../packages/chat-core/src/access.ts";
+import { asksAgent } from "../../../packages/chat-core/src/agent-trigger.ts";
 import type { ChatChannels } from "../../../packages/chat-core/src/channels.ts";
 import { AppError } from "../../../packages/chat-core/src/errors.ts";
 import type { ChatEvent, Events } from "../../../packages/chat-core/src/events.ts";
@@ -268,11 +268,12 @@ export class Messaging {
       this.emit(sent, "message.new", made, { channelId });
       // A mention of the agent makes its reply, and the run that writes it, with the message that asked.
       const asked =
-        this.agentLink && wantsAgent(text)
+        this.agentLink && asksAgent(channel, text, !!input.threadRoot)
           ? this.agentLink.trigger({ channel, trigger: message, asker: person })
           : null;
       if (asked) this.emit(sent, "message.new", this.views([asked.reply], known)[0], { channelId });
-      const rootId = message.threadRoot ?? (asked ? message.id : null);
+      // The agent answers in a thread under the message, except in a person's own conversation, where it answers below it.
+      const rootId = message.threadRoot ?? (asked && !isPersonal(channel) ? message.id : null);
       if (rootId) {
         const root = this.deps.messages.get(rootId);
         if (root) this.emit(sent, "thread.updated", this.views([root], known)[0], { channelId });
@@ -289,7 +290,7 @@ export class Messaging {
     });
     this.send(sent);
     // The run goes to the agent's machine, or the machine is woken.
-    if (this.agentLink && wantsAgent(text)) {
+    if (this.agentLink && asksAgent(channel, text, !!input.threadRoot)) {
       await this.agentLink.pump();
       // The room looks at the run again soon, whatever the machine does.
       this.deps.workQueued();
@@ -416,6 +417,8 @@ export class Messaging {
     if (prefs.muted.includes(run.channelId) || !scope.allows(run.channelId)) return;
     const channel = await this.db.get<Channel>(SHARED_OWNER, "channels", run.channelId);
     if (!channel) return;
+    // Their own conversation: the answer is there when they look, and what it waits on is told.
+    if (why === "end" && isPersonal(channel)) return;
     const sent: ChatEvent[] = [];
     const added = this.deps.notices.add({
       userId: run.askedBy,
@@ -455,7 +458,12 @@ export class Messaging {
   ): ChatNotice {
     const by = known.get(message.authorId);
     const name = by?.name || by?.email || "Someone";
-    const where = channel.kind === "dm" ? "a direct message" : `#${channel.name}`;
+    const where =
+      channel.kind === "dm"
+        ? "a direct message"
+        : channel.kind === "personal"
+          ? "your chat"
+          : `#${channel.name}`;
     // The agent's answer to someone is told as that, and shown with the agent's picture (no address).
     const agent = message.authorKind === "agent";
     const extra = message.extra as { status?: string; prompts?: PromptState[] } | null;

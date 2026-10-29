@@ -2,14 +2,25 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunStart } from "../../../../packages/domain/src/chat-agent.ts";
 
+/** The opening of a person's own conversation: nobody else reads it, and they are the only one who asks. */
+function personalLines(start: RunStart, toolNotes: string): string[] {
+  return [
+    `[hive context] You are Hive, ${start.asker.name || start.asker.email}'s own assistant, in their private chat with you. Nobody else can read this conversation. You answer every message here without being mentioned.`,
+    toolNotes,
+  ];
+}
+
 /** The text the agent is shown ahead of a mention, which the person never sees as a turn of their own. */
 export function buildRunContext(start: RunStart, toolNotes: string, saved: string[] = []): string {
   const where = `#${start.channel.name} (${start.channel.visibility} channel)`;
-  const lines = [
-    `[hive context] You are Hive, a teammate in a shared team chat. You were mentioned in ${where}${start.channel.topic ? `, whose topic is: ${start.channel.topic}` : ""}.`,
-    `${start.asker.name || start.asker.email} (${start.asker.role}) asked you. Your reply is posted in the channel as a message everyone in it can read, so write it for all of them, and keep it short unless asked for more. Do not share anything you would not want everyone in the channel to read.`,
-    toolNotes,
-  ];
+  const lines =
+    start.channel.kind === "personal"
+      ? personalLines(start, toolNotes)
+      : [
+          `[hive context] You are Hive, a teammate in a shared team chat. You were mentioned in ${where}${start.channel.topic ? `, whose topic is: ${start.channel.topic}` : ""}.`,
+          `${start.asker.name || start.asker.email} (${start.asker.role}) asked you. Your reply is posted in the channel as a message everyone in it can read, so write it for all of them, and keep it short unless asked for more. Do not share anything you would not want everyone in the channel to read.`,
+          toolNotes,
+        ];
   if (start.routine)
     lines.push(
       `This is your routine "${start.routine.title}": you wrote the note below to yourself, and the room woke you for it. ${
@@ -18,7 +29,7 @@ export function buildRunContext(start: RunStart, toolNotes: string, saved: strin
           : "You kept nothing for yourself last time."
       } If there is something to remember for the next time, save it with the routine_memo tool, since you will not otherwise remember this run.`,
     );
-  if (start.people.length)
+  if (start.people.length && start.channel.kind !== "personal")
     lines.push(
       `People in this channel: ${start.people.map((p) => `${p.name} (@${p.handle})`).join(", ")}. Writing @handle in a reply mentions that person and notifies them, if you want to bring someone in.`,
     );
