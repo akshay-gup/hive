@@ -155,6 +155,7 @@ test("public and private channels offer shared board reading, and guests get the
       "list_routines",
       "read_board",
       "remove_routine",
+      "request_upload",
       "routine_memo",
       "routine_webhook",
       "send_file",
@@ -168,12 +169,13 @@ test("public and private channels offer shared board reading, and guests get the
       "list_routines",
       "read_board",
       "remove_routine",
+      "request_upload",
       "routine_memo",
       "routine_webhook",
       "send_file",
       "update_routine",
     ],
-    ["browse_web", "create_issue", "read_board", "send_file"],
+    ["browse_web", "create_issue", "read_board", "request_upload", "send_file"],
   ]);
   // The machine was told the private channel is private, and nothing of who is in it but those who can ask.
   const stub = await f.db.get<Channel>(SHARED_OWNER, "channels", secret.id);
@@ -402,4 +404,62 @@ test("a file that is not there is reported to the agent and nothing is added", a
   const reply = await f.finished(asked.id);
   assert.equal(reply.files.length, 0);
   assert.equal((result as { sent: boolean }).sent, false);
+});
+
+test("in a channel the agent can show choices and ask for files, and a teammate's pick in the thread comes back as words", async (t) => {
+  let turn = 0;
+  const f = await wired(
+    t,
+    async ({ call, say }) => {
+      turn++;
+      if (turn > 1) return say("Exploring it is.");
+      await call("present_choices", {
+        message: "Help with the trip",
+        context: "A school email",
+        title: "What next?",
+        control: "clarification",
+        options: [{ id: "explore", label: "Explore exhibits", details: [], sources: [] }],
+      });
+      await call("request_upload", { prompt: "The permission slip", accept: ["pdf"] });
+      say("Pick one, and send the slip.");
+    },
+    { jevMode: "sample" },
+  );
+  const room = await f.channel("max", "Trips");
+  const asked = await f.post("max", room.id, "@hive help me plan");
+  const reply = await f.finished(asked.id);
+  const steps = (f.extra(reply).steps ?? []) as { role: string; content?: string }[];
+  const results = steps.filter((s) => s.role === "tool").map((s) => JSON.parse(s.content ?? "{}"));
+  const panel = results.find((r) => r.panel)?.panel;
+  assert.equal(panel?.options[0]?.id, "explore");
+  assert.equal(results.find((r) => r.requested)?.folder, "uploads");
+
+  // A pick is a message in the thread that names the agent, like any other answer to it.
+  const pick = `@hive [Hive choice] ${JSON.stringify({
+    panelId: panel.id,
+    threadId: panel.threadId,
+    candidateSetVersion: panel.candidateSetVersion,
+    optionId: "explore",
+  })}`;
+  const picked = await f.post("max", room.id, pick, { threadRoot: asked.id });
+  await f.until("the pick to be answered", () => f.opencode.prompts.length === 2);
+  assert.match(f.opencode.prompts[1]?.text ?? "", /Explore exhibits/);
+  assert.doesNotMatch(f.opencode.prompts[1]?.text ?? "", /Hive choice/);
+  assert.ok(picked.id);
+});
+
+test("a guest cannot start the agent in a channel they were not added to, or in a chat of their own", async (t) => {
+  const f = await wired(t, ({ say }) => say("ok"));
+  const secret = await f.channel("max", "Payroll", "private");
+  const elsewhere = await f.call("gus", "POST", `/v1/channels/${secret.id}/messages`, {
+    body: "@hive what does payroll look like?",
+  });
+  assert.equal(elsewhere.status, 404);
+  // A guest has no conversation of their own with the agent to start one in.
+  const channels = (await (await f.call("gus", "GET", "/v1/channels")).json()) as Channel[];
+  assert.equal(
+    channels.some((c) => c.kind === "personal"),
+    false,
+  );
+  assert.equal(f.opencode.prompts.length, 0);
 });

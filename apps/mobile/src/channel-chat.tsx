@@ -18,6 +18,8 @@ import type { ChannelView } from "../../../packages/domain/src/agent";
 import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
 import { useGuest } from "./access";
 import { useAgentWorkspace } from "./agent-workspace";
+import { ChannelCardsContext } from "./channel-cards";
+import { choiceLabel, isPick } from "./channel-choices";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
 import { agentOnIn, agentView, asksAgent } from "./chat-agent-extra";
 import { ChatComposer } from "./chat-composer";
@@ -25,6 +27,7 @@ import { useChat } from "./chat-context";
 import { continues, type FeedMessage } from "./chat-feed";
 import { ChatMessageRow } from "./chat-message-row";
 import { useHosted } from "./hosted/context";
+import { JevInteractionContext } from "./jev-tool-card";
 import { MentionNamesProvider, useMentionable } from "./mention-ui";
 import PanelResizer from "./PanelResizer";
 import {
@@ -39,6 +42,7 @@ import {
 } from "./panel-width";
 import { useMuseThread } from "./threads";
 import { Backdrop, Button, colors, ErrorNotice, fontSize, haze, panelStyle, s } from "./ui";
+import { useAgentCards } from "./use-agent-cards";
 import { useChannelFeed } from "./use-channel-feed";
 import { useWorkspace } from "./workspace";
 
@@ -138,7 +142,12 @@ function MessageList({
               <View key={message.clientId && message.pending ? message.clientId : message.id}>
                 {newDay && <DayLabel iso={message.createdAt} />}
                 <ChatMessageRow
-                  message={message}
+                  message={
+                    // A pick on the agent's choices reads as the choice it made, not as its code.
+                    isPick(message.body)
+                      ? { ...message, body: choiceLabel(messages, index) }
+                      : message
+                  }
                   me={me}
                   grouped={!newDay && continues(previous, message)}
                   mentions={mentions}
@@ -209,57 +218,64 @@ function ThreadView({
           .request(`/chat/v1/runs/${enc(going.runId)}/stop`, {})
           .catch((e) => notify(e instanceof Error ? e.message : String(e), { error: true }))
     : undefined;
+  // The agent answers a mention here, so its choices and requests for files are answered here too.
+  const everything = useMemo(() => [root, ...feeder.feed.messages], [root, feeder.feed.messages]);
+  const { interaction, cardActions } = useAgentCards(channelId, everything, feeder.send, true);
   return (
-    <View style={{ flex: 1, minHeight: 0 }}>
-      <View style={[s.between, { paddingBottom: 8 }]}>
-        <Text style={s.heading}>Thread</Text>
-        <View style={[s.row, { gap: 2 }]}>
-          {wider && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={wider.on ? "Make thread narrower" : "Make thread wider"}
-              onPress={wider.toggle}
-              style={{ padding: 8 }}
-            >
-              {wider.on ? (
-                <Minimize2 size={18} color={colors.muted} />
-              ) : (
-                <Maximize2 size={18} color={colors.muted} />
+    <JevInteractionContext.Provider value={interaction}>
+      <ChannelCardsContext.Provider value={cardActions}>
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <View style={[s.between, { paddingBottom: 8 }]}>
+            <Text style={s.heading}>Thread</Text>
+            <View style={[s.row, { gap: 2 }]}>
+              {wider && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={wider.on ? "Make thread narrower" : "Make thread wider"}
+                  onPress={wider.toggle}
+                  style={{ padding: 8 }}
+                >
+                  {wider.on ? (
+                    <Minimize2 size={18} color={colors.muted} />
+                  ) : (
+                    <Maximize2 size={18} color={colors.muted} />
+                  )}
+                </Pressable>
               )}
-            </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close thread"
+                onPress={onClose}
+                style={{ padding: 8 }}
+              >
+                <X size={18} color={colors.muted} />
+              </Pressable>
+            </View>
+          </View>
+          <ErrorNotice error={feeder.error} />
+          <MessageList
+            inThread
+            messages={everything}
+            me={me}
+            mentions={mentions}
+            channel={channel}
+            feeder={feeder}
+          />
+          {takePart && (
+            <ChatComposer
+              channelId={channelId}
+              draftKey={`thread:${root.id}`}
+              placeholder="Reply…"
+              agent={!!channel && agentOnIn(channel)}
+              onStop={stop}
+              onSend={async (body, fileIds) => {
+                await feeder.send(body, { fileIds });
+              }}
+            />
           )}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close thread"
-            onPress={onClose}
-            style={{ padding: 8 }}
-          >
-            <X size={18} color={colors.muted} />
-          </Pressable>
         </View>
-      </View>
-      <ErrorNotice error={feeder.error} />
-      <MessageList
-        inThread
-        messages={[root, ...feeder.feed.messages]}
-        me={me}
-        mentions={mentions}
-        channel={channel}
-        feeder={feeder}
-      />
-      {takePart && (
-        <ChatComposer
-          channelId={channelId}
-          draftKey={`thread:${root.id}`}
-          placeholder="Reply…"
-          agent={!!channel && agentOnIn(channel)}
-          onStop={stop}
-          onSend={async (body, fileIds) => {
-            await feeder.send(body, { fileIds });
-          }}
-        />
-      )}
-    </View>
+      </ChannelCardsContext.Provider>
+    </JevInteractionContext.Provider>
   );
 }
 
@@ -450,45 +466,62 @@ export function ChannelChat({
     />
   ) : null;
 
+  // The agent's choices and requests for files in the person's own chat: picking and sending are
+  // messages of theirs, which the agent reads as the answer.
+  const { interaction, cardActions } = useAgentCards(
+    channelId,
+    feeder.feed.messages,
+    feeder.send,
+    false,
+  );
+
   return (
-    <MentionNamesProvider people={people}>
-      <View
-        style={{ flex: 1, flexDirection: "row", minHeight: 0 }}
-        onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
-      >
-        <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
-          {panels && header}
-          {body}
-        </View>
-        {threadView &&
-          (width >= 1100 ? (
-            <View style={{ width: panelWidth }}>
-              <PanelResizer
-                width={panelWidth}
-                min={PANEL_MIN}
-                max={largestPanelWidth(room)}
-                onChange={(next) => setPanelPref(clampPanelWidth(next, room))}
-                onCommit={keepPanelWidth}
-                onReset={() => keepPanelWidth(PANEL_DEFAULT)}
-              />
-              <View
-                style={[
-                  { flex: 1, paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12 },
-                  panelStyle,
-                ]}
-              >
-                {threadView}
-              </View>
+    <JevInteractionContext.Provider value={interaction}>
+      <ChannelCardsContext.Provider value={personal ? cardActions : null}>
+        <MentionNamesProvider people={people}>
+          <View
+            style={{ flex: 1, flexDirection: "row", minHeight: 0 }}
+            onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+          >
+            <View style={[{ flex: 1, minWidth: 0 }, panels && panelStyle]}>
+              {panels && header}
+              {body}
             </View>
-          ) : (
-            <Modal visible={active} animationType="slide" onRequestClose={() => setThreadId(null)}>
-              <SafeAreaView style={{ flex: 1, padding: 18, backgroundColor: haze.base }}>
-                <Backdrop />
-                {threadView}
-              </SafeAreaView>
-            </Modal>
-          ))}
-      </View>
-    </MentionNamesProvider>
+            {threadView &&
+              (width >= 1100 ? (
+                <View style={{ width: panelWidth }}>
+                  <PanelResizer
+                    width={panelWidth}
+                    min={PANEL_MIN}
+                    max={largestPanelWidth(room)}
+                    onChange={(next) => setPanelPref(clampPanelWidth(next, room))}
+                    onCommit={keepPanelWidth}
+                    onReset={() => keepPanelWidth(PANEL_DEFAULT)}
+                  />
+                  <View
+                    style={[
+                      { flex: 1, paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12 },
+                      panelStyle,
+                    ]}
+                  >
+                    {threadView}
+                  </View>
+                </View>
+              ) : (
+                <Modal
+                  visible={active}
+                  animationType="slide"
+                  onRequestClose={() => setThreadId(null)}
+                >
+                  <SafeAreaView style={{ flex: 1, padding: 18, backgroundColor: haze.base }}>
+                    <Backdrop />
+                    {threadView}
+                  </SafeAreaView>
+                </Modal>
+              ))}
+          </View>
+        </MentionNamesProvider>
+      </ChannelCardsContext.Provider>
+    </JevInteractionContext.Provider>
   );
 }

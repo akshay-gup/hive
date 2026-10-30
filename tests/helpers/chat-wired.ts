@@ -10,9 +10,11 @@ import { createApp } from "../../apps/server/src/app.ts";
 import type { SocketLike } from "../../apps/server/src/chat-runner/link.ts";
 import type { Config } from "../../apps/server/src/config.ts";
 import { createStore } from "../../apps/server/src/db.ts";
+import type { JevAdapter } from "../../apps/server/src/jev/adapter.ts";
 import type { Channel } from "../../packages/domain/src/agent.ts";
 import type { ChatMessage } from "../../packages/domain/src/chat.ts";
 import type { AgentExtra } from "../../packages/domain/src/chat-agent.ts";
+import { browserWorker } from "./browser.ts";
 import { memorySql } from "./do-shim.ts";
 import { type FakeTurn, fakeOpencode } from "./fake-opencode.ts";
 
@@ -28,7 +30,17 @@ export type Who = keyof typeof people;
  * room (`ChatCore`), the real server with its runner (host, tools, sessions), and OpenCode's HTTP API
  * played by a stand-in. Only what the agent decides to do, and what people click, is the test's.
  */
-export async function wired(t: TestContext, behave: (turn: FakeTurn) => void | Promise<void>) {
+export async function wired(
+  t: TestContext,
+  behave: (turn: FakeTurn) => void | Promise<void>,
+  options: Partial<Config> & {
+    jevAdapter?: JevAdapter;
+    /** What a browser worker answers, if the agent is to browse. */
+    browse?: Parameters<typeof browserWorker>[1];
+  } = {},
+) {
+  const { jevAdapter, browse, ...overrides } = options;
+  const worker = browse ? await browserWorker(t, browse) : {};
   const dataDir = await mkdtemp(join(tmpdir(), "hive-chat-runner-"));
   const db = await createStore();
   let app: Awaited<ReturnType<typeof createApp>>["app"] | undefined;
@@ -112,8 +124,10 @@ export async function wired(t: TestContext, behave: (turn: FakeTurn) => void | P
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: [],
     chatRunner: { tokenUrl: "https://control.test/v1/release/w1/runner-token", key: "hwk_w1.key" },
+    ...worker,
+    ...overrides,
   };
-  const server = await createApp(db, config, { chatRunner: { fetcher, socket } });
+  const server = await createApp(db, config, { chatRunner: { fetcher, socket }, jevAdapter });
   app = server.app;
   await server.opencode.start();
   t.after(async () => {
@@ -191,7 +205,62 @@ export async function wired(t: TestContext, behave: (turn: FakeTurn) => void | P
     });
     return replyTo(rootId, who);
   };
+  /** A person's own conversation with the agent. */
+  const own = async (who: Who = "max") => {
+    const mine = ((await (await call(who, "GET", "/v1/channels")).json()) as Channel[]).find(
+      (c) => c.kind === "personal",
+    );
+    assert.ok(mine, "they have a conversation of their own");
+    return mine;
+  };
+  const agentReplies = (channelId: string) =>
+    core.messages.page(channelId, { limit: 100 }).messages.filter((m) => m.authorKind === "agent");
+  /** What the agent did with its tools in a reply, as the app shows it: what it asked and what came back. */
+  const toolsShown = (reply: { extra?: unknown }) => {
+    const steps = ((reply.extra as AgentExtra | undefined)?.steps ?? []) as {
+      role: string;
+      toolCalls?: { id: string; function: { name: string; arguments: string } }[];
+      toolCallId?: string;
+      content?: string;
+    }[];
+    return steps
+      .flatMap((step) => step.toolCalls ?? [])
+      .map((made) => {
+        const content =
+          steps.find((step) => step.role === "tool" && step.toolCallId === made.id)?.content ?? "";
+        let result: unknown = content;
+        try {
+          result = JSON.parse(content);
+        } catch {}
+        return {
+          name: made.function.name,
+          args: made.function.arguments ? JSON.parse(made.function.arguments) : undefined,
+          result,
+          content,
+        };
+      });
+  };
+  /** Say something in a person's own chat, and wait for the agent to finish answering it. */
+  const say = async (who: Who, channelId: string, body: string) => {
+    const before = agentReplies(channelId).length;
+    await post(who, channelId, body);
+    await until("the agent to answer", () => {
+      const replies = agentReplies(channelId);
+      const last = replies.at(-1);
+      return (
+        replies.length > before &&
+        !!last &&
+        ["done", "failed", "stopped"].includes((last.extra as AgentExtra).status)
+      );
+    });
+    const reply = agentReplies(channelId).at(-1) as NonNullable<ReturnType<typeof agentReplies>[0]>;
+    const status = (reply.extra as AgentExtra).status;
+    return { reply, status, text: reply.body, tools: toolsShown(reply) };
+  };
   return {
+    own,
+    say,
+    toolsShown,
     core,
     db,
     dataDir,

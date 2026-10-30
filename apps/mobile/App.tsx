@@ -1,4 +1,3 @@
-import { CopilotKitProvider } from "@copilotkit/react-native/headless";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Linking, Platform, Text, View } from "react-native";
@@ -200,12 +199,7 @@ function SelfHostedApp() {
     <SafeAreaProvider>
       <StatusBar style="dark" />
       {api ? (
-        <CopilotKitProvider
-          runtimeUrl={`${api.baseUrl}/api/copilotkit`}
-          headers={{ Authorization: `Bearer ${token}` }}
-        >
-          <WorkspaceApp api={api} identity={token} logout={logout} />
-        </CopilotKitProvider>
+        <WorkspaceApp api={api} identity={token} logout={logout} />
       ) : (
         <SafeAreaView
           style={{

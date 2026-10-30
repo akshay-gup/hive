@@ -14,7 +14,6 @@ import {
   type OpencodeClientPool,
   opencodeAuthHeaders,
   type PermissionRuleset,
-  parsePermissionRules,
   rotateThreadSession,
   type SessionContext,
   sessionDirectory,
@@ -79,19 +78,6 @@ test("connectionFromConfig applies the default URL and trims slashes", () => {
     "http://vm:4096",
   );
   assert.equal(connectionFromConfig({ opencodeServerPassword: "  " }).password, undefined);
-});
-
-test("parsePermissionRules accepts tool:action and tool:pattern:action", () => {
-  assert.deepEqual(parsePermissionRules(["edit:allow", "bash:rm -rf:deny"]), [
-    { permission: "edit", pattern: "*", action: "allow" },
-    { permission: "bash", pattern: "rm -rf", action: "deny" },
-  ]);
-});
-
-test("parsePermissionRules skips invalid entries and non-arrays", () => {
-  assert.deepEqual(parsePermissionRules(["edit", "edit:maybe", ":allow", 42, null]), []);
-  assert.deepEqual(parsePermissionRules("edit:allow"), []);
-  assert.deepEqual(parsePermissionRules(undefined), []);
 });
 
 test("default ruleset is ask-everything with native denies preserved", () => {

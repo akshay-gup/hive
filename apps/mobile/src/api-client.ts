@@ -35,8 +35,8 @@ export class MuseApi {
   /** The chat service, where the workspace has one: channels and what people say in them go there. */
   chat?: ChatConnection;
   /**
-   * What the chat service gave for the agent to change the board for this person in the app's own chat with it:
-   * sent with what goes to the workspace's machine (never to the chat service).
+   * What the chat service gave for the machine to change the board for this person (approving a review, seeing
+   * which tasks they may): sent with what goes to the workspace's machine (never to the chat service).
    */
   boardTicket?: string;
   constructor(

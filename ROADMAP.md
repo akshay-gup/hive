@@ -14,8 +14,8 @@ one workspace shared by the team, so what the agent is given once is there for e
   process (a systemd unit on the VM; the API connects, healthchecks, and
   version-asserts, never spawns it); per-channel scoping via directory header;
   a single global SSE stream with per-thread filtering and serialized queues;
-  busy/idle derived from status events only; an in-process AG-UI shim
-  (`POST /api/agent/opencode/run`) that the mobile/web client talks to;
+  busy/idle derived from status events only; the run translation the chat
+  service's runs go through;
   thread→session bindings persisted before the first prompt; single `MODEL` env.
   Boot fails without OpenCode.
 - **Permissions** — default `ask`; `permission.asked` tracked per thread and

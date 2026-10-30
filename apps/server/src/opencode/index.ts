@@ -3,13 +3,12 @@
  *
  * Owns the connection to `opencode serve` (systemd-managed, never spawned),
  * per-directory SDK clients, thread ↔ session bindings, and (Phase 2+)
- * the global event pipeline and AG-UI shim.
+ * the global event pipeline and the run translation.
  */
 
 export {
-  lastUserText,
-  type OpencodeShimDeps,
-  opencodeShimRoutes,
+  type OpencodeRunDeps,
+  opencodeRunLauncher,
   parseModelRef,
   RunTranslator,
 } from "./agui.ts";
@@ -25,15 +24,10 @@ export { type OpenCodeEvent, OpencodeEventBus, sessionErrorMessage } from "./eve
 export {
   buildSessionRuleset,
   defaultSessionRuleset,
-  invalidRuleLines,
-  isPermissionMode,
   type PermissionMode,
   type PermissionRuleset,
-  parsePermissionRules,
   taskSessionRuleset,
 } from "./permissions.ts";
-export { opencodePermissionRoutes } from "./routes.ts";
-export { PermissionRulesStore } from "./rules.ts";
 export {
   assertCompatibleServerVersion,
   connectionFromConfig,

@@ -19,6 +19,7 @@ import {
   textKinds,
   type UploadRequest,
   uploadRequestLimits,
+  uploadsFolder,
 } from "../../../../packages/domain/src/workspace-files.ts";
 import type { WorkClient } from "../chat-runner/work-link.ts";
 import type { JevService } from "../jev/service.ts";
@@ -391,10 +392,25 @@ export function conversationTools(
         signal.throwIfAborted();
         try {
           const channel = await workspaceChannel();
-          const folder = await service.channelFiles.folderFor(owner, channel, args.folder);
           const accept = [
             ...new Set((args.accept ?? []).map((type) => type.replace(/^\./, "").toLowerCase())),
           ];
+          // In a conversation kept by the chat service the files travel with the person's next
+          // message, which saves them in `uploads/` of the channel's folder: nothing is recorded here.
+          if (toolset)
+            return {
+              requested: true,
+              channelId: channel,
+              requestId: createHash("sha256")
+                .update(key("upload", args))
+                .digest("hex")
+                .slice(0, 16),
+              prompt: args.prompt,
+              ...(accept.length ? { accept } : {}),
+              multiple: args.multiple,
+              folder: uploadsFolder,
+            };
+          const folder = await service.channelFiles.folderFor(owner, channel, args.folder);
           return await service.uploadRequests.create(owner, channel, key("upload", args), {
             prompt: args.prompt,
             ...(accept.length ? { accept } : {}),
@@ -554,9 +570,11 @@ export function conversationTools(
     : offered;
 }
 
-/** What the agent has in a shared channel: read a page, put an item on the channel's board, share a file. */
+/** What the agent has in a shared channel: read a page, put an item on the channel's board, share a file, show choices, ask for files. */
 export const chatTools: ReadonlySet<string> = new Set([
   "read_board",
+  "present_choices",
+  "request_upload",
   "browse_web",
   "create_issue",
   "send_file",
@@ -571,6 +589,8 @@ export const chatTools: ReadonlySet<string> = new Set([
 /** Private-channel tasks are staged by the room until the asker chooses a project and reviews its audience. */
 export const privateChatTools: ReadonlySet<string> = new Set([
   "read_board",
+  "present_choices",
+  "request_upload",
   "browse_web",
   "create_issue",
   "send_file",

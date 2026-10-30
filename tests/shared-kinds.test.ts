@@ -12,8 +12,6 @@ import { SHARED_KINDS } from "../apps/server/src/db.ts";
 const KEPT_PER_PERSON = new Set([
   // The orchestrator and its chat.
   "channels",
-  "conversations",
-  "conversation-authors",
   // Each person's own notification settings, and what they have read.
   "notification-prefs",
   "reads",

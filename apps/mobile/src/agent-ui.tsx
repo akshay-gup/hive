@@ -45,7 +45,6 @@ import { useAgentWorkspace } from "./agent-workspace";
 import { needsYou } from "./board-order";
 import { AgentActivityPanel } from "./hosted/agent-activity-sheet";
 import { useLineMaxWidth } from "./line-width";
-import { PermissionsSettings } from "./opencode-permissions";
 import { ProjectPeopleStack } from "./project-header";
 import { canChangeTask } from "./project-text";
 import { ActivityScreen, ConnectionsScreen } from "./screens";
@@ -2016,7 +2015,6 @@ export function AppsScreen() {
               Save preferences
             </Button>
           </Card>
-          <PermissionsSettings />
         </>
       )}
       <ErrorNotice error={error} />

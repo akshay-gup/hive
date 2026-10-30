@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import type { TestContext } from "node:test";
 import { test } from "node:test";
 import { jevToolResultSchema } from "../packages/domain/src/jev.ts";
-import { shimFixture } from "./helpers/shim.ts";
+import { people, wired } from "./helpers/chat-wired.ts";
+import type { FakeTurn } from "./helpers/fake-opencode.ts";
 
 /** In live mode a panel is only as good as what the agent read in the run that made it. */
+
+const max = people.max.id;
 
 const exhibit = "https://example.org/exhibit";
 const explore = { id: "explore", label: "Explore exhibits", details: [], sources: [] };
@@ -40,9 +43,10 @@ const clarify = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-type Browse = NonNullable<NonNullable<Parameters<typeof shimFixture>[1]>["browse"]>;
+type Browse = NonNullable<NonNullable<Parameters<typeof wired>[2]>["browse"]>;
 
-function live(
+/** The person's own chat, in live mode; give the agent something to do with `whenPrompted()`. */
+async function live(
   t: TestContext,
   browse: Browse,
   decision: { control: "comparison" | "clarification"; scores: Record<string, number> } = {
@@ -50,7 +54,21 @@ function live(
     scores: { a: 1 },
   },
 ) {
-  return shimFixture(t, { jevMode: "live", jevAdapter: { decide: async () => decision }, browse });
+  let behaviour: (turn: FakeTurn) => void | Promise<void> = () => undefined;
+  const f = await wired(t, (turn) => behaviour(turn), {
+    jevMode: "live",
+    jevAdapter: { decide: async () => decision },
+    browse,
+  });
+  await f.server.workspace.ensureSample(max, f.server.actions);
+  const mine = await f.own();
+  return {
+    ...f,
+    whenPrompted: (handler: typeof behaviour) => {
+      behaviour = handler;
+    },
+    run: (words: string) => f.say("max", mine.id, words.replace(/^@hive\s+/, "")),
+  };
 }
 
 /** What the agent's present_choices call came back with. */
@@ -65,10 +83,9 @@ test("a redirected browse does not prove the requested source URL", async (t) =>
     t,
     reading({ url: "https://example.org/redirected", title: "Redirected", text: "Other page" }),
   );
-  f.whenPrompted(async ({ call, idle }) => {
+  f.whenPrompted(async ({ call }) => {
     await call("browse_web", { url: "https://example.org/original" });
     await call("present_choices", compare({}, "https://example.org/original"));
-    idle();
   });
   const result = choicesOf(await f.run("@hive Compare exhibits"));
   assert.equal(result.panel, null);
@@ -77,10 +94,9 @@ test("a redirected browse does not prove the requested source URL", async (t) =>
 
 test("an empty browser read does not authorize a comparison", async (t) => {
   const f = await live(t, reading({ url: exhibit, title: "Empty", text: "  " }));
-  f.whenPrompted(async ({ call, idle }) => {
+  f.whenPrompted(async ({ call }) => {
     await call("browse_web", { url: exhibit });
     await call("present_choices", compare());
-    idle();
   });
   const result = choicesOf(await f.run("@hive Compare exhibits"));
   assert.equal(result.panel, null);
@@ -92,10 +108,9 @@ test("a comparison detail the read page does not contain is rejected", async (t)
     t,
     reading({ url: exhibit, title: "Exhibit", text: "A kelp forest with sardines." }),
   );
-  f.whenPrompted(async ({ call, idle }) => {
+  f.whenPrompted(async ({ call }) => {
     await call("browse_web", { url: exhibit });
     await call("present_choices", compare({ details: ["A bat-ray touch pool"] }));
-    idle();
   });
   const result = choicesOf(await f.run("@hive Compare exhibits"));
   assert.equal(result.panel, null);
@@ -125,13 +140,12 @@ for (const [name, option, error] of [
       t,
       reading({ url, title: "Rocky Shore", text: "Rocky Shore lets visitors Touch sea stars." }),
     );
-    f.whenPrompted(async ({ call, idle }) => {
+    f.whenPrompted(async ({ call }) => {
       await call("browse_web", { url });
       await call(
         "present_choices",
         compare({ ...option, sources: option.sources.map((source) => ({ ...source, url })) }, url),
       );
-      idle();
     });
     const result = choicesOf(await f.run("@hive Compare exhibits"));
     assert.equal(result.panel, null);
@@ -144,7 +158,7 @@ test("a comparison of pages the agent read in this run is shown", async (t) => {
     t,
     reading({ url: exhibit, title: "Exhibit", text: "Observed exhibit facts" }),
   );
-  f.whenPrompted(async ({ call, idle }) => {
+  f.whenPrompted(async ({ call }) => {
     await call("browse_web", { url: exhibit });
     await call(
       "present_choices",
@@ -154,7 +168,6 @@ test("a comparison of pages the agent read in this run is shown", async (t) => {
         sources: [{ title: "Exhibit", url: exhibit }],
       }),
     );
-    idle();
   });
   const chat = await f.run("@hive Compare exhibits");
   const result = choicesOf(chat);
@@ -170,10 +183,9 @@ test("mail read in an earlier run does not authorize a new clarification", async
     control: "clarification",
     scores: { explore: 1 },
   });
-  f.whenPrompted(async ({ call, idle, index }) => {
+  f.whenPrompted(async ({ call, index }) => {
     if (index === 1) await call("read_mail_thread", { threadId: "trip-thread" });
     else await call("present_choices", clarify({ mailThreadId: "trip-thread" }));
-    idle();
   });
   await f.run("@hive Read the trip mail");
   const result = choicesOf(await f.run("@hive Now clarify"));
@@ -186,10 +198,9 @@ test("mail read in this run authorizes a clarification that cites it", async (t)
     control: "clarification",
     scores: { explore: 1 },
   });
-  f.whenPrompted(async ({ call, idle }) => {
+  f.whenPrompted(async ({ call }) => {
     await call("read_mail_thread", { threadId: "trip-thread" });
     await call("present_choices", clarify({ mailThreadId: "trip-thread" }));
-    idle();
   });
   assert.ok(choicesOf(await f.run("@hive Help with the trip")).panel);
 });
@@ -199,9 +210,8 @@ test("a generic clarification needs no mail, but an unread mail thread does not 
     control: "clarification",
     scores: { explore: 1 },
   });
-  f.whenPrompted(async ({ call, idle, index }) => {
+  f.whenPrompted(async ({ call, index }) => {
     await call("present_choices", clarify(index === 1 ? {} : { mailThreadId: "trip-thread" }));
-    idle();
   });
   assert.ok(choicesOf(await f.run("@hive What next?")).panel);
   const claimed = choicesOf(await f.run("@hive School email next?"));
@@ -214,7 +224,7 @@ test("a refinement reuses the sources already verified, with no new browse and n
     t,
     reading({ url: exhibit, title: "Exhibit", text: "Observed exhibit facts" }),
   );
-  f.whenPrompted(async ({ call, idle, index }) => {
+  f.whenPrompted(async ({ call, index }) => {
     if (index === 1) {
       await call("browse_web", { url: exhibit });
       await call(
@@ -226,11 +236,10 @@ test("a refinement reuses the sources already verified, with no new browse and n
         }),
       );
     }
-    idle();
   });
   const panel = choicesOf(await f.run("@hive Compare exhibits")).panel;
   assert.ok(panel);
-  f.whenPrompted(async ({ call, idle }) => {
+  f.whenPrompted(async ({ call }) => {
     await call("present_choices", {
       message: "Something hands-on",
       context: "Earlier verified exhibit",
@@ -239,7 +248,6 @@ test("a refinement reuses the sources already verified, with no new browse and n
       options: [],
       refinementPanelId: panel.id,
     });
-    idle();
   });
   const refined = choicesOf(await f.run("@hive Something hands-on")).panel;
   assert.deepEqual(

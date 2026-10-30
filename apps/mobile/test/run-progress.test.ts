@@ -197,12 +197,8 @@ test("one line says what is happening now, or how the work went", () => {
   assert.equal(summarizeSteps([step("done"), step("stopped")]), "Stopped · 2 steps");
 });
 
-test("the chat draws a card for exactly the tools that are kept out of the list", () => {
-  const source = readFileSync(new URL("../src/chat.tsx", import.meta.url).pathname, "utf8");
-  const drawn = [...source.matchAll(/useRenderTool\(\{\s*name: "([a-z_]+)"/g)].map(
-    (match) => match[1],
-  );
-  assert.deepEqual([...drawn].sort(), [...CARD_TOOLS].sort());
+test("the cards a channel draws are among the tools kept out of the list", () => {
+  for (const name of ["present_choices", "request_upload"]) assert.ok(CARD_TOOLS.has(name), name);
 });
 
 test("a step that is under way is the one thing that says the agent is working", () => {

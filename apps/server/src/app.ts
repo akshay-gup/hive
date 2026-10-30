@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { MessageSchema } from "@ag-ui/core";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -11,7 +10,6 @@ import type { AgentTask } from "../../../packages/domain/src/agent.ts";
 import { plainIssues } from "../../../packages/domain/src/friendly-issues.ts";
 import { emailDraftSchema, proposalSchema } from "../../../packages/domain/src/index.ts";
 import { ActionService } from "./actions.ts";
-import { makeRuntime } from "./agent.ts";
 import { KernelWatch } from "./agent-watch/kernel.ts";
 import { AgentWatch } from "./agent-watch/watch.ts";
 import { createAuth } from "./auth.ts";
@@ -29,11 +27,6 @@ import type { Config } from "./config.ts";
 import type { Store } from "./db.ts";
 import { agentRoutes } from "./engine/routes.ts";
 import { AgentService } from "./engine/service.ts";
-import {
-  channelAuthors,
-  conversationHome,
-  saveSharedConversation,
-} from "./engine/shared-conversations.ts";
 import { LocalDiskThreadStore, type ThreadBindingStore } from "./engine/threads.ts";
 import { Files } from "./files.ts";
 import { GoogleAuth } from "./google-auth.ts";
@@ -48,13 +41,10 @@ import {
   ensureOpencodeServerReachable,
   OpencodeClientPool,
   OpencodeEventBus,
-  opencodePermissionRoutes,
-  opencodeShimRoutes,
-  PermissionRulesStore,
+  opencodeRunLauncher,
   PermissionTracker,
   sessionDirectory,
 } from "./opencode/index.ts";
-import { mergeMessages, type RecordedMessage } from "./opencode/run-record.ts";
 import { readUpdateStatus } from "./update-status.ts";
 import { serveWebFile, webRootDir } from "./web-static.ts";
 import { WorkspaceService } from "./workspace.ts";
@@ -119,7 +109,6 @@ export async function createApp(
     options.threads ?? new LocalDiskThreadStore(config.dataDir),
     createJevService(db, config, options.jevAdapter),
   );
-  const runtime = makeRuntime(config);
   const app = new Hono<{ Variables: { owner: string } }>();
   const origins = new Set([...config.allowedOrigins, new URL(config.publicUrl).origin]);
   // A channel file's link is its own credential, and keeps its token in the path so the files a page
@@ -346,21 +335,19 @@ export async function createApp(
     return c.json(snapshot);
   });
   app.route("/api/agent", agentRoutes(agent));
-  // OpenCode is the agent: chat runs through the AG-UI shim and tasks run as OpenCode sessions.
+  // OpenCode is the agent: chat runs for the chat service and tasks run as OpenCode sessions.
   // Building these does no I/O, so a test can swap the runtime for a stand-in. `opencode.start()`
   // is what reaches the server, and the entry points call it before they serve anything.
   const connection = connectionFromConfig(config);
   const bus = new OpencodeEventBus(connection);
   const pool = new OpencodeClientPool(connection);
   const tracker = new PermissionTracker();
-  const rules = new PermissionRulesStore(config.dataDir);
   // How many runs are going, where whatever restarts the workspace can see it. The marks outlive a
   // restart (the runs are taken up again), so what is counted at the start is what is about to resume.
   const publishRuns = async () =>
     publishLiveRuns(
       config.dataDir,
-      (await db.list(SHARED_OWNER, "live-runs").catch(() => [])).length +
-        (await db.list(SHARED_OWNER, "live-chat-runs").catch(() => [])).length,
+      (await db.list(SHARED_OWNER, "live-chat-runs").catch(() => [])).length,
     );
   // Runs for the chat service end with a restart (the chat service is told they were lost), so what is
   // left of them from before is not counted.
@@ -388,50 +375,9 @@ export async function createApp(
     pool,
     config,
     tracker,
-    rules,
     hiveTools,
-    runMarks: {
-      set: async (threadId: string, owner: string) => {
-        await db.put(SHARED_OWNER, "live-runs", { id: threadId, owner, startedAt: Date.now() });
-        await publishRuns();
-      },
-      clear: async (threadId: string) => {
-        await db.remove(SHARED_OWNER, "live-runs", threadId);
-        await publishRuns();
-      },
-      all: async () =>
-        (
-          await db.list<{ id: string; owner: string; startedAt: number }>(SHARED_OWNER, "live-runs")
-        ).map((mark) => ({ threadId: mark.id, owner: mark.owner, startedAt: mark.startedAt })),
-    },
-    loadMessages: async (owner: string, threadId: string) => {
-      const id = conversationKey(threadId);
-      const home = await conversationHome(id, owner, (o, t) => agent.channelOfThread(o, t));
-      const stored = await db.get<{ messages?: unknown[] }>(home.owner, "conversations", id);
-      return stored?.messages ?? [];
-    },
-    // What the agent does is kept as it happens, so closing the page does not lose it.
-    saveMessages: async (owner: string, threadId: string, added: RecordedMessage[]) => {
-      const id = conversationKey(threadId);
-      const home = await conversationHome(id, owner, (o, t) => agent.channelOfThread(o, t));
-      const stored = await db.get<{ messages?: RecordedMessage[] }>(
-        home.owner,
-        "conversations",
-        id,
-      );
-      const merged = mergeMessages(stored?.messages ?? [], added).slice(-1000);
-      await saveConversation(
-        id,
-        owner,
-        merged.map((message) => MessageSchema.parse(message)),
-      );
-    },
   };
-  const shim = opencodeShimRoutes(shimDeps);
-  app.route("/api/agent/opencode", shim);
-  // Give OpenCode a moment to come up, then carry on any reply a restart cut off.
-  setTimeout(() => void shim.resume().catch(() => undefined), 15_000).unref?.();
-  app.route("/api/agent/opencode", opencodePermissionRoutes(shimDeps));
+  const launcher = opencodeRunLauncher(shimDeps);
   agent.opencodeRuntime = { bus, pool, tracker, config, hiveTools, watch };
   // Where the chat service starts the agent's runs: this machine connects out to it and does what it is given.
   const chatLink = config.chatRunner
@@ -457,25 +403,6 @@ export async function createApp(
         const work = new WorkLink({
           send: (frame) => link.send(frame),
           history: (ask) => agent.history(ask),
-          // A routine of someone's wakes the agent in their own chat: the note is written there as if they had
-          // sent it, with a ticket for the board so that it can work as them, and it is answered as it would be.
-          routine: async (ask) => {
-            const owner = `acct:${ask.owner.id}`;
-            await vouchFor(agent, ask.owner);
-            boardTickets.set(owner, ask.ticket);
-            const { routine } = ask;
-            await shim.queueMessage(owner, "default", {
-              id: `routine-${routine.id}-${Date.now()}`,
-              content: [
-                `⏰ Routine “${routine.title}” (routine id: ${routine.id}). This is a note you wrote to yourself:`,
-                routine.note,
-                routine.memo
-                  ? `What you kept for yourself last time: ${routine.memo}`
-                  : "You kept nothing for yourself last time. Use routine_memo (with this routine id) to keep something for next time.",
-              ].join("\n\n"),
-            });
-            return { ok: true };
-          },
         });
         const borrower = new TaskBorrower({
           send: (frame) => link.send(frame),
@@ -526,7 +453,7 @@ export async function createApp(
           board,
           send: (frame) => link.send(frame),
           service: agent,
-          launcher: shim,
+          launcher,
           tracker,
           replies: { bus, pool },
           channelFiles: agent.channelFiles,
@@ -636,52 +563,6 @@ export async function createApp(
       201,
     );
   });
-  app.get("/api/conversation", async (c) => {
-    const id = conversationKey(c.req.query("threadId"));
-    const { owner } = await conversationHome(id, c.get("owner"), (o, t) =>
-      agent.channelOfThread(o, t),
-    );
-    // What the agent wrote under "local-main" before the two names were one is brought in.
-    if (id === "default") {
-      const stray = await db.get<{ messages?: RecordedMessage[] }>(
-        owner,
-        "conversations",
-        "local-main",
-      );
-      if (stray?.messages?.length) {
-        const own = await db.get<{ messages?: RecordedMessage[] }>(owner, "conversations", id);
-        const merged = mergeMessages(own?.messages ?? [], stray.messages);
-        await db.put(owner, "conversations", { id, messages: merged });
-        await db.remove(owner, "conversations", "local-main");
-      }
-    }
-    return c.json((await db.get(owner, "conversations", id)) ?? { messages: [] });
-  });
-  const saveConversation = async (
-    id: string,
-    sessionOwner: string,
-    incoming: ReturnType<typeof MessageSchema.parse>[],
-  ) => {
-    const home = await conversationHome(id, sessionOwner, (o, t) => agent.channelOfThread(o, t));
-    if (home.owner === SHARED_OWNER) {
-      // A thread forked from a channel starts as copies of channel messages that keep their author.
-      const inherited =
-        home.channelId && !id.startsWith("channel:")
-          ? await channelAuthors(db, home.channelId)
-          : undefined;
-      await saveSharedConversation(db, id, sessionOwner, incoming, inherited);
-    } else await db.put(home.owner, "conversations", { id, messages: incoming });
-  };
-  app.put("/api/conversation", async (c) => {
-    const body = await c.req.json();
-    const incoming = z
-      .array(z.unknown())
-      .max(1000)
-      .parse(body.messages)
-      .map((message) => MessageSchema.parse(message));
-    await saveConversation(conversationKey(c.req.query("threadId")), c.get("owner"), incoming);
-    return c.json({ ok: true });
-  });
   app.post("/api/files", async (c) => {
     const data = await c.req.parseBody();
     const file = data.file;
@@ -786,19 +667,6 @@ export async function createApp(
     await browser.input(c.get("owner"), c.req.param("id"), await c.req.json());
     return c.json({ ok: true });
   });
-  app.all("/api/copilotkit/*", async (c) => {
-    const response = await runtime.fetch(c.req.raw);
-    // Runtime 1.70 emits SSE strings; a WHATWG Response body requires byte chunks.
-    const encoder = new TextEncoder();
-    const body = response.body?.pipeThrough(
-      new TransformStream({
-        transform(chunk, controller) {
-          controller.enqueue(typeof chunk === "string" ? encoder.encode(chunk) : chunk);
-        },
-      }),
-    );
-    return new Response(body, { status: response.status, headers: response.headers });
-  });
   app.get("/", (c) => {
     const webRoot = webRootDir(config.webDir);
     return webRoot
@@ -817,19 +685,4 @@ export async function createApp(
     }
   }
   return { app, auth, files, actions, workspace, agent, opencode, watch };
-}
-
-/**
- * Conversation storage key for the keyless chat. The main chat keeps the
- * legacy "default" key; channel threads persist under their thread id so each
- * thread keeps its own history.
- */
-/**
- * Where a conversation is kept. The main chat has no thread id of its own on the page's side
- * (it reads and writes `/api/conversation`), but the agent knows it as "local-main": both are one
- * record, or what the agent writes is not what a reload shows.
- */
-export function conversationKey(threadId: string | undefined): string {
-  const id = (threadId ?? "").trim().slice(0, 128);
-  return id && id !== "local-main" ? id : "default";
 }

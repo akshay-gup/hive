@@ -1,4 +1,4 @@
-import { unzipSync } from "fflate";
+import { strFromU8, unzipSync } from "fflate";
 import type { Table } from "./file-format";
 import { colors } from "./theme";
 
@@ -130,7 +130,7 @@ export function readSlides(bytes: Uint8Array): Slide[] {
     .sort((a, b) => a.number - b.number)
     .slice(0, officeLimits.slides)
     .map(({ name, number }) => {
-      const xml = new TextDecoder().decode(files[name]);
+      const xml = strFromU8(files[name]);
       const lines = [...xml.matchAll(/<a:p[ >][\s\S]*?<\/a:p>/g)]
         .map((paragraph) =>
           [...paragraph[0].matchAll(/<a:t(?: [^>]*)?>([\s\S]*?)<\/a:t>/g)]

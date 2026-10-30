@@ -273,8 +273,8 @@ export interface Routine {
     | { kind: "cron"; expr: string; tz?: string };
   /** The schedule in words. */
   scheduleText: string;
-  /** Where it wakes the agent: a channel (and the thread in it), or the person's own chat. */
-  where: { channelId?: string; rootId?: string; own?: boolean };
+  /** Where it wakes the agent: a channel (and the thread in it); the person's own chat is a channel of theirs. */
+  where: { channelId: string; rootId?: string };
   /** What the agent kept for itself to read next time. */
   memo: string;
   status: "active" | "paused" | "done";

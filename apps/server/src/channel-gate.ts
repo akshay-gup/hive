@@ -81,21 +81,6 @@ async function memberGate(c: Context, owner: string, service: AgentService, scop
     return channel((await bodyOf(c)).channelId);
   const ofThread = match(/^\/api\/agent\/threads\/([^/]+)(?:\/|$)/);
   if (ofThread) return thread(ofThread[1]);
-  const underThread = match(/^\/api\/agent\/opencode\/threads\/([^/]+)(?:\/|$)/);
-  if (underThread) return thread(underThread[1]);
-  const underChannel = match(/^\/api\/agent\/opencode\/channels\/([^/]+)(?:\/|$)/);
-  if (underChannel) return channel(underChannel[1]);
-  if (path === "/api/conversation") return thread(c.req.query("threadId"));
-  if (/^\/api\/agent\/opencode\/(live|stop|queue|start|run)$/.test(path))
-    return thread(method === "GET" ? c.req.query("threadId") : (await bodyOf(c)).threadId);
-  const runtime = match(/^\/api\/copilotkit\/(.+)$/);
-  if (runtime) {
-    const rest = runtime[1];
-    if (method === "POST" && /^agent\/[^/]+\/(run|connect)$/.test(rest))
-      return thread((await bodyOf(c)).threadId);
-    const stop = /^agent\/[^/]+\/stop\/([^/]+)$/.exec(rest);
-    if (method === "POST" && stop) return thread(stop[1]);
-  }
 }
 
 /**
@@ -115,7 +100,6 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     if (!scope.allows(decoded(id)))
       throw new AppError("That channel is not there, or you cannot see it.", 404);
   };
-  const body = () => bodyOf(c);
   const thread = async (threadId: unknown) => {
     const id = typeof threadId === "string" ? decoded(threadId) : "";
     const channelId = id ? await channelOfThread(service, owner, id) : null;
@@ -149,32 +133,6 @@ async function guestGate(c: Context, owner: string, service: AgentService, scope
     if ((method === "PATCH" && !ofThread[2]) || (method === "GET" && ofThread[2]))
       return thread(ofThread[1]);
     throw refuse();
-  }
-
-  if (path === "/api/conversation" && (method === "GET" || method === "PUT"))
-    return thread(c.req.query("threadId"));
-
-  const run = match(/^\/api\/agent\/opencode\/(live|stop|queue|start|run)$/);
-  if (run) {
-    const want = run[1] === "live" ? "GET" : "POST";
-    if (method !== want) throw refuse();
-    return thread(want === "GET" ? c.req.query("threadId") : (await body()).threadId);
-  }
-  // They can see what the agent is waiting to be allowed to do or answered on, and cannot do either.
-  const pending = match(
-    /^\/api\/agent\/opencode\/threads\/([^/]+)\/(?:permissions|questions)\/pending$/,
-  );
-  if (method === "GET" && pending) return thread(pending[1]);
-
-  // The chat runs through this runtime on its way to the agent; the thread is checked again there.
-  const runtime = match(/^\/api\/copilotkit\/(.+)$/);
-  if (runtime) {
-    const rest = runtime[1];
-    if (rest === "info") return;
-    if (method === "POST" && /^agent\/[^/]+\/(run|connect)$/.test(rest))
-      return thread((await body()).threadId);
-    const stop = /^agent\/[^/]+\/stop\/([^/]+)$/.exec(rest);
-    if (method === "POST" && stop) return thread(stop[1]);
   }
 
   throw refuse();

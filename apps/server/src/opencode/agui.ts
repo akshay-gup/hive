@@ -1,34 +1,16 @@
 /**
- * AG-UI shim over OpenCode sessions.
+ * Runs of the agent over OpenCode sessions, for the conversations the chat service keeps.
  *
- * The CopilotKit runtime's `agents` factory points the chat agent at
- * POST /api/agent/opencode/run on this same server. The shim translates:
- * - AG-UI RunAgentInput -> OpenCode `session.promptAsync`, with a synthetic
- *   context part (channel/thread metadata plus the full visible conversation
- *   transcript, which the model sees but that never surfaces as a real turn)
- *   prepended to the user's prompt;
- * - OpenCode global events -> AG-UI events (`TEXT_MESSAGE_*`, `TOOL_CALL_*`,
- *   `RUN_STARTED/FINISHED/ERROR`), with synthetic parts filtered on egress
- *   and busy/idle derived from `session.status` / `session.idle` only.
+ * The chat service starts a run for a message to the agent (a mention in a channel, or any message in a
+ * person's own chat). This translates it into `session.promptAsync` with a synthetic context part ahead of
+ * the person's words (the part the model sees but that never surfaces as a turn), and OpenCode's global events
+ * into AG-UI events (`TEXT_MESSAGE_*`, `TOOL_CALL_*`, `RUN_STARTED/FINISHED/ERROR`), with synthetic parts
+ * filtered on egress and busy/idle derived from `session.status` / `session.idle` only.
  *
- * Mention-only triggering: the agent runs only when the last user message
- * contains the configured mention token (`AGENT_MENTION`, default `@hive`)
- * as a standalone token. Anything else is plain chat — the run completes
- * immediately as a no-op (`RUN_STARTED` then `RUN_FINISHED`, no OpenCode
- * session touched) and the agent stays silent. When triggered, the full
- * transcript of everyone talking (plus attached images as native file parts)
- * goes to the session so the agent catches up on what it missed while idle.
- *
- * One run per thread at a time: a second concurrent run is rejected (409),
- * since two runs on one session would interleave on a single event stream.
- * Prompt dispatch is serialized through the bus's per-thread action queue.
+ * One run per thread at a time: a second is refused, since two runs on one session would interleave on a
+ * single event stream. Prompt dispatch is serialized through the bus's per-thread action queue.
  */
-import { Hono } from "hono";
-import { z } from "zod";
-import {
-  type ChannelThread,
-  ORCHESTRATOR_CHANNEL_ID,
-} from "../../../../packages/domain/src/agent.ts";
+import type { ChannelThread } from "../../../../packages/domain/src/agent.ts";
 import {
   WATCH_DOWN_TEXT,
   WATCH_STOP_TEXT,
@@ -47,29 +29,15 @@ import type { AskedPermissionProps, AskedQuestionProps, PermissionTracker } from
 import type { OpencodeClientPool } from "./client.ts";
 import { type OpenCodeEvent, type OpencodeEventBus, sessionErrorMessage } from "./events.ts";
 import type { HiveToolBridge } from "./hive-tools.ts";
-import { buildSessionRuleset } from "./permissions.ts";
-import type { PermissionRulesStore } from "./rules.ts";
-import { mergeableMessages, type RecordedMessage, RunRecord } from "./run-record.ts";
 import { ensureThreadSession } from "./sessions.ts";
 
-export interface OpencodeShimDeps {
+export interface OpencodeRunDeps {
   service: AgentService;
   bus: OpencodeEventBus;
   pool: OpencodeClientPool;
   config: Config;
   tracker: PermissionTracker;
-  rules: PermissionRulesStore;
   hiveTools?: HiveToolBridge;
-  /** Writes messages into a conversation, so a run nobody is watching is still kept. */
-  saveMessages?: (owner: string, threadId: string, messages: RecordedMessage[]) => Promise<void>;
-  /** Which runs are going, kept across a restart so an update does not drop a reply half-written. */
-  runMarks?: {
-    set: (threadId: string, owner: string) => Promise<void>;
-    clear: (threadId: string) => Promise<void>;
-    all: () => Promise<Array<{ threadId: string; owner: string; startedAt: number }>>;
-  };
-  /** What a conversation holds now. */
-  loadMessages?: (owner: string, threadId: string) => Promise<unknown[]>;
   /** Marks what a run opens of the machine's own data (see agent-watch/watch.ts). */
   watch?: AgentWatch;
 }
@@ -101,13 +69,10 @@ export interface ChatOrigin {
   work: WorkClient;
 }
 
-const runInputSchema = z.object({
-  threadId: z.string().min(1),
-  runId: z.string().min(1),
-  messages: z.array(z.any()),
-});
-
-type RunInput = z.infer<typeof runInputSchema>;
+export interface RunInput {
+  threadId: string;
+  runId: string;
+}
 
 /** Bound for a run whose terminal events never arrive (e.g. a reconnect gap). */
 const RUN_TIMEOUT_MS = 60 * 60_000;
@@ -158,20 +123,6 @@ function hiveToolName(tool: string): string {
   return tool.replace(/^hive_[a-f0-9]{16}_/, "");
 }
 
-/** Index of the last user message that says something, or -1. */
-function lastUserIndex(messages: Array<Record<string, unknown>>): number {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user" && messageText(messages[i])) return i;
-  }
-  return -1;
-}
-
-/** Text of the last user message that says something. */
-export function lastUserText(messages: Array<Record<string, unknown>>): string | undefined {
-  const index = lastUserIndex(messages);
-  return index < 0 ? undefined : messageText(messages[index]);
-}
-
 /**
  * What the agent is told when a person picks a card, once the pick has been checked against the
  * panel it came from. A pick that does not check out throws, and says why.
@@ -193,37 +144,12 @@ async function readChoice(
   return (await jev.select(owner, threadId, action)).continuation;
 }
 
-/** Joined text of a message's text content parts (string content included). */
-export function messageText(message: Record<string, unknown> | undefined): string {
-  if (!message) return "";
-  const content = message.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((part) => part?.type === "text" && typeof part.text === "string")
-      .map((part) => part.text)
-      .join("");
-  }
-  return "";
-}
-
-/** Normalize the AGENT_MENTION env value to a mention token (default `@hive`). */
-export function normalizeMention(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed) return "@hive";
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
-}
-
+/** The pattern a mention of the agent matches. */
 function mentionPattern(mention: string): RegExp {
   const escaped = mention.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Standalone token: not glued to a letter, digit, or underscore on either side,
   // so `@hiveX` and `mail@hive` do not count as mentions.
   return new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}(?=[^\\p{L}\\p{N}_]|$)`, "iu");
-}
-
-/** True when the text mentions the agent as a standalone token (case-insensitive). */
-export function mentionsAgent(text: string, mention: string): boolean {
-  return mentionPattern(mention).test(text);
 }
 
 /** Remove the mention token from prompt text, collapsing leftover whitespace. */
@@ -234,90 +160,10 @@ export function stripMention(text: string, mention: string): string {
     .trim();
 }
 
-/** True when the run should invoke the agent: the last user message mentions it. */
-export function shouldTriggerRun(
-  messages: Array<Record<string, unknown>>,
-  mention: string,
-): boolean {
-  const text = lastUserText(messages);
-  return !!text && mentionsAgent(text, mention);
-}
-
-interface ImageSource {
-  type?: string;
-  value?: string;
-  mimeType?: string;
-}
-
 export interface PromptFilePart {
   type: "file";
   mime: string;
   url: string;
-}
-
-/** Image content parts of one message, mapped to OpenCode native file parts. */
-export function messageFileParts(message: Record<string, unknown> | undefined): PromptFilePart[] {
-  const content = message?.content;
-  if (!Array.isArray(content)) return [];
-  const parts: PromptFilePart[] = [];
-  for (const part of content) {
-    if (part?.type !== "image") continue;
-    const source = part.source as ImageSource | undefined;
-    if (!source || typeof source.value !== "string" || !source.value) continue;
-    const mime = source.mimeType?.trim() || "application/octet-stream";
-    const url = source.type === "data" ? `data:${mime};base64,${source.value}` : source.value;
-    parts.push({ type: "file", mime, url });
-  }
-  return parts;
-}
-
-/** Native file parts from the triggering (last user) message only. */
-export function promptFileParts(messages: Array<Record<string, unknown>>): PromptFilePart[] {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user") return messageFileParts(messages[i]);
-  }
-  return [];
-}
-
-/** Cap for the transcript forwarded in the synthetic context part. */
-const TRANSCRIPT_LIMIT = 20_000;
-
-/**
- * The full visible conversation as `Speaker: text` lines, oldest first.
- * Speaker is the message's `name` when present, otherwise the role label —
- * never invented. Image attachments become markers (their native parts only
- * travel with the triggering message). Oldest lines are dropped past the cap
- * so the agent catches up on the most recent discussion.
- */
-export function buildTranscript(messages: Array<Record<string, unknown>>): string {
-  const lines: string[] = [];
-  for (const message of messages) {
-    const role = message?.role;
-    if (role !== "user" && role !== "assistant") continue;
-    const rawName = message.name;
-    const speaker =
-      typeof rawName === "string" && rawName.trim()
-        ? rawName.trim()
-        : role === "user"
-          ? "User"
-          : "Assistant";
-    const text = messageText(message);
-    const markers = messageFileParts(message).map((f) => `[attached file (${f.mime})]`);
-    const body = [text, ...markers].filter(Boolean).join("\n");
-    if (!body) continue;
-    lines.push(`${speaker}: ${body}`);
-  }
-  let transcript = lines.join("\n");
-  if (transcript.length > TRANSCRIPT_LIMIT) {
-    // Drop oldest lines until the tail fits; the recent discussion matters most.
-    let dropped = 0;
-    for (const line of lines) {
-      if (transcript.length - dropped <= TRANSCRIPT_LIMIT) break;
-      dropped += line.length + 1; // +1 for the "\n" join separator
-    }
-    transcript = `[earlier history omitted]\n${transcript.slice(dropped)}`;
-  }
-  return transcript;
 }
 
 interface TextTrack {
@@ -564,8 +410,8 @@ export class RunTranslator {
 }
 
 interface RunContext {
-  chat?: ChatOrigin;
-  deps: OpencodeShimDeps;
+  chat: ChatOrigin;
+  deps: OpencodeRunDeps;
   owner: string;
   input: RunInput;
   send: (event: AguiEvent) => void;
@@ -603,129 +449,28 @@ async function abortRunSession(ctx: RunContext): Promise<void> {
   }
 }
 
-const GUEST_CHANNELS_ONLY = "Guests can open only the channels they were added to";
-
-/**
- * Why the agent will not take a guest's message, if it will not. They have no say in what the agent
- * is allowed to do, so in a channel where it runs without asking first, whatever a guest wrote would
- * be done unchecked.
- */
-async function guestRefusal(
-  deps: OpencodeShimDeps,
-  owner: string,
-  binding: ChannelThread | null,
-): Promise<string | undefined> {
-  if (!binding) return GUEST_CHANNELS_ONLY;
-  try {
-    await deps.service.access.assertChannel(owner, binding.channelId);
-  } catch {
-    return GUEST_CHANNELS_ONLY;
-  }
-  const rules = buildSessionRuleset(
-    await deps.rules.effectiveRules(owner, binding),
-    await deps.rules.effectiveMode(owner, binding),
-  );
-  if (rules.some((rule) => rule.action === "allow"))
-    return "In this thread the agent is allowed to act without asking first, so guests can't use it. An admin can change that in the thread's permissions.";
-  return undefined;
-}
-
-/** A private channel is its members': a run in it is refused to anyone else, whatever got it this far. */
-async function closedChannel(
-  deps: OpencodeShimDeps,
-  owner: string,
-  binding: ChannelThread | null,
-): Promise<string | undefined> {
-  if (!binding) return undefined;
-  try {
-    await deps.service.access.assertChannel(owner, binding.channelId);
-  } catch {
-    return "Channel not found";
-  }
-  return undefined;
-}
-
 async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   const { deps, owner, input, send, signal, chat } = ctx;
-  const mention = normalizeMention(deps.config.agentMention);
-
-  // Channel chats are chat-only surfaces: a channel opens directly and its
-  // messages persist client-side. Threads auto-create client-side from
-  // replies and @hive mentions, so a run scoped to a channel id never binds
-  // a thread and never summons the worker.
-  if (!chat && input.threadId.startsWith("channel:")) {
-    send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
-    send({ type: "RUN_FINISHED", threadId: input.threadId, runId: input.runId });
-    return;
-  }
-
-  // The main chat thread id originates on the client and is bound lazily:
-  // the first run binds it to the orchestrator channel instead of failing. This
-  // runs before the mention gate so plain chat also leaves a bound thread.
-  // A guest has no main chat: their runs are in threads of the channels they were added to.
+  const { binding, guest } = chat;
   // A run the chat service started has been checked there, and has its binding made already.
-  const guest = chat ? chat.guest : await deps.service.access.isGuest(owner);
-  if (!chat && !guest) await deps.service.ensureOrchestratorChannel(owner);
-  const binding = chat
-    ? chat.binding
-    : guest
-      ? await deps.service.channelOfThread(owner, input.threadId)
-      : await deps.service.ensureThreadBinding(
-          owner,
-          input.threadId,
-          ORCHESTRATOR_CHANNEL_ID,
-          "Main chat",
-        );
-  const refusal = chat
-    ? undefined
-    : guest
-      ? await guestRefusal(deps, owner, binding)
-      : await closedChannel(deps, owner, binding);
-  // With refusing on, nothing runs while the machine's watch is not working (a run of a channel is refused by the runner).
-  const paused = chat ? null : (deps.watch?.refusal() ?? null);
-  if (paused) {
-    send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
-    send({ type: "RUN_ERROR", message: paused, code: "OPENCODE_RUN_FAILED" });
-    return;
-  }
-  if (!binding || refusal) {
-    send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
-    send({
-      type: "RUN_ERROR",
-      message: refusal ?? GUEST_CHANNELS_ONLY,
-      code: "OPENCODE_RUN_FAILED",
-    });
-    return;
-  }
-
-  if (!chat) {
-    // Someone writing in a channel is what marks it unread for the others in it.
-    await deps.service.noteMessage(owner, binding.channelId).catch(() => undefined);
-  }
-
-  // Mention-only triggering: without the mention token in the last user
-  // message this is plain chat. Complete the run as a no-op — the message is
-  // already persisted by CopilotKit; the agent stays silent and OpenCode is
-  // never touched (no session, no prompt). The in-flight slot is released by
-  // settleRun in the route's finally block.
-  let messages = input.messages as Array<Record<string, unknown>>;
-  let userText = chat ? chat.text : lastUserText(messages);
   // Choice panels belong to their conversation, as the transcript does: one set for everyone in a
-  // channel's threads, and private to the person in the orchestrator chat.
+  // channel's threads, and private to the person in their own chat.
   const jevHome = diskOwnerForChannel(binding.channelId, owner);
 
   // Picking a card is answering a question the agent asked, so it needs no mention. The pick is
   // checked against its panel, and the agent is told what it says in words rather than as the
-  // protocol message the client sent.
+  // protocol message the client sent. It may carry a note after it (a run that was picked up again
+  // after a restart); the pick itself is the first line.
+  let userText = chat.text;
   let picked = false;
-  if (!chat && userText?.startsWith(jevActionPrefix)) {
+  if (userText.startsWith(jevActionPrefix)) {
     try {
-      const continuation = await readChoice(deps.service.jev, jevHome, input.threadId, userText);
-      const index = lastUserIndex(messages);
-      messages = messages.map((message, i) =>
-        i === index ? { ...message, content: continuation } : message,
+      userText = await readChoice(
+        deps.service.jev,
+        jevHome,
+        input.threadId,
+        userText.split("\n")[0] ?? userText,
       );
-      userText = continuation;
       picked = true;
     } catch (error) {
       send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
@@ -738,10 +483,10 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   }
 
   // Whatever else a person says retires the choices before it. The transcript already shows them
-  // stale, so the stored panel has to agree even when this turn fails, is cancelled, or the agent
-  // stays silent for want of a mention. The turn that retires a panel may still refine it.
-  const jev = chat ? null : deps.service.jev;
-  if (jev && !picked && messages.at(-1)?.role === "user") {
+  // stale, so the stored panel has to agree even when this turn fails or is cancelled. The turn that
+  // retires a panel may still refine it.
+  const jev = deps.service.jev;
+  if (jev && !picked) {
     try {
       const head = await jev.headSnapshot(jevHome, input.threadId);
       // False means another run already replaced the panel; that newer state wins.
@@ -753,10 +498,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     }
   }
 
-  // Your own chat is a conversation with the agent: everything said there is for it. Only a shared
-  // channel, where people talk to each other too, needs the agent to be called by name.
-  const alone = binding.channelId === ORCHESTRATOR_CHANNEL_ID;
-  if (!userText || (!chat && !picked && !alone && !mentionsAgent(userText, mention))) {
+  if (!userText) {
     send({ type: "RUN_STARTED", threadId: input.threadId, runId: input.runId });
     send({ type: "RUN_FINISHED", threadId: input.threadId, runId: input.runId });
     return;
@@ -828,9 +570,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
         threads: deps.service.threads,
         clients: deps.pool,
         config: deps.config,
-        // In a shared channel the agent always asks first, whatever a channel's folder says.
-        userRules: (binding) => (chat ? [] : deps.rules.effectiveRules(owner, binding)),
-        permissionMode: (binding) => (chat ? "ask" : deps.rules.effectiveMode(owner, binding)),
+        // In a chat the agent always asks first.
         protect: () => deps.watch?.denyRules() ?? [],
       },
       owner,
@@ -839,11 +579,10 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
     ctx.session = { sessionId, directory };
     deps.bus.track(input.threadId, sessionId);
 
-    // The person's own words, which the choice cards are judged against.
-    const stripped = chat ? userText : stripMention(userText, mention);
     if (deps.hiveTools) {
       const toolInput = {
         ...input,
+        messages: [],
         tools: [],
         context: [],
         state: {},
@@ -860,26 +599,16 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
           jev,
           jevMode: deps.config.jevMode,
           jevOwner: jevHome,
-          latestText: stripped,
+          latestText: userText, // the person's own words, which the choice cards are judged against
           guest,
-          ...(chat
-            ? {
-                toolset: chat.personal ? "personal" : chat.privateChannel ? "chat-private" : "chat",
-                shareFile: chat.shareFile,
-                work: chat.work,
-              }
-            : {}),
+          toolset: chat.personal ? "personal" : chat.privateChannel ? "chat-private" : "chat",
+          shareFile: chat.shareFile,
+          work: chat.work,
         }),
         toolAbort.signal,
-        chat ? { chat: true } : undefined,
+        { chat: true },
       );
     }
-    const transcript = chat ? "" : buildTranscript(messages);
-    // A bare mention ("@hive" and nothing else) still summons the agent;
-    // point it at the conversation it just received.
-    const promptText =
-      stripped || "(summoned by mention with no additional text — see the conversation above)";
-    const fileParts = chat ? chat.files : promptFileParts(messages);
 
     // The run is stopped for reaching the machine's own data: nothing more of it is shown, its Hive tools are taken
     // away, the session is refused the data and stopped, and forgotten, so what it read is not in its memory.
@@ -906,8 +635,8 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       return true;
     };
     const watching = deps.watch?.forRun({
-      scope: chat ? "channel" : "own-chat",
-      ...(chat ? { runId: input.runId } : {}),
+      scope: "channel",
+      runId: input.runId,
       directory,
       onSerious: ({ callId, finding }) => {
         if (callId) egress?.withhold(callId);
@@ -944,7 +673,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       onReplied: (requestId) => {
         waiting(requestId, false);
         deps.tracker.remove(requestId);
-        if (chat) send({ type: "CUSTOM", name: "prompt-done", value: { requestId } });
+        send({ type: "CUSTOM", name: "prompt-done", value: { requestId } });
       },
       onQuestion: (asked) => {
         waiting(asked.id, true);
@@ -961,7 +690,7 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
       onQuestionDone: (requestId) => {
         waiting(requestId, false);
         deps.tracker.removeQuestion(requestId);
-        if (chat) send({ type: "CUSTOM", name: "prompt-done", value: { requestId } });
+        send({ type: "CUSTOM", name: "prompt-done", value: { requestId } });
       },
     });
     ctx.translator = translator;
@@ -990,15 +719,10 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
           {
             type: "text",
             synthetic: true,
-            text: chat
-              ? chat.context(toolLease?.instructions ?? "")
-              : `[hive context] channel=${binding.channelId} thread=${input.threadId} name=${binding.name}\n` +
-                `${toolLease?.instructions ?? ""}\n` +
-                `You were summoned by mention and have not participated until now. ` +
-                `The full visible conversation (everyone talking) follows so you can catch up:\n${transcript}`,
+            text: chat.context(toolLease?.instructions ?? ""),
           },
-          ...fileParts,
-          { type: "text", text: promptText },
+          ...chat.files,
+          { type: "text", text: userText },
         ],
       }),
     );
@@ -1018,75 +742,33 @@ async function runOpencodeTurn(ctx: RunContext): Promise<void> {
   }
 }
 
-export function opencodeShimRoutes(deps: OpencodeShimDeps) {
-  const app = new Hono<{ Variables: { owner: string } }>();
+export function opencodeRunLauncher(deps: OpencodeRunDeps) {
   // One in-flight run per thread: threadId -> runId. The check-and-set below is
-  // synchronous, so concurrent requests for the same thread cannot both pass.
+  // synchronous, so concurrent callers for the same thread cannot both pass.
   const inflight = new Map<string, string>();
-
-  /** Runs go on when the page that started them is closed; only Stop (below) ends one early. */
+  /** Runs go on when the page that started them is closed; only a stop ends one early. */
   const stoppers = new Map<string, AbortController>();
-  // A run is still going until what it said has been written down, not just until it ends.
-  const settling = new Set<string>();
-  /** Threads with a message that came in while a run was going, and whose it was: they run next. */
-  const pending = new Map<string, string>();
-  app.get("/live", (c) => c.json({ running: settling.has(c.req.query("threadId") ?? "") }));
-  app.post("/stop", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { threadId?: unknown };
-    const threadId = typeof body.threadId === "string" ? body.threadId : "";
-    pending.delete(threadId);
-    stoppers.get(threadId)?.abort();
-    return c.json({ ok: true });
-  });
   /**
-   * Begin a run. It is written down as it goes and does not depend on anyone reading `onEvent`.
-   * Returns undefined when the thread already has a run going.
+   * Begin a run for a message the chat service sent. What it says is passed to `onEvent` as it goes; the chat
+   * service keeps it. Returns undefined when the thread already has a run going.
    */
   const launch = (
     owner: string,
     input: RunInput,
-    onEvent?: (event: AguiEvent) => void,
-    chat?: ChatOrigin,
+    onEvent: (event: AguiEvent) => void,
+    chat: ChatOrigin,
   ): Promise<void> | undefined => {
     const { threadId, runId } = input;
     if (inflight.has(threadId)) return undefined;
     inflight.set(threadId, runId);
     const stopper = new AbortController();
     stoppers.set(threadId, stopper);
-    settling.add(threadId);
-    // A run for the chat service is not carried on after a restart: the chat service is told it was lost.
-    if (!chat) void deps.runMarks?.set(threadId, owner).catch(() => undefined);
-    const record = new RunRecord();
-    // Writes go one after another, so the last one is the newest state.
-    let saving: Promise<void> = Promise.resolve();
-    const save = (withInput = false) => {
-      if (chat || !deps.saveMessages || threadId.startsWith("channel:")) return;
-      const messages = [
-        ...(withInput ? mergeableMessages(input.messages) : []),
-        ...record.messages(),
-      ];
-      saving = saving
-        .then(() => deps.saveMessages?.(owner, threadId, messages))
-        .catch(() => undefined);
-    };
-    save(true);
-    const send = (event: AguiEvent) => {
-      record.handle(event);
-      if (
-        event.type === "TOOL_CALL_RESULT" ||
-        event.type === "TEXT_MESSAGE_END" ||
-        event.type === "RUN_FINISHED" ||
-        event.type === "RUN_ERROR"
-      )
-        save();
-      onEvent?.(event);
-    };
     const ctx: RunContext = {
       chat,
       deps,
       owner,
       input,
-      send,
+      send: onEvent,
       signal: stopper.signal,
       inflight,
       settled: false,
@@ -1098,142 +780,12 @@ export function opencodeShimRoutes(deps: OpencodeShimDeps) {
       } finally {
         settleRun(ctx);
         if (stoppers.get(threadId) === stopper) stoppers.delete(threadId);
-        save();
-        await saving;
-        settling.delete(threadId);
-        if (!chat) {
-          await deps.runMarks?.clear(threadId).catch(() => undefined);
-          // What was said while it worked is answered next, without anyone having to be there.
-          const next = pending.get(threadId);
-          pending.delete(threadId);
-          if (next && deps.loadMessages) {
-            const messages = await deps.loadMessages(next, threadId);
-            const run = launch(next, { threadId, runId: `run-${Date.now()}`, messages });
-            void run?.catch(() => undefined);
-          }
-        }
       }
     })();
   };
-  /**
-   * Start the agent on a thread from what is already written in it, with no page attached. A thread
-   * made from a channel message is started this way, so closing the page right after posting does
-   * not leave the message unanswered.
-   */
-  /** A message sent while the agent is working: written into the thread, and answered when it is free. */
-  /** A message for a thread: written into it, and answered at once if the agent is free, or when it is. */
-  const queueMessage = async (
-    owner: string,
-    threadId: string,
-    message: { id: string; content: string },
-  ): Promise<{ queued: boolean }> => {
-    if (!deps.saveMessages || !deps.loadMessages) throw new Error("Messages cannot be kept here");
-    await deps.saveMessages(owner, threadId, [
-      { id: message.id, role: "user", content: message.content },
-    ]);
-    if (settling.has(threadId)) {
-      pending.set(threadId, owner);
-      return { queued: true };
-    }
-    const messages = await deps.loadMessages(owner, threadId);
-    const run = launch(owner, { threadId, runId: `run-${Date.now()}`, messages });
-    void run?.catch(() => undefined);
-    return { queued: false };
-  };
-  app.post("/queue", async (c) => {
-    const owner = c.get("owner");
-    const body = (await c.req.json().catch(() => ({}))) as {
-      threadId?: unknown;
-      message?: { id?: unknown; content?: unknown };
-    };
-    const { threadId, message } = body;
-    if (
-      typeof threadId !== "string" ||
-      !threadId ||
-      typeof message?.id !== "string" ||
-      typeof message.content !== "string" ||
-      !deps.saveMessages ||
-      !deps.loadMessages
-    )
-      return c.json({ error: "Invalid message" }, 400);
-    return c.json(
-      await queueMessage(owner, threadId, { id: message.id, content: message.content }),
-    );
-  });
-  app.post("/start", async (c) => {
-    const owner = c.get("owner");
-    const body = (await c.req.json().catch(() => ({}))) as { threadId?: unknown };
-    const threadId = typeof body.threadId === "string" ? body.threadId : "";
-    if (!threadId || !deps.loadMessages) return c.json({ error: "Invalid start" }, 400);
-    const messages = await deps.loadMessages(owner, threadId);
-    const run = launch(owner, { threadId, runId: `run-${Date.now()}`, messages });
-    if (!run) return c.json({ started: false });
-    void run.catch(() => undefined);
-    return c.json({ started: true });
-  });
-  app.post("/run", async (c) => {
-    const owner = c.get("owner");
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-    const parsed = runInputSchema.safeParse(body);
-    if (!parsed.success) return c.json({ error: "Invalid run input" }, 400);
-    const busy = () => c.json({ error: "A run is already in progress on this thread" }, 409);
-    const encoder = new TextEncoder();
-    let controller!: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream<Uint8Array>({
-      start(c) {
-        controller = c;
-      },
-    });
-    const run = launch(owner, parsed.data, (event) => {
-      try {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      } catch {
-        // Nobody is reading any more; the run carries on and is written down as it goes.
-      }
-    });
-    if (!run) return busy();
-    void run.finally(() => {
-      try {
-        controller.close();
-      } catch {
-        // Already closed.
-      }
-    });
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  });
-  /**
-   * After a restart (an update, a reboot), carry on the replies that were being written. Each goes
-   * back in from the conversation as it was saved, so the agent sees what it had already done.
-   */
-  const resume = async () => {
-    const marks = (await deps.runMarks?.all().catch(() => [])) ?? [];
-    for (const mark of marks) {
-      await deps.runMarks?.clear(mark.threadId).catch(() => undefined);
-      if (Date.now() - mark.startedAt > 30 * 60_000 || !deps.loadMessages) continue;
-      const messages = await deps.loadMessages(mark.owner, mark.threadId).catch(() => []);
-      const run = launch(mark.owner, {
-        threadId: mark.threadId,
-        runId: `run-${Date.now()}`,
-        messages,
-      });
-      void run?.catch(() => undefined);
-    }
-  };
   /** Stop the run on a thread, if there is one. */
   const stop = (threadId: string) => {
-    pending.delete(threadId);
     stoppers.get(threadId)?.abort();
   };
-  return Object.assign(app, { resume, launch, stop, queueMessage });
+  return { launch, stop };
 }

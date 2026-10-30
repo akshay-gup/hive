@@ -21,12 +21,9 @@ export const ROUTINE_LIMITS = {
   failuresToPause: 3,
   /** Routines fired in one pass of the room's upkeep. */
   perPass: 5,
-  /** How long to wait for a machine that is waking, and how many times, before the fire counts as failed. */
-  waitMs: 45_000,
   /** The least time between two calls of a web hook, and the most of what one carries. */
   hookGapMs: 10_000,
   hookChars: 4000,
-  maxWaits: 8,
   noteChars: 4000,
   memoChars: 4000,
 } as const;
@@ -67,15 +64,13 @@ interface RoutineData {
   title: string;
   note: string;
   schedule: Schedule;
-  /** Where it wakes the agent: a channel (and the thread in it), or the person's own chat. */
-  where: { channelId?: string; rootId?: string; own?: boolean };
+  /** Where it wakes the agent: a channel (and the thread in it); the person's own chat is a channel of theirs. */
+  where: { channelId: string; rootId?: string };
   /** What the agent kept for itself to read next time. */
   memo: string;
   failures: number;
   /** An address anything can call to wake the agent with a message: on or off, and the number that changes with the address. */
   hook?: { on: boolean; epoch: number; lastMs?: number };
-  /** Times in a row the machine was asleep when it was time and the routine tried again soon. */
-  waits?: number;
   fires: number;
   lastRunAt?: string;
   /** The message the last fire posted, which is how the run it made is found. */
@@ -116,11 +111,8 @@ export interface RoutinesDeps {
   ) => Promise<{ id: string }>;
   runOf: (triggerId: string) => Run | null;
   isActive: (run: Run) => boolean;
-  /** Wake the agent in the person's own chat (the machine does it): sent, or later (the machine is being woken), or failed. */
-  fireOwn?: (
-    owner: string,
-    routine: { id: string; title: string; note: string; memo: string },
-  ) => Promise<"sent" | "later" | "failed">;
+  /** The channel that is the person's own chat with the agent, if they have one. */
+  ownChannel: (owner: string) => Promise<string | null>;
   tell: (userId: string, notice: { key: string; title: string; body: string }) => void;
   /** What a routine's web hook address is made and checked with, and where the chat service is. */
   workspaceId: () => string | null;
@@ -199,16 +191,16 @@ export class Routines {
       );
     const now = this.deps.clock();
     const schedule = checkSchedule(input.schedule as Schedule, now);
-    const where: RoutineData["where"] = home.channelId
-      ? { channelId: home.channelId, ...(home.rootId ? { rootId: home.rootId } : {}) }
-      : { own: true };
-    if (where.own && !this.deps.fireOwn)
-      throw new AppError("A routine in your own chat is not ready yet; set it in a channel.", 422);
-    if (where.channelId && !(await this.deps.channelExists(where.channelId)))
+    // Set from nowhere in particular, a routine wakes the agent in the person's own chat.
+    const channelId = home.channelId ?? (await this.deps.ownChannel(owner));
+    if (!channelId || !(await this.deps.channelExists(channelId)))
       throw new AppError("That channel is not there, or you cannot see it.", 404);
+    const where: RoutineData["where"] = {
+      channelId,
+      ...(home.channelId && home.rootId ? { rootId: home.rootId } : {}),
+    };
     const scope: EntryScope =
-      input.scope ??
-      (where.channelId ? { type: "channel", id: where.channelId } : { type: "person" });
+      input.scope ?? (home.channelId ? { type: "channel", id: channelId } : { type: "person" });
     const next = firstFire(schedule, now);
     const entry = await this.deps.rules.create(owner, {
       kind: ROUTINE,
@@ -383,7 +375,6 @@ export class Routines {
         ? Date.parse(entry.dueAt)
         : null;
     let failures = data.failures;
-    let waits = data.waits ?? 0;
     let lastResult = data.lastResult;
     let lastTriggerId = data.lastTriggerId;
     let fires = data.fires;
@@ -393,41 +384,16 @@ export class Routines {
       lastResult = "skipped: the last run was still going";
     } else {
       try {
-        if (data.where.own) {
-          const sent = this.deps.fireOwn
-            ? await this.deps.fireOwn(owner, {
-                id: entry.id,
-                title: data.title,
-                note: wake(data.note, extra),
-                memo: data.memo,
-              })
-            : "failed";
-          if (sent === "later" && (data.waits ?? 0) < ROUTINE_LIMITS.maxWaits) {
-            // The machine is being woken: try again shortly, without counting it against the routine.
-            return this.deps.rules.keep({
-              ...entry,
-              dueAt: new Date(now + ROUTINE_LIMITS.waitMs).toISOString(),
-              data: {
-                ...data,
-                waits: (data.waits ?? 0) + 1,
-                lastResult: "waiting for the machine to wake",
-              } as never,
-            });
-          }
-          if (sent !== "sent") throw new AppError("The agent's machine could not be reached", 503);
-        } else {
-          const posted = await this.deps.post(owner, data.where.channelId ?? "", {
-            body: `⏰ Routine “${data.title}” — @hive ${wake(data.note, extra)}`.slice(0, 39_000),
-            ...(data.where.rootId ? { threadRoot: data.where.rootId } : {}),
-            clientId: `routine:${entry.id}:${now}`,
-          });
-          lastTriggerId = posted.id;
-          const run = this.deps.runOf(posted.id);
-          if (run?.state === "failed")
-            throw new AppError(`The agent could not start (${run.reason ?? "refused"})`, 409);
-        }
+        const posted = await this.deps.post(owner, data.where.channelId, {
+          body: `⏰ Routine “${data.title}” — @hive ${wake(data.note, extra)}`.slice(0, 39_000),
+          ...(data.where.rootId ? { threadRoot: data.where.rootId } : {}),
+          clientId: `routine:${entry.id}:${now}`,
+        });
+        lastTriggerId = posted.id;
+        const run = this.deps.runOf(posted.id);
+        if (run?.state === "failed")
+          throw new AppError(`The agent could not start (${run.reason ?? "refused"})`, 409);
         failures = 0;
-        waits = 0;
         fires += 1;
         lastRunAt = new Date(now).toISOString();
         lastResult = undefined;
@@ -456,7 +422,6 @@ export class Routines {
       data: {
         ...data,
         failures,
-        waits,
         fires,
         ...(lastRunAt ? { lastRunAt } : {}),
         ...(lastTriggerId ? { lastTriggerId } : {}),

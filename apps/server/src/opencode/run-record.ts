@@ -122,24 +122,3 @@ export class RunRecord {
       });
   }
 }
-
-/** Put `added` into `kept` by id: a message already there is replaced in place, new ones go last. */
-export function mergeMessages(kept: Message[], added: Message[]): Message[] {
-  const out = [...kept];
-  for (const message of added) {
-    const at = out.findIndex((m) => m.id === message.id);
-    if (at >= 0) out[at] = message;
-    else out.push(message);
-  }
-  return out;
-}
-
-/** Of what a page sent with its run, only the message that started it: the rest is already kept. */
-export function mergeableMessages(sent: unknown[]): Message[] {
-  for (let i = sent.length - 1; i >= 0; i--) {
-    const m = sent[i] as Message | undefined;
-    if (m && m.role === "user" && typeof m.id === "string" && typeof m.content === "string")
-      return [m];
-  }
-  return [];
-}

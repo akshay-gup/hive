@@ -2,7 +2,6 @@ import { existsSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { parseWorkspacePublicKey } from "../../../packages/integrations/src/workspace-token.ts";
-import { normalizeMention } from "./opencode/agui.ts";
 
 /** .env keys whose file value loses to a different value already set in the environment. */
 export function shadowedEnvKeys(
@@ -79,8 +78,6 @@ export interface Config {
   opencodeServerUrl?: string;
   /** OPENCODE_SERVER_PASSWORD; enables Basic auth against `opencode serve`. */
   opencodeServerPassword?: string;
-  /** Mention token that summons the agent in chat (AGENT_MENTION, default `@hive`). */
-  agentMention?: string;
   googleClientId?: string;
   googleClientSecret?: string;
   googleRedirectUri: string;
@@ -149,7 +146,6 @@ export function readConfig(): Config {
     jevModel: process.env.JEV_MODEL?.trim() || defaultJevModel,
     opencodeServerUrl: process.env.OPENCODE_SERVER_URL?.trim() || undefined,
     opencodeServerPassword: process.env.OPENCODE_SERVER_PASSWORD?.trim() || undefined,
-    agentMention: normalizeMention(process.env.AGENT_MENTION),
     googleClientId: process.env.GOOGLE_CLIENT_ID,
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
     googleRedirectUri: `${publicUrl}/api/google/callback`,

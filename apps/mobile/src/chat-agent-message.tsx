@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { Text, View } from "react-native";
 import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
 import { AssistantResponse } from "./assistant-response";
+import { ChannelCards } from "./channel-cards";
 import type { AgentView } from "./chat-agent-extra";
 import { ChatAgentPrompt } from "./chat-agent-prompt";
 import { RunProgress } from "./progress-steps";
@@ -32,8 +33,11 @@ export function ChatAgentBody({
   canAnswer,
   onAnswer,
   viewerId,
+  messageId,
 }: {
   view: AgentView;
+  /** The message the reply is, which a request for files is answered after. */
+  messageId: string;
   body: string;
   /** A teammate (not a guest) in the channel. */
   canAnswer: boolean;
@@ -61,6 +65,7 @@ export function ChatAgentBody({
                 <AssistantResponse content={words} />
               </View>
             )}
+            {!!segment.cards.length && <ChannelCards cards={segment.cards} messageId={messageId} />}
             {segment.prompts.map((state) => (
               <ChatAgentPrompt
                 key={state.prompt.id}

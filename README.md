@@ -48,7 +48,7 @@ What the agent does is the team's, not one person's. Everyone who signs in sees 
 | Surface | What runs in this alpha |
 | --- | --- |
 | **Chat** | CopilotKit headless chat with streamed AG-UI events, mailbox search and reading, send/stop in one input pill, a visible follow-up queue, retained drafts, delegated tasks, the agent's steps in the thread where it worked (what it is doing now and what it did), a thread panel you can drag wider or expand on desktop, and inline email, browser, PDF, plan, and finance cards. The agent only runs when mentioned (`@hive` by default); everything else is plain chat, except a pick on one of its choice cards, which answers its own question. |
-| **Agent** | OpenCode: one `opencode serve` process, durable thread→session bindings, a single global event stream, and an AG-UI shim in the API that the chat client talks to. Permissions default to ask with approve/deny in the thread, plus per-channel/per-thread rules. Hive's own tools (mail, browser, tasks, files, choice cards) are offered to OpenCode over MCP by a bridge in the API, with credentials that last for one run. Optional choice cards (`present_choices`, Jev, off unless `JEV_MODE` is set) stay with the conversation they were asked in, so a team thread's are the team's; see the [Jev walkthrough](docs/demos/jev-generative-ui.md). |
+| **Agent** | OpenCode: one `opencode serve` process, durable thread→session bindings, a single global event stream, and the part of the API that runs the agent for the chat service. Permissions default to ask with approve/deny in the thread, plus per-channel/per-thread rules. Hive's own tools (mail, browser, tasks, files, choice cards) are offered to OpenCode over MCP by a bridge in the API, with credentials that last for one run. Optional choice cards (`present_choices`, Jev, off unless `JEV_MODE` is set) stay with the conversation they were asked in, so a team thread's are the team's; see the [Jev walkthrough](docs/demos/jev-generative-ui.md). |
 | **Activity** | Durable task plans, progress, input requests, pause/resume/cancel/retry, approvals, and saved receipts. SQL leases recover interrupted work. Finished agent work waits **In Review** until a person marks it done or sends it back with notes; the agent never closes a task itself. See [Review and the task brief](#review-and-the-task-brief). |
 | **Files** | Every channel has a **Files** button: what its agent made and what people upload, as a list of recent changes or a folder browser, with previews (images, PDF, video and audio, Markdown, spreadsheets, JSON, code, and web pages that run in a sandbox). The agent can share any file in the chat as a card (`send_file`) and ask a person for files with an upload button and modal (`request_upload`). See [Channel files](#channel-files). |
 | **Ideas** | Suggestions with source evidence; edit, accept, or dismiss. Sent replies and completed matching work are excluded. |
@@ -66,10 +66,10 @@ Where Hive is headed: a self-contained, agent-native team chat.
 
 **Shipped**
 - Single-process VM deployment: the API serves the web UI same-origin, threads/channels persist on local disk (`DATA_DIR`). See [docs/vm-deploy.md](docs/vm-deploy.md).
-- OpenCode as the agent: one `opencode serve` (systemd unit on the VM; the API connects, never spawns), durable thread→session bindings, a single global event stream, and an AG-UI shim in the API. The API does not start without OpenCode.
+- OpenCode as the agent: one `opencode serve` (systemd unit on the VM; the API connects, never spawns), durable thread→session bindings, a single global event stream, and the part of the API that runs the agent for the chat service. The API does not start without OpenCode.
 - Permissions default to ask with approve/deny in the thread, plus per-channel/per-thread rules.
 - Delegated tasks run as OpenCode sessions in auto-mode; background permission requests surface in the originating thread.
-- Mention-only chat trigger: the agent runs only when the latest message contains `@hive` (env `AGENT_MENTION`); on trigger it receives the full conversation transcript plus attached files.
+- The chat service keeps the conversations: the agent runs when a message names `@hive` in a channel, and for every message in a person's own chat; it receives the conversation so far plus attached files.
 - A shared workspace: everyone who signs in sees the same channels, threads, tasks, files and Google connection, and only each person's orchestrator chat is private. See [Who sees what](#who-sees-what).
 - Hosted workspaces: a control plane signs people in, starts a workspace of its own for each team (a machine, a disk and its own agent) on Fly or DigitalOcean, and lets them invite people; the app signs in to it. See [docs/hosted.md](docs/hosted.md).
 
@@ -134,7 +134,6 @@ Key variables for the VM (see the deploy doc for the full table):
 | `OPENCODE_SERVER_URL` | The systemd-managed `opencode serve` (default `http://127.0.0.1:4096`); the API connects, never spawns it |
 | `OPENCODE_SERVER_PASSWORD` | Basic-auth password for `opencode serve`, if it requires one |
 | `MODEL` | Single model for all sessions, e.g. `openai/gpt-5`, plus the matching provider key |
-| `AGENT_MENTION` | Mention token that summons the agent in chat (default `@hive`) |
 | `JEV_MODE` | Choice cards: `off` (default), `sample` (a scripted scorer; nothing leaves the server) or `live` (needs `TYPESAFE_API_KEY`; sends the latest message and the agent's context to TypeSafe, see [what it sends](docs/demos/jev-generative-ui.md#what-live-mode-sends-to-typesafe)) |
 | `DATA_DIR` | Local storage root (default `.hive`): the database, task files, and the channel workspaces under `owners/shared/channels/<id>/` |
 | `WEB_DIR` | Overrides the served web UI dir; unset/absent = headless API for native clients |
@@ -149,7 +148,6 @@ Copy the commented settings in [.env.example](.env.example) into your private `.
 
 1. Set `MODEL=provider/model-id` and the matching provider key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY`). Provider keys stay on the server, and `opencode serve` is what reads them.
 2. Run `opencode serve` as a systemd unit (see [docs/vm-deploy.md](docs/vm-deploy.md)); point `OPENCODE_SERVER_URL` at it and set `OPENCODE_SERVER_PASSWORD` if it requires auth. The API healthchecks the server and asserts a compatible version on boot — it never spawns the server itself.
-3. Optionally set `AGENT_MENTION` (default `@hive`): only a message containing it as a standalone token summons the agent in chat.
 4. For real sign-in and the team's mail and calendar, set `WORKSPACE_MODE=live` and `TOKEN_ENCRYPTION_KEY` containing 32 random bytes encoded as base64 (`openssl rand -base64 32`). Restart the API. There is no shared sign-in key: in live mode people sign in with Google (next step).
 5. Configure a Google OAuth web client with Gmail and Calendar APIs enabled. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; register `${PUBLIC_API_URL}/api/google/callback` as its redirect URI. This client is also the only gate on who can join: Hive has no allow-list of its own, so whoever its consent screen lets through becomes a member with full access. Keep it limited to your team (for example, list them as test users).
 6. Open **Apps → Gmail** (or **Google Calendar**), connect read access, and grant write access when needed. Every send or calendar change still requires its own stored review. Changing/disconnecting the account invalidates pending connection-bound work.
@@ -223,9 +221,9 @@ No hidden retry occurs after an uncertain external write. Review its provider ou
 
 ```mermaid
 flowchart TD
-  Client[Expo / React Native / Web] -->|AG-UI and authenticated API| API[Hono + CopilotKit runtime]
-  API --> Shim[In-process AG-UI shim]
-  Shim -->|mention-only trigger| OpenCode[opencode serve — systemd unit, never spawned by the API]
+  Client[Expo / React Native / Web] -->|authenticated API| API[Hono API]
+  API --> Shim[Run translation for the chat service]
+  Shim -->|runs the chat service starts| OpenCode[opencode serve — systemd unit, never spawned by the API]
   OpenCode --> Sessions[Thread → OpenCode session bindings]
   OpenCode -->|Hive tools, over MCP| API
   API --> Tasks[Durable task worker]

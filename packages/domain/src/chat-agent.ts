@@ -315,12 +315,6 @@ export interface TaskHistoryAsk {
   fileIds: string[];
   browserIds: string[];
 }
-export interface RoutineFireAsk {
-  op: "routine.fire";
-  routine: { id: string; title: string; note: string; memo: string };
-  owner: { id: string; email: string; name: string; role: string };
-  ticket: string;
-}
 
 /** What the room says to the machine. */
 export interface RunStart {
@@ -421,5 +415,4 @@ export type RoomFrame =
   /** The room asks the machine for what only it keeps (a task's run history) for a person who may see the task. */
   | ({ t: "work.ask"; reqId: string } & TaskHistoryAsk)
   /** The room wakes the agent in a person's own chat, for a routine of theirs. The ticket lets it work the board as them for a while. */
-  | ({ t: "work.ask"; reqId: string } & RoutineFireAsk)
   | { t: "closing"; reason: string };

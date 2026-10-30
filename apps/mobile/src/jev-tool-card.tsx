@@ -21,7 +21,7 @@ import {
   selectedCard,
 } from "./ui";
 
-type JevInteraction = {
+export type JevInteraction = {
   threadId: string | null;
   busy: boolean;
   latestPanelId: string | null;

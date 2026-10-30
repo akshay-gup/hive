@@ -1,16 +1,11 @@
 /**
- * Phase 2 tests: AG-UI shim translation, event bus fan-out, /run route guards.
+ * AG-UI translation of OpenCode events, and event bus fan-out.
  * Run with: npx tsx --test tests/opencode-agui.test.ts
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  lastUserText,
-  opencodeShimRoutes,
-  parseModelRef,
-  RunTranslator,
-} from "../apps/server/src/opencode/agui.ts";
+import { parseModelRef, RunTranslator } from "../apps/server/src/opencode/agui.ts";
 import { OpencodeEventBus } from "../apps/server/src/opencode/events.ts";
 import { connectionFromConfig } from "../apps/server/src/opencode/server.ts";
 
@@ -20,7 +15,7 @@ function collectTranslator() {
   const events: Array<Record<string, unknown>> = [];
   let done = false;
   const translator = new RunTranslator(
-    { threadId: "t1", runId: "r1", messages: [] },
+    { threadId: "t1", runId: "r1" },
     (event) => events.push(event),
     () => {
       done = true;
@@ -50,32 +45,6 @@ describe("parseModelRef", () => {
     assert.equal(parseModelRef("gpt-4o"), undefined);
     assert.equal(parseModelRef("/gpt-4o"), undefined);
     assert.equal(parseModelRef("openai/"), undefined);
-  });
-});
-
-describe("lastUserText", () => {
-  it("picks the last user message", () => {
-    const messages = [
-      { role: "user", content: "first" },
-      { role: "assistant", content: "reply" },
-      { role: "user", content: "second" },
-    ];
-    assert.equal(lastUserText(messages), "second");
-  });
-  it("joins text content parts", () => {
-    const messages = [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "a" },
-          { type: "text", text: "b" },
-        ],
-      },
-    ];
-    assert.equal(lastUserText(messages), "ab");
-  });
-  it("returns undefined with no user message", () => {
-    assert.equal(lastUserText([{ role: "assistant", content: "hi" }]), undefined);
   });
 });
 
@@ -385,7 +354,7 @@ describe("RunTranslator", () => {
   it("says nothing to the person of an ask that was turned down on the spot", () => {
     const events: Array<Record<string, unknown>> = [];
     const translator = new RunTranslator(
-      { threadId: "t1", runId: "r1", messages: [] },
+      { threadId: "t1", runId: "r1" },
       (event) => events.push(event),
       () => undefined,
       {
@@ -410,7 +379,7 @@ describe("RunTranslator", () => {
     const events: Array<Record<string, unknown>> = [];
     let done = false;
     const translator = new RunTranslator(
-      { threadId: "t1", runId: "r1", messages: [] },
+      { threadId: "t1", runId: "r1" },
       (event) => events.push(event),
       () => {
         done = true;
@@ -517,137 +486,6 @@ describe("OpencodeEventBus", () => {
     unsub();
     dispatch(bus, evt("session.idle", { sessionID: "ses_1" }));
     assert.deepEqual(seen, []);
-  });
-});
-
-describe("opencodeShimRoutes", () => {
-  const stubDeps = (service: Record<string, unknown>) =>
-    ({
-      // Nobody in these tests is a guest.
-      service: {
-        access: { isGuest: async () => false, assertChannel: async () => undefined },
-        noteMessage: async () => undefined,
-        ...service,
-      },
-      bus: new OpencodeEventBus(testConnection),
-      pool: {},
-      config: { model: "openai/gpt-4o" },
-    }) as unknown as Parameters<typeof opencodeShimRoutes>[0];
-
-  it("rejects invalid bodies with 400", async () => {
-    const app = opencodeShimRoutes(stubDeps({}));
-    const badJson = await app.request("/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{not json",
-    });
-    assert.equal(badJson.status, 400);
-    const badShape = await app.request("/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nope: true }),
-    });
-    assert.equal(badShape.status, 400);
-  });
-
-  it("rejects a second concurrent run on the same thread with 409", async () => {
-    // The orchestrator-channel ensure never resolves: the first run stays
-    // in-flight. The first run mentions the agent so it passes the mention
-    // gate and blocks there.
-    const mentioned = JSON.stringify({
-      threadId: "t1",
-      runId: "r1",
-      messages: [{ role: "user", content: "@hive do work" }],
-    });
-    const app = opencodeShimRoutes(
-      stubDeps({ ensureOrchestratorChannel: () => new Promise(() => undefined) }),
-    );
-    const first = app.request("/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: mentioned,
-    });
-    await new Promise((r) => setTimeout(r, 50));
-    const second = await app.request("/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId: "t1", runId: "r2", messages: [] }),
-    });
-    assert.equal(second.status, 409);
-    // A different thread is unaffected.
-    const other = await app.request("/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId: "t2", runId: "r3", messages: [] }),
-    });
-    assert.notEqual(other.status, 409);
-    await first; // resolves with the open stream response; the run stays pending
-  });
-
-  it("lazily binds an unbound run thread to the orchestrator channel", async () => {
-    // Regression: the client runs the person's own chat as
-    // thread "local-main", which has no channel binding. The run must bind
-    // it instead of failing with "Thread local-main not found".
-    const bound: Array<{ threadId: string; channelId: string; name?: string }> = [];
-    const app = opencodeShimRoutes(
-      stubDeps({
-        ensureOrchestratorChannel: async () => ({ id: "orchestrator" }),
-        ensureThreadBinding: async (
-          _owner: unknown,
-          threadId: string,
-          channelId: string,
-          name?: string,
-        ) => {
-          bound.push({ threadId, channelId, name });
-          return { threadId, channelId, name };
-        },
-      }),
-    );
-    const res = await app.request("/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId: "local-main", runId: "r1", messages: [] }),
-    });
-    assert.equal(res.status, 200);
-    const text = await res.text();
-    assert.ok(text.includes("RUN_STARTED"));
-    assert.ok(text.includes("RUN_FINISHED"));
-    assert.ok(!text.includes("RUN_ERROR"));
-    assert.ok(!text.includes("not found"));
-    assert.deepEqual(bound, [
-      { threadId: "local-main", channelId: "orchestrator", name: "Main chat" },
-    ]);
-  });
-
-  it("treats channel-scoped runs as chat-only no-ops without binding", async () => {
-    // Channels open directly as chat surfaces; the server must not bind a
-    // `channel:<id>` pseudo-thread to the orchestrator channel.
-    const calls: string[] = [];
-    const app = opencodeShimRoutes(
-      stubDeps({
-        ensureOrchestratorChannel: async () => {
-          calls.push("ensureOrchestratorChannel");
-        },
-        ensureThreadBinding: async () => {
-          calls.push("ensureThreadBinding");
-        },
-      }),
-    );
-    const res = await app.request("/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        threadId: "channel:abc123",
-        runId: "r1",
-        messages: [{ role: "user", content: "@hive do work" }],
-      }),
-    });
-    assert.equal(res.status, 200);
-    const text = await res.text();
-    assert.ok(text.includes("RUN_STARTED"));
-    assert.ok(text.includes("RUN_FINISHED"));
-    assert.ok(!text.includes("RUN_ERROR"));
-    assert.deepEqual(calls, []);
   });
 });
 

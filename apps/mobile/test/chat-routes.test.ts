@@ -43,11 +43,9 @@ test("what belongs to the agent stays with the workspace server", () => {
     "/api/agent/channels/design/uploads/req1",
     "/api/agent/threads/t1/channel",
     "/api/agent",
-    "/api/conversation?threadId=channel:design",
     "/api/agent/notifications",
     "/api/agent/ideas/refresh",
     "/api/workspace",
-    "/api/agent/opencode/channels/design/permissions",
   ])
     assert.equal(chatPathOf(path), null, path);
 });

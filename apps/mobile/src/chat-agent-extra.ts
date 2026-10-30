@@ -13,9 +13,22 @@ import {
   summarizeSteps,
 } from "./run-progress";
 
+/** A card the agent put in its reply: choices to pick from, or a request for files. */
+export interface AgentCard {
+  id: string;
+  name: "present_choices" | "request_upload";
+  /** What the tool returned, as the chat holds it; none yet while it is still being made. */
+  result: unknown;
+  loading: boolean;
+}
+
+const CHANNEL_CARDS: ReadonlySet<string> = new Set(["present_choices", "request_upload"]);
+
 /** A stretch of an agent's reply: what it did, how far its words go, and what it asked after that. */
 export interface AgentSegment {
   steps: ProgressStep[];
+  /** Its choices and requests for files, shown after its words. */
+  cards: AgentCard[];
   /** Where its words end in the reply's text; to the end, for the last stretch. */
   endsAt: number | null;
   /** What was asked at the end of it. */
@@ -86,7 +99,8 @@ export function agentView(extra: unknown): AgentView | null {
     else if (step.role === "tool" && typeof step.toolCallId === "string") results.push(step);
   }
   const going = status === "working" || status === "queued";
-  // The agent's own cards (mail, choices) are not offered in a channel; one that shows up is only a step.
+  // Of the agent's cards only choices and requests for files are drawn in a channel; another that
+  // shows up is left out.
   const items = mergeItems(progressItems(calls, results as never[], going));
   const steps = items.flatMap((item) => (item.kind === "steps" ? item.steps : []));
   const prompts = (Array.isArray(extra.prompts) ? (extra.prompts as PromptState[]) : []).filter(
@@ -113,6 +127,18 @@ export function agentView(extra: unknown): AgentView | null {
   );
   const segments: AgentSegment[] = segmentItems.map((own, at) => ({
     steps: own.flatMap((item) => (item.kind === "steps" ? item.steps : [])),
+    cards: own.flatMap((item): AgentCard[] =>
+      item.kind === "card" && CHANNEL_CARDS.has(item.toolCall.function.name)
+        ? [
+            {
+              id: item.id,
+              name: item.toolCall.function.name as AgentCard["name"],
+              result: (item.toolMessage as Step | undefined)?.content,
+              loading: !item.toolMessage,
+            },
+          ]
+        : [],
+    ),
     endsAt: at < placed.length ? (placed[at]?.after?.chars ?? 0) : null,
     prompts: at < placed.length ? [placed[at] as PromptState] : loose,
   }));

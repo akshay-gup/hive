@@ -370,6 +370,7 @@ export function ChatMessageRow({
             <ChatAgentBody
               view={run}
               viewerId={me}
+              messageId={message.id}
               body={message.body}
               canAnswer={!!agent?.canAnswer}
               onAnswer={async (promptId, choice) => {

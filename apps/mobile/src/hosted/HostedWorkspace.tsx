@@ -1,4 +1,3 @@
-import { CopilotKitProvider } from "@copilotkit/react-native/headless";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { MuseApi } from "../api-client";
@@ -100,9 +99,8 @@ export function HostedWorkspace({
     return renewing.current;
   }, [api, control, onLost]);
 
-  // The agent changes the board, which the chat service keeps, for the person in the app's own chat with it
-  // through a ticket the chat service gives here and the machine is sent with each request.
-  const [boardTicket, setBoardTicket] = useState<string | undefined>();
+  // The machine changes the board, which the chat service keeps, for the person (a review they approve) through
+  // a ticket the chat service gives here and the machine is sent with each request.
   useEffect(() => {
     if (!api.chat) return;
     let live = true;
@@ -110,9 +108,7 @@ export function HostedWorkspace({
       api
         .request<{ ticket: string }>("/chat/v1/work/ticket")
         .then(({ ticket }) => {
-          if (!live) return;
-          api.boardTicket = ticket;
-          setBoardTicket(ticket);
+          if (live) api.boardTicket = ticket;
         })
         .catch(() => undefined);
     void get();
@@ -165,19 +161,11 @@ export function HostedWorkspace({
   );
   return (
     <HostedContext.Provider value={hosted}>
-      <CopilotKitProvider
-        runtimeUrl={`${opened.url}/api/copilotkit`}
-        headers={{
-          Authorization: `Bearer ${opened.token}`,
-          ...(boardTicket ? { "X-Hive-Board": boardTicket } : {}),
-        }}
-      >
-        <WorkspaceApp
-          api={api}
-          identity={`${initial.workspace.id}:${initial.user.id}`}
-          logout={onSignOut}
-        />
-      </CopilotKitProvider>
+      <WorkspaceApp
+        api={api}
+        identity={`${initial.workspace.id}:${initial.user.id}`}
+        logout={onSignOut}
+      />
     </HostedContext.Provider>
   );
 }

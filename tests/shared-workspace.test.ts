@@ -11,7 +11,6 @@ import type {
   AgentNotification,
   AgentTask,
   AgentWorkspace,
-  ChannelThread,
   Project,
 } from "../packages/domain/src/agent.ts";
 import type { ActionProposal, Workspace } from "../packages/domain/src/index.ts";
@@ -58,18 +57,6 @@ async function read<T>(
 }
 const agent = <T>(token: string, path: string, body?: unknown, status = 200, method?: string) =>
   read<T>(token, `/api/agent${path}`, body, status, method);
-type Transcript = { messages: { id: string; role: string; content?: unknown; name?: string }[] };
-const transcript = (token: string, threadId: string) =>
-  read<Transcript>(token, `/api/conversation?threadId=${encodeURIComponent(threadId)}`);
-const saveTranscript = (token: string, threadId: string, messages: unknown[]) =>
-  read(
-    token,
-    `/api/conversation?threadId=${encodeURIComponent(threadId)}`,
-    { messages },
-    200,
-    "PUT",
-  );
-
 before(async () => {
   directory = await mkdtemp(join(tmpdir(), "hive-shared-"));
   db = await createStore({ dataDir: join(directory, "db") });
@@ -96,101 +83,6 @@ after(async () => {
   await server?.agent?.stop();
   await db?.close();
   if (directory) await rm(directory, { recursive: true, force: true });
-});
-
-let thread: ChannelThread;
-test("a thread's messages and the agent's replies are visible to everyone in the channel", async () => {
-  thread = await agent<ChannelThread>(
-    tokenA,
-    "/channels/team/threads",
-    { name: "Plan", parentMessageId: "root" },
-    201,
-  );
-  await saveTranscript(tokenA, thread.threadId, [
-    { id: "u1", role: "user", content: "@hive draft the launch plan" },
-    { id: "a1", role: "assistant", content: "Here is a first draft." },
-  ]);
-  const seenByBob = await transcript(tokenB, thread.threadId);
-  assert.deepEqual(
-    seenByBob.messages.map((m) => [m.id, m.role, m.name]),
-    [
-      ["u1", "user", "Alice"],
-      ["a1", "assistant", undefined],
-    ],
-  );
-});
-
-test("replies from different people merge into one thread", async () => {
-  await saveTranscript(tokenB, thread.threadId, [
-    { id: "u1", role: "user", content: "@hive draft the launch plan" },
-    { id: "a1", role: "assistant", content: "Here is a first draft." },
-    { id: "u2", role: "user", content: "Add a rollback step" },
-  ]);
-  // Alice's client had not loaded Bob's reply when it saved again.
-  await saveTranscript(tokenA, thread.threadId, [
-    { id: "u1", role: "user", content: "@hive draft the launch plan" },
-    { id: "a1", role: "assistant", content: "Here is a first draft." },
-    { id: "a2", role: "assistant", content: "Anything else?" },
-  ]);
-  const seen = await transcript(tokenB, thread.threadId);
-  assert.deepEqual(
-    seen.messages.map((m) => [m.id, m.name]),
-    [
-      ["u1", "Alice"],
-      ["a1", undefined],
-      ["u2", "Bob"],
-      ["a2", undefined],
-    ],
-  );
-});
-
-test("a thread forked from a channel keeps the channel's authors on the seeded messages", async () => {
-  await saveTranscript(tokenA, "channel:team", [
-    { id: "c1", role: "user", content: "Launch is Friday" },
-  ]);
-  const forked = await agent<ChannelThread>(
-    tokenB,
-    "/channels/team/threads",
-    { name: "Friday", parentMessageId: "c1" },
-    201,
-  );
-  // Bob forks the thread; the client seeds it with the channel messages it was showing.
-  await saveTranscript(tokenB, forked.threadId, [
-    { id: "c1", role: "user", content: "Launch is Friday" },
-    { id: "u9", role: "user", content: "@hive what is left?" },
-  ]);
-  const seen = await transcript(tokenA, forked.threadId);
-  assert.deepEqual(
-    seen.messages.map((m) => [m.id, m.name]),
-    [
-      ["c1", "Alice"],
-      ["u9", "Bob"],
-    ],
-  );
-});
-
-test("the orchestrator chat stays private, including its threads", async () => {
-  const main = await agent<ChannelThread>(
-    tokenA,
-    "/threads/bind",
-    { threadId: "orchestrator-thread-a", channelId: "orchestrator" },
-    200,
-  );
-  assert.equal(main.channelId, "orchestrator");
-  await saveTranscript(tokenA, main.threadId, [
-    { id: "p1", role: "user", content: "private note to my orchestrator" },
-  ]);
-  assert.equal((await transcript(tokenA, main.threadId)).messages.length, 1);
-  assert.deepEqual((await transcript(tokenB, main.threadId)).messages, []);
-  // The legacy main conversation is private too.
-  await read(
-    tokenA,
-    "/api/conversation",
-    { messages: [{ id: "d1", role: "user", content: "x" }] },
-    200,
-    "PUT",
-  );
-  assert.deepEqual((await read<Transcript>(tokenB, "/api/conversation")).messages, []);
 });
 
 let _task: AgentTask;

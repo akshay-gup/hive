@@ -18,41 +18,6 @@ export type { PermissionRuleset };
  */
 export type PermissionMode = "ask" | "auto";
 
-export function isPermissionMode(raw: unknown): raw is PermissionMode {
-  return raw === "ask" || raw === "auto";
-}
-
-/**
- * Parse opencode-style rule strings into a PermissionRuleset.
- * Accepted formats: "tool:action" or "tool:pattern:action".
- * Lifted from Kimaki's parsePermissionRules (MIT).
- */
-export function parsePermissionRules(raw: unknown): PermissionRuleset {
-  if (!Array.isArray(raw)) return [];
-  const validActions = new Set(["allow", "deny", "ask"]);
-  return raw.flatMap((entry) => {
-    if (typeof entry !== "string") return [];
-    const parts = entry.split(":").map((s) => s.trim());
-    if (parts.length === 2) {
-      const [permission, rawAction] = parts as [string | undefined, string | undefined];
-      const action = rawAction?.toLowerCase() ?? "";
-      if (!permission || !validActions.has(action)) return [];
-      return [{ permission, pattern: "*", action: action as "allow" | "deny" | "ask" }];
-    }
-    if (parts.length >= 3) {
-      // Last segment is the action, first is the permission, everything in
-      // between is the pattern (may contain colons, e.g. URL patterns).
-      const permission = parts[0];
-      const rawAction = parts[parts.length - 1];
-      const action = rawAction?.toLowerCase() ?? "";
-      const pattern = parts.slice(1, -1).join(":");
-      if (!permission || !pattern || !validActions.has(action)) return [];
-      return [{ permission, pattern, action: action as "allow" | "deny" | "ask" }];
-    }
-    return [];
-  });
-}
-
 /**
  * The session base ruleset. In "ask" mode every tool asks unless a later
  * rule says otherwise; in "auto" mode (TUI auto-approve) everything is
@@ -96,16 +61,6 @@ export function buildSessionRuleset(
   protect: PermissionRuleset = [],
 ): PermissionRuleset {
   return [...defaultSessionRuleset(mode), ...userRules, ...protect];
-}
-
-/**
- * Lines that don't parse to any rule (empty lines are skipped, not invalid).
- * Used to 422 bad rule submissions with the offending line named.
- */
-export function invalidRuleLines(rules: string[]): string[] {
-  return rules
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && parsePermissionRules([line]).length === 0);
 }
 
 /**

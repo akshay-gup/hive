@@ -38,7 +38,6 @@ import {
   type PromptChoice,
   REASON_TEXT,
   type RoomFrame,
-  type RoutineFireAsk,
   type RunnerFrame,
   type RunReason,
   type RunStart,
@@ -686,7 +685,7 @@ export class AgentLink {
     );
   }
 
-  private askRaw(what: TaskHistoryAsk | RoutineFireAsk, ms: number): Promise<unknown> {
+  private askRaw(what: TaskHistoryAsk, ms: number): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const reqId = crypto.randomUUID();
       const timer = setTimeout(() => {
@@ -700,41 +699,6 @@ export class AgentLink {
         reject(new AppError("The agent's machine is asleep", 503));
       }
     });
-  }
-
-  /**
-   * Wake the agent in a person's own chat for a routine of theirs, which only the machine can do (that chat is
-   * kept there). "later" when the machine is not here: it is woken, and the routine tries again soon.
-   */
-  async fireOwnRoutine(
-    owner: string,
-    routine: { id: string; title: string; note: string; memo: string },
-  ): Promise<"sent" | "later" | "failed"> {
-    if (!this.deps.runner()) {
-      this.wakeMachine();
-      return "later";
-    }
-    const person = await this.deps.access.person(owner);
-    if (!person) return "failed";
-    try {
-      await this.askRaw(
-        {
-          op: "routine.fire",
-          routine,
-          owner: {
-            id: owner,
-            email: person.email,
-            name: person.name,
-            role: person.role ?? "member",
-          },
-          ticket: this.boardTicket(owner).ticket,
-        },
-        20_000,
-      );
-      return "sent";
-    } catch {
-      return "failed";
-    }
   }
 
   // Files the agent puts in its reply

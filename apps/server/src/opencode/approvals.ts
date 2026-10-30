@@ -1,7 +1,7 @@
 /**
  * Pending permission request tracking and replies.
  *
- * `permission.asked` events arrive on the global event bus; the AG-UI shim
+ * `permission.asked` events arrive on the global event bus; the run translation
  * records them here (and forwards a CUSTOM event to the client). Replies go
  * back through the SDK (`session.permission.reply`) serialized on the
  * scope's action queue so a reply never races prompt dispatch.

@@ -11,10 +11,13 @@ import type { Config } from "../../apps/server/src/config.ts";
 import { createStore } from "../../apps/server/src/db.ts";
 import { Files } from "../../apps/server/src/files.ts";
 
-export async function browserFixture(
-  t: TestContext,
-  handle: (path: string, body: Record<string, unknown>) => { status?: number; data: unknown },
-) {
+type BrowserHandler = (
+  path: string,
+  body: Record<string, unknown>,
+) => { status?: number; data: unknown };
+
+/** A browser worker that answers with what `handle` says, for as long as the test runs. */
+export async function browserWorker(t: TestContext, handle: BrowserHandler) {
   const server = createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -27,6 +30,18 @@ export async function browserFixture(
   await once(server, "listening");
   const address = server.address();
   assert(address && typeof address !== "string");
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  return {
+    workerUrl: `http://127.0.0.1:${address.port}`,
+    workerToken: "test-worker-token-at-least-32-characters",
+  };
+}
+
+export async function browserFixture(t: TestContext, handle: BrowserHandler) {
+  const worker = await browserWorker(t, handle);
   const directory = await mkdtemp(join(tmpdir(), "hive-browser-service-"));
   const db = await createStore();
   const config: Config = {
@@ -37,14 +52,11 @@ export async function browserFixture(
     dataDir: directory,
     googleRedirectUri: "http://localhost:8787/api/google/callback",
     allowedOrigins: [],
-    workerUrl: `http://127.0.0.1:${address.port}`,
-    workerToken: "test-worker-token-at-least-32-characters",
+    ...worker,
   };
   const auth = new Auth(db, config, "test-signing-key");
   const service = new BrowserService(db, config, auth, new Files(db, config, auth));
   t.after(async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
     await db.close();
     await rm(directory, { recursive: true, force: true });
   });

@@ -27,7 +27,6 @@ export const SHARED_KINDS: ReadonlySet<string> = new Set([
   "task-sessions",
   "runs",
   "run-events",
-  "live-runs",
   "goals",
   "agent-artifacts",
   "upload-requests",

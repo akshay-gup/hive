@@ -230,7 +230,9 @@ export class ChatCore {
       runOf: (triggerId) => this.runs.byTrigger(triggerId),
       isActive: (run) => run.state === "queued" || run.state === "sent" || run.state === "running",
       tell: (userId, notice) => this.workNotices.tell(userId, notice),
-      fireOwn: (owner, routine) => this.agent.fireOwnRoutine(owner, routine),
+      ownChannel: async (owner) =>
+        (await this.channels.list(owner)).find((channel) => channel.kind === "personal")?.id ??
+        null,
       workspaceId: () => options.workspaceId?.() ?? null,
       linkKey: options.linkKey ?? (() => undefined),
       publicUrl: options.publicUrl ?? (() => undefined),

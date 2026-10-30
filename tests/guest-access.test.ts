@@ -126,7 +126,7 @@ test("everyone but a guest sees every channel, and a guest only the ones they we
   assert.equal(await db.get(owner("gus"), "channels", "orchestrator"), null);
 });
 
-test("what a guest may open in a channel is that channel's conversation, files and threads", async () => {
+test("what a guest may open in a channel is that channel's files and threads", async () => {
   const w = await setUp();
   for (const path of ["files", "threads"]) {
     assert.equal(
@@ -148,44 +148,12 @@ test("what a guest may open in a channel is that channel's conversation, files a
     (await call("gus", "GET", `/api/agent/threads/${w.hrThread.threadId}/channel`)).status,
     404,
   );
-  assert.equal(
-    (await call("gus", "GET", `/api/conversation?threadId=channel:${w.acme.id}`)).status,
-    200,
-  );
-  assert.equal(
-    (await call("gus", "GET", `/api/conversation?threadId=${w.acmeThread.threadId}`)).status,
-    200,
-  );
-  assert.equal(
-    (await call("gus", "GET", `/api/conversation?threadId=channel:${w.hr.id}`)).status,
-    404,
-  );
-  assert.equal(
-    (await call("gus", "GET", `/api/conversation?threadId=${w.hrThread.threadId}`)).status,
-    404,
-  );
   // The orchestrator chat, which has the whole workspace to hand, is not theirs: not by its name,
   // and not by a thread id nobody has bound.
-  assert.equal((await call("gus", "GET", "/api/conversation")).status, 403);
-  assert.equal((await call("gus", "GET", "/api/conversation?threadId=local-main")).status, 403);
-  assert.equal((await call("gus", "GET", "/api/conversation?threadId=never-bound")).status, 403);
-  // They can post in their channels' conversation, and not in another's.
-  const message = { id: "m1", role: "user", content: "Hello" };
   assert.equal(
-    (
-      await call("gus", "PUT", `/api/conversation?threadId=channel:${w.acme.id}`, {
-        messages: [message],
-      })
-    ).status,
-    200,
-  );
-  assert.equal(
-    (
-      await call("gus", "PUT", `/api/conversation?threadId=channel:${w.hr.id}`, {
-        messages: [message],
-      })
-    ).status,
-    404,
+    (await call("gus", "GET", "/api/agent/opencode/threads/never-bound/permissions/pending"))
+      .status,
+    403,
   );
   // A thread starts in a channel they were added to.
   assert.equal(
@@ -220,7 +188,6 @@ test("everything that belongs to the whole workspace is closed to a guest", asyn
     ["POST", "/api/agent/threads/bind", { threadId: "t", channelId: "orchestrator" }],
     ["POST", "/api/agent/ideas/refresh"],
     ["POST", "/api/agent/monitors", {}],
-    ["POST", "/api/copilotkit/threads/subscribe", {}],
   ];
   for (const [method, path, body] of closed) {
     const response = await call("gus", method, path, body);
@@ -245,84 +212,6 @@ test("a guest is shown who they are, and none of the team's mail, calendar or fi
     connections: [],
   });
   assert.equal((await call("max", "GET", "/api/workspace")).status, 200);
-});
-
-test("a guest can see what the agent is waiting to be allowed to do, and cannot allow it", async () => {
-  const w = await setUp();
-  const pending = await call(
-    "gus",
-    "GET",
-    `/api/agent/opencode/threads/${w.acmeThread.threadId}/permissions/pending`,
-  );
-  assert.equal(pending.status, 200);
-  assert.equal(
-    (
-      await call(
-        "gus",
-        "GET",
-        `/api/agent/opencode/threads/${w.hrThread.threadId}/permissions/pending`,
-      )
-    ).status,
-    404,
-  );
-  // The same for a question the agent has asked.
-  assert.equal(
-    (
-      await call(
-        "gus",
-        "GET",
-        `/api/agent/opencode/threads/${w.acmeThread.threadId}/questions/pending`,
-      )
-    ).status,
-    200,
-  );
-  assert.equal(
-    (
-      await call(
-        "gus",
-        "GET",
-        `/api/agent/opencode/threads/${w.hrThread.threadId}/questions/pending`,
-      )
-    ).status,
-    404,
-  );
-  for (const [method, path, body] of [
-    ["POST", "/api/agent/opencode/permissions/any/reply", { reply: "once" }],
-    ["POST", "/api/agent/opencode/questions/any/reply", { dismiss: true }],
-    ["GET", `/api/agent/opencode/channels/${w.acme.id}/permissions`, undefined],
-    ["PUT", `/api/agent/opencode/channels/${w.acme.id}/permissions/mode`, { mode: "auto" }],
-    [
-      "PUT",
-      `/api/agent/opencode/threads/${w.acmeThread.threadId}/permissions/mode`,
-      { mode: "auto" },
-    ],
-  ] as const)
-    assert.equal((await call("gus", method, path, body)).status, 403, `${method} ${path}`);
-  // A run goes to a thread of a channel they were added to.
-  for (const [path, body, status] of [
-    ["/api/agent/opencode/stop", { threadId: w.hrThread.threadId }, 404],
-    ["/api/agent/opencode/stop", { threadId: "local-main" }, 403],
-    [
-      "/api/agent/opencode/queue",
-      { threadId: w.hrThread.threadId, message: { id: "m", content: "hi" } },
-      404,
-    ],
-    ["/api/agent/opencode/start", { threadId: w.hrThread.threadId }, 404],
-    ["/api/agent/opencode/run", { threadId: w.hrThread.threadId, runId: "r", messages: [] }, 404],
-    [
-      "/api/agent/opencode/run",
-      { threadId: randomBytes(4).toString("hex"), runId: "r", messages: [] },
-      403,
-    ],
-    ["/api/copilotkit/agent/default/run", { threadId: w.hrThread.threadId }, 404],
-    ["/api/copilotkit/agent/default/connect", { threadId: w.hrThread.threadId }, 404],
-    [`/api/copilotkit/agent/default/stop/${w.hrThread.threadId}`, {}, 404],
-  ] as const)
-    assert.equal((await call("gus", "POST", path, body)).status, status, path);
-  assert.equal(
-    (await call("gus", "GET", `/api/agent/opencode/live?threadId=${w.hrThread.threadId}`)).status,
-    404,
-  );
 });
 
 test("a guest is added to a public channel by an owner or admin, and to a private one by anyone in it", async () => {

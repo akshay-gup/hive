@@ -8,7 +8,7 @@ import { ORCHESTRATOR_CHANNEL_ID } from "../../../packages/domain/src/agent";
 import { useGuest } from "./access";
 import { useActivityTitle } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
-import { ChannelChatBanner } from "./chat";
+import { ChannelChatBanner } from "./channel-chat-banner";
 import { ComputerEntry } from "./computer";
 import { useMuseThread } from "./threads";
 import { colors, fontSize, GlassBar, IconButton, layout, Mascot, s } from "./ui";

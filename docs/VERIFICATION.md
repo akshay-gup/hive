@@ -79,9 +79,9 @@ The checks found and fixed three gaps: reopening bypassed the task cap, refused 
 
 ## The agent under test
 
-Hive's agent is OpenCode. Chat and tasks are tested through Hive's own AG-UI shim, event bus and tool bridge, with two stand-ins for `opencode serve`:
+Hive's agent is OpenCode. Chat and tasks are tested through Hive's own run translation, event bus and tool bridge, with two stand-ins for `opencode serve`:
 
-- an in-process stand-in (`tests/helpers/opencode.ts`, used through `tests/helpers/shim.ts`) that plays the agent's side of a conversation, and
+- an in-process stand-in (`tests/helpers/opencode.ts`) that plays the agent's side of a task, and
 - a fake OpenCode HTTP server (`tests/helpers/fake-opencode.ts`) that speaks the protocol Hive's SDK client uses: health and version, sessions, prompts, the global event stream and tool registration. Its agent calls Hive's tools over HTTP, as OpenCode does.
 
 A real `opencode serve` was also run without a model, to check the protocol these imitate: health and version, sessions, the event stream, tool registration, and the shape of errors and tool events. No check has run a model, so nothing here shows how a real model uses Hive's tools.

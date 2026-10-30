@@ -29,7 +29,6 @@ import { AgentWorkspaceProvider } from "./agent-workspace";
 import type { MuseApi } from "./api";
 import { useBrowserBack } from "./browser-history";
 import { ChannelChat } from "./channel-chat";
-import { ChatScreen, WorkspaceTools } from "./chat";
 import { ChatProvider } from "./chat-context";
 import { ComputerDraftProvider } from "./computer-drafts";
 import { Details } from "./details";
@@ -233,7 +232,6 @@ function WorkspaceShell({
   const pageWidth = section === "activity" ? 1400 : section === "inbox" ? 1180 : 1040;
   return (
     <>
-      <WorkspaceTools />
       <SafeAreaView style={{ flex: 1, backgroundColor: haze.base }} edges={["top", "bottom"]}>
         <Backdrop />
         <View
@@ -353,11 +351,12 @@ function WorkspaceShell({
                         <ActivityIndicator color={colors.primary} />
                       </View>
                     ) : (
-                      // A workspace with no chat service keeps its conversation on its own machine.
-                      <ChatScreen
-                        prompt={selection.id === "local" ? prompt : undefined}
-                        active={section === "chat" && selection.id === "local"}
-                      />
+                      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={[s.muted, { textAlign: "center", maxWidth: 360 }]}>
+                          Chat is kept by Hive's chat service, so it is only here in a hosted
+                          workspace.
+                        </Text>
+                      </View>
                     )}
                   </View>
                 )}

@@ -175,25 +175,7 @@ test("a private channel is found only by the people in it, whoever else is askin
     ["POST", `/api/agent/channels/${channel.id}/threads`, { name: "Sneaky" }],
     ["GET", `/api/agent/threads/${thread.threadId}/channel`],
     ["PATCH", `/api/agent/threads/${thread.threadId}`, { name: "Mine now" }],
-    ["GET", `/api/conversation?threadId=channel:${channel.id}`],
-    ["GET", `/api/conversation?threadId=${thread.threadId}`],
-    ["PUT", `/api/conversation?threadId=${thread.threadId}`, { messages: [] }],
     ["POST", "/api/agent/threads/bind", { threadId: "t-new", channelId: channel.id }],
-    ["GET", `/api/agent/opencode/live?threadId=${thread.threadId}`],
-    ["POST", "/api/agent/opencode/stop", { threadId: thread.threadId }],
-    ["POST", "/api/agent/opencode/start", { threadId: thread.threadId }],
-    ["POST", "/api/agent/opencode/queue", { threadId: thread.threadId, message: { id: "m" } }],
-    ["POST", "/api/agent/opencode/run", { threadId: thread.threadId, runId: "r", messages: [] }],
-    ["POST", "/api/copilotkit/agent/default/run", { threadId: thread.threadId }],
-    ["POST", "/api/copilotkit/agent/default/connect", { threadId: thread.threadId }],
-    ["POST", `/api/copilotkit/agent/default/stop/${thread.threadId}`, {}],
-    ["GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/pending`],
-    ["GET", `/api/agent/opencode/threads/${thread.threadId}/questions/pending`],
-    ["GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/rules`],
-    ["GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/mode`],
-    ["PUT", `/api/agent/opencode/threads/${thread.threadId}/permissions/mode`, { mode: "auto" }],
-    ["GET", `/api/agent/opencode/channels/${channel.id}/permissions`],
-    ["PUT", `/api/agent/opencode/channels/${channel.id}/permissions/mode`, { mode: "auto" }],
   ];
   for (const who of ["mia", "ada", "olive"] as const)
     for (const [method, path, body] of hidden) {
@@ -213,20 +195,6 @@ test("a private channel is found only by the people in it, whoever else is askin
       (await call("max", "GET", `/api/agent/channels/${channel.id}/${path}`)).status,
       200,
     );
-  assert.equal(
-    (await call("max", "GET", `/api/conversation?threadId=${thread.threadId}`)).status,
-    200,
-  );
-  assert.equal(
-    (await call("max", "GET", `/api/agent/opencode/threads/${thread.threadId}/permissions/pending`))
-      .status,
-    200,
-  );
-  assert.equal(
-    (await call("max", "GET", `/api/agent/opencode/threads/${thread.threadId}/questions/pending`))
-      .status,
-    200,
-  );
 });
 
 test("the reviews and receipts of a private channel's work, are for the people in it", async () => {
@@ -615,7 +583,7 @@ test("a thread bound right after a lookup found it bound to nothing is found at 
   // And a person outside a private channel is refused its new thread at once.
   const hidden = await make("max", "Quick private", "private");
   await world.server.agent.ensureThreadBinding(world.owner("max"), "t-quick-2", hidden.id, "x");
-  assert.equal((await call("mia", "GET", "/api/conversation?threadId=t-quick-2")).status, 404);
+  assert.equal((await call("mia", "GET", "/api/agent/threads/t-quick-2/channel")).status, 404);
 });
 
 test("a workspace that keeps no list of people has no one to be in a channel", async () => {

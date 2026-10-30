@@ -52,8 +52,6 @@ export interface WorkLinkDeps {
   send: (frame: RunnerFrame) => boolean;
   /** What the machine keeps of a task's runs, for the room to hand to a person it has checked. */
   history: (ask: Extract<RoomFrame, { t: "work.ask"; op: "task.history" }>) => Promise<unknown>;
-  /** The agent is woken in a person's own chat for a routine of theirs. */
-  routine?: (ask: Extract<RoomFrame, { t: "work.ask"; op: "routine.fire" }>) => Promise<unknown>;
   timeoutMs?: number;
 }
 
@@ -155,11 +153,8 @@ export class WorkLink {
       return;
     }
     if (frame.t === "work.ask") {
-      const answer =
-        frame.op === "routine.fire"
-          ? (this.deps.routine?.(frame) ?? Promise.reject(new Error("No routines here")))
-          : this.deps.history(frame);
-      void answer
+      void this.deps
+        .history(frame)
         .then((body) => this.deps.send({ t: "work.answer", reqId: frame.reqId, ok: true, body }))
         .catch((error) =>
           this.deps.send({
