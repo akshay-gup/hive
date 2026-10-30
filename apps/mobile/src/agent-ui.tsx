@@ -329,6 +329,7 @@ export function AgentActivityScreen() {
       ? (data?.projects ?? []).find((project) => project.id === projectFilter)
       : undefined;
   const [onlyNeeds, setOnlyNeeds] = useState(false);
+  const [onlyMine, setOnlyMine] = useState(false);
   const [view, setView] = useState<"list" | "board" | "timeline" | "activity">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -338,7 +339,10 @@ export function AgentActivityScreen() {
     (task) => projectFilter === null || task.projectId === projectFilter,
   );
   const needsYouCount = projectTasks.filter((task) => needsYou(task.status)).length;
-  const tasks = onlyNeeds ? projectTasks.filter((task) => needsYou(task.status)) : projectTasks;
+  const mineCount = projectTasks.filter((task) => task.assignedToMe).length;
+  const tasks = projectTasks
+    .filter((task) => !onlyNeeds || needsYou(task.status))
+    .filter((task) => !onlyMine || task.assignedToMe);
   const selected = selectedId ? allTasks.find((task) => task.id === selectedId) : undefined;
   const { width } = useWindowDimensions();
   const narrow = width < 700;
@@ -377,6 +381,29 @@ export function AgentActivityScreen() {
       </Text>
     </Pressable>
   );
+  const mineChip = view !== "activity" && (mineCount > 0 || onlyMine) && (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: onlyMine }}
+      accessibilityLabel={onlyMine ? "Show all work" : "Show only what is assigned to you"}
+      hitSlop={{ top: 8, bottom: 8 }}
+      onPress={() => setOnlyMine((on) => !on)}
+      style={{
+        height: 28,
+        paddingHorizontal: 12,
+        borderRadius: radius.pill,
+        borderWidth: 1,
+        borderColor: colors.line,
+        backgroundColor: onlyMine ? colors.surfaceMuted : "transparent",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text style={{ fontSize: fontSize.small, fontWeight: "600", color: colors.text }}>
+        {`Mine · ${mineCount}`}
+      </Text>
+    </Pressable>
+  );
   // The project's own controls, on its page: who is in it, adding people, its settings.
   const projectTools = openProject && (
     <View style={[s.row, { gap: 4 }]}>
@@ -409,11 +436,17 @@ export function AgentActivityScreen() {
       <View style={[s.row, { gap: narrow ? 8 : 12, zIndex: 20, minHeight: narrow ? 44 : 36 }]}>
         <View>{viewSwitcher}</View>
         {!narrow && needsChip}
+        {!narrow && mineChip}
         <View style={{ flex: 1 }} />
         {projectTools}
         {newIssue}
       </View>
-      {narrow && !!needsChip && <View style={[s.row, { marginTop: -6 }]}>{needsChip}</View>}
+      {narrow && (!!needsChip || !!mineChip) && (
+        <View style={[s.row, { marginTop: -6, gap: 8 }]}>
+          {needsChip}
+          {mineChip}
+        </View>
+      )}
       {(view === "list" || view === "timeline") && tasks.length > 0 && (
         <TaskSheet
           tasks={tasks}

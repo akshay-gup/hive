@@ -111,6 +111,11 @@ export interface AgentTask {
    * agent task; unassigning reverts it to a manual issue.
    */
   assignee?: "agent" | null;
+  /** The person who has the task, by the address they sign in with. Never together with the agent. */
+  assigneeEmail?: string | null;
+  /** Display name for `assigneeEmail`, and whether it is the person it is sent to. Filled in when the task is sent to a client. */
+  assigneeName?: string;
+  assignedToMe?: boolean;
   /** The project it is in. Every task is in one: when none is named it is in General. */
   projectId?: string | null;
   /** Manual tasks are human work: no prompt execution, the worker never claims them. */
@@ -399,6 +404,8 @@ export const updateTaskSchema = z.object({
   blockedBy: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
   labels: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
   assignee: z.enum(["agent"]).nullable().optional(),
+  /** Give the task to a person who can work in its project, or take it back with null. */
+  assigneeEmail: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
   /** With `assignee: "agent"`: whether the agent also gets the channel's recent discussion. */
   channelContext: z.boolean().optional(),
 });

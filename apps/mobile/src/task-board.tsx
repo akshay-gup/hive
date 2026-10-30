@@ -354,7 +354,20 @@ export function TaskBoardCard({
             </View>
           )}
           <View style={{ flex: 1 }} />
-          {!!task.createdByName && <Initial name={task.createdByName} size={20} />}
+          {!!task.assigneeName && (
+            <View
+              accessibilityLabel={`Assigned to ${task.assigneeName}`}
+              style={[s.row, { gap: 4, flexShrink: 1 }]}
+            >
+              <Initial name={task.assigneeName} size={20} />
+              <Text style={[s.small, { flexShrink: 1 }]} numberOfLines={1}>
+                {task.assignedToMe ? "You" : task.assigneeName}
+              </Text>
+            </View>
+          )}
+          {!task.assigneeName && !!task.createdByName && (
+            <Initial name={task.createdByName} size={20} />
+          )}
         </View>
       </Pressable>
       {!manual && onControl && (task.status === "paused" || task.status === "failed") && (

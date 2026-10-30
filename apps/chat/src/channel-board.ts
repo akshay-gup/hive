@@ -360,6 +360,7 @@ export class ChannelBoard {
             goalId,
             blockedBy: blockers,
             priority: task.priority,
+            assigneeEmail: task.assigneeEmail ?? undefined,
             labels: task.labels,
             startAt: task.startAt,
             dueAt: task.dueAt,

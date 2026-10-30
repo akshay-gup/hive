@@ -193,6 +193,14 @@ export class Work {
     return [...(await this.deps.access.known())].map(([email, who]) => ({ email, ...who }));
   }
 
+  /** Whether this person is on the team and may work in the project, so a task can be theirs. */
+  private async canHold(email: string, project: Project | null | undefined): Promise<boolean> {
+    const who = (await this.deps.access.known()).get(email);
+    if (!who) return false;
+    if (!project) return who.role !== "guest";
+    return canWorkInProject({ id: "", email, name: who.name, role: who.role }, project);
+  }
+
   async createProject(owner: string, raw: unknown): Promise<Project> {
     const input = createProjectSchema.parse(raw);
     const person = (await this.deps.access.scope(owner)).person;
@@ -346,8 +354,14 @@ export class Work {
       const who = id ? known.get(id) : undefined;
       return who ? who.name || who.email : undefined;
     };
+    const mine = (await this.deps.access.scope(owner)).person?.email;
+    const byEmail = new Map([...known.values()].map((who) => [who.email, who]));
     return tasks.map(this.withLinks.bind(this)).map((task) => ({
       ...task,
+      ...(task.assigneeEmail && {
+        assigneeName: byEmail.get(task.assigneeEmail)?.name || task.assigneeEmail,
+        assignedToMe: task.assigneeEmail === mine,
+      }),
       ...(task.createdBy ? { createdByName: nameOf(task.createdBy) } : {}),
       ...(task.attachments && {
         attachments: task.attachments.map((file) => ({
@@ -614,9 +628,21 @@ export class Work {
     if (input.assignee !== undefined && input.assignee !== (task.assignee ?? null)) {
       if (input.status !== undefined || input.prompt !== undefined)
         throw new AppError("Cannot change assignee together with status or prompt", 422);
-      if (input.assignee === "agent")
+      if (input.assignee === "agent") {
         await this.assignToAgent(owner, task, patch, input.channelContext ?? true);
-      else this.unassignFromAgent(task, patch);
+        patch.assigneeEmail = null;
+      } else this.unassignFromAgent(task, patch);
+    }
+    if (input.assigneeEmail !== undefined && input.assigneeEmail !== (task.assigneeEmail ?? null)) {
+      if (guest) await this.refuseGuest(owner);
+      if (input.assigneeEmail) {
+        if (task.assignee === "agent" || patch.assignee === "agent")
+          throw new AppError("Take the task back from the agent first", 422);
+        const project = this.deps.projects.get(input.projectId ?? task.projectId ?? "");
+        if (!(await this.canHold(input.assigneeEmail, project)))
+          throw new AppError("That person cannot work in this project", 422);
+      }
+      patch.assigneeEmail = input.assigneeEmail;
     }
     if (input.title !== undefined) patch.title = input.title;
     if (input.prompt !== undefined) {
@@ -633,6 +659,10 @@ export class Work {
     if (input.projectId !== undefined) {
       await this.assertProjectWork(owner, input.projectId);
       patch.projectId = input.projectId;
+      // The task goes with the person only if they can work in the project it moves to.
+      const keeps = patch.assigneeEmail !== undefined ? patch.assigneeEmail : task.assigneeEmail;
+      if (keeps && !(await this.canHold(keeps, this.deps.projects.get(input.projectId))))
+        patch.assigneeEmail = null;
     }
     const startAt = input.startAt !== undefined ? input.startAt : (task.startAt ?? null);
     const dueAt = input.dueAt !== undefined ? input.dueAt : (task.dueAt ?? null);

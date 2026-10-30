@@ -412,3 +412,79 @@ test("a guest keeps the board of their project but does not start, steer or answ
   assert.equal((await call("gus", "GET", `/v1/tasks/${theirs.id}`)).status, 200);
   assert.equal((await call("gus", "DELETE", `/v1/tasks/${own.id}`)).status, 200);
 });
+
+test("a task is given to a person who can work in its project, and not to the agent as well", async () => {
+  const project = await make("max", { name: "Launch", access: "private" });
+  await call("max", "PATCH", `/v1/projects/${project.id}`, {
+    members: [
+      { email: "max@example.com", role: "admin" },
+      { email: "mia@example.com", role: "member" },
+    ],
+  });
+  const task = await add("max", manual(project, "Write copy"));
+  const give = (email: string | null) =>
+    call("max", "PATCH", `/v1/tasks/${task.id}`, { assigneeEmail: email });
+  const mia = await json<AgentTask>(await give("Mia@Example.com"));
+  assert.equal(mia.assigneeEmail, "mia@example.com");
+  // Each person is told whether it is theirs, and by what name.
+  const seenBy = async (who: Who) => (await tasksOf(who)).find((t) => t.id === task.id);
+  assert.equal((await seenBy("mia"))?.assignedToMe, true);
+  assert.equal((await seenBy("max"))?.assignedToMe, false);
+  assert.equal((await seenBy("max"))?.assigneeName, "Mia");
+  // Those who run the workspace can work anywhere; a stranger, and a guest not named in it, cannot hold it.
+  assert.equal((await give("olive@example.com")).status, 200);
+  assert.equal((await give("nobody@example.com")).status, 422);
+  assert.equal((await give("gus@example.com")).status, 422);
+  await call("max", "PATCH", `/v1/projects/${project.id}`, {
+    members: [
+      { email: "max@example.com", role: "admin" },
+      { email: "mia@example.com", role: "viewer" },
+    ],
+  });
+  assert.equal((await give("mia@example.com")).status, 422);
+  await call("max", "PATCH", `/v1/projects/${project.id}`, {
+    members: [
+      { email: "max@example.com", role: "admin" },
+      { email: "mia@example.com", role: "member" },
+    ],
+  });
+  // Handing it to the agent lets go of the person; and it cannot go back to one while the agent has it.
+  await give("mia@example.com");
+  const agent = await json<AgentTask>(
+    await call("max", "PATCH", `/v1/tasks/${task.id}`, { assignee: "agent" }),
+  );
+  assert.ok(!agent.assigneeEmail);
+  assert.equal((await give("mia@example.com")).status, 422);
+  // A guest cannot give work out.
+  assert.equal(
+    (await call("gus", "PATCH", `/v1/tasks/${task.id}`, { assigneeEmail: null })).status >= 400,
+    true,
+  );
+});
+
+test("a task leaves its person when it moves to a project they cannot work in", async () => {
+  const closed = await make("max", { name: "Closed", access: "private" });
+  const task = await add("mia", { title: "Loose", kind: "manual", input: {} });
+  await call("mia", "PATCH", `/v1/tasks/${task.id}`, { assigneeEmail: "mia@example.com" });
+  await call("max", "PATCH", `/v1/projects/${closed.id}`, {
+    members: [
+      { email: "max@example.com", role: "admin" },
+      { email: "mia@example.com", role: "member" },
+    ],
+  });
+  const kept = await json<AgentTask>(
+    await call("mia", "PATCH", `/v1/tasks/${task.id}`, { projectId: closed.id }),
+  );
+  assert.equal(kept.assigneeEmail, "mia@example.com");
+  // Back in General, Mia is still on the team, so the task stays hers.
+  const back = await json<AgentTask>(
+    await call("mia", "PATCH", `/v1/tasks/${task.id}`, { projectId: "general" }),
+  );
+  assert.equal(back.assigneeEmail, "mia@example.com");
+  // Moved to a private project she is not in, it cannot go with her. Max (a member) moves it there.
+  const other = await make("max", { name: "Other", access: "private" });
+  const away = await json<AgentTask>(
+    await call("max", "PATCH", `/v1/tasks/${task.id}`, { projectId: other.id }),
+  );
+  assert.ok(!away.assigneeEmail);
+});

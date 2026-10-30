@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import {
   type AgentTask,
@@ -71,12 +71,32 @@ export function TaskDetail({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [people, setPeople] = useState<{ email: string; name: string; role: string }[]>([]);
 
   const manual = task.kind === "manual";
   // In a project the person may only look at, the task is shown and not changed.
   const locked = !canChangeTask(task, projects);
   // Issues have a description; agent tasks have the instructions they were given.
   const hasDescription = manual || task.kind === "agent" || task.kind === "plan";
+  // Who the task can be given to: those on the team who may work in its project. A guest is not
+  // told who is here, so the picker is not shown to them.
+  const project = projects.find((p) => p.id === (task.projectId ?? GENERAL_PROJECT_ID));
+  useEffect(() => {
+    let live = true;
+    api
+      .request<{ email: string; name: string; role: string }[]>("/api/agent/projects/people")
+      .then((found) => live && setPeople(found))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [api]);
+  const assignable = people.filter((who) => {
+    if (who.email === task.assigneeEmail) return true;
+    const role = project?.members?.find((m) => m.email === who.email)?.role;
+    if (role === "admin" || role === "member") return true;
+    return who.role !== "guest" && (project?.access ?? "open") === "open";
+  });
   const channelName = task.channelId && task.channelId !== "orchestrator" ? task.channelId : null;
   const transitions = manual ? manualTransitions : workerTransitions;
   const blockers = task.blockedBy
@@ -216,6 +236,18 @@ export function TaskDetail({
 
             <View style={{ gap: 6 }}>
               <Text style={s.label}>Assignee</Text>
+              {assignable.length > 0 && task.assignee !== "agent" && !handing && (
+                <Segmented<string>
+                  label="Person"
+                  value={task.assigneeEmail ?? ""}
+                  disabled={busy}
+                  onChange={(email) => void patch({ assigneeEmail: email || null })}
+                  options={[
+                    { id: "", label: "Nobody" },
+                    ...assignable.map((who) => ({ id: who.email, label: who.name || who.email })),
+                  ]}
+                />
+              )}
               <Segmented<"none" | "agent">
                 label="Assignee"
                 value={handing || task.assignee === "agent" ? "agent" : "none"}
@@ -230,12 +262,14 @@ export function TaskDetail({
                   if (task.assignee === "agent") void patch({ assignee: null });
                 }}
                 options={[
-                  { id: "none", label: "Unassigned" },
+                  { id: "none", label: "Not the agent" },
                   { id: "agent", label: "Agent" },
                 ]}
               />
               {manual && !task.assignee && !handing && (
-                <Text style={s.small}>Assign to the agent to have it run this issue.</Text>
+                <Text style={s.small}>
+                  Give it to a person, or to the agent to have it run this issue.
+                </Text>
               )}
               {task.assignee === "agent" && (
                 <Text style={s.small}>

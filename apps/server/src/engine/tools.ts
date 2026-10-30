@@ -254,13 +254,14 @@ export function conversationTools(
     defineTool({
       name: "update_task",
       description:
-        "Edit any task or issue: retitle, change priority or dates, move it on the board (status), link dependencies, set labels, assign. Set assignee to 'agent' to hand a manual issue to the worker — its run is briefed from the ticket, the notes and files on it, and recent channel discussion. Set assignee to null to take it back (cancels an in-flight run and restores the manual issue). Manual tasks move freely between queued/running/paused/failed/cancelled; worker tasks can only be queued, paused, or cancelled directly — running belongs to the worker. You can never mark a task done: that is always a person's decision, made when they review the work. Say a task is ready and they will mark it done.",
+        "Edit any task or issue: retitle, change priority or dates, move it on the board (status), link dependencies, set labels, assign. Set assignee to 'agent' to hand a manual issue to the worker — its run is briefed from the ticket, the notes and files on it, and recent channel discussion. Set assignee to null to take it back (cancels an in-flight run and restores the manual issue). Set assigneeEmail to a teammate's address to give the task to that person (null to unassign them); they must be able to work in the task's project, and a task is never the agent's and a person's at once. Manual tasks move freely between queued/running/paused/failed/cancelled; worker tasks can only be queued, paused, or cancelled directly — running belongs to the worker. You can never mark a task done: that is always a person's decision, made when they review the work. Say a task is ready and they will mark it done.",
       parameters: z.object({
         taskId: z.string().min(1),
         title: z.string().trim().min(1).max(160).optional(),
         status: z.enum(["queued", "running", "paused", "failed", "cancelled"]).optional(),
         priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
         assignee: z.enum(["agent"]).nullable().optional(),
+        assigneeEmail: z.string().trim().email().nullable().optional(),
         startAt: z
           .string()
           .trim()
