@@ -20,7 +20,7 @@ export function AgentActivitySheet() {
   const hosted = useHosted();
   const { close } = useWorkspace();
   return (
-    <Sheet title="Agent activity" subtitle={hosted?.workspace.name} onClose={close}>
+    <Sheet title="Agent security alerts" subtitle={hosted?.workspace.name} onClose={close}>
       <AgentActivityPanel />
     </Sheet>
   );

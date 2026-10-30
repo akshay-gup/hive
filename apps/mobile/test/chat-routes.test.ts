@@ -12,7 +12,6 @@ test("what the channel screens ask the workspace server is asked of the chat ser
     ["/api/agent/channels/design/mentionable", "/v1/channels/design/mentionable"],
     ["/api/agent/channels/design/read", "/v1/channels/design/read"],
     ["/api/agent/admin/channels", "/v1/admin/channels"],
-    ["/api/agent/admin/channels/design/join", "/v1/admin/channels/design/join"],
     ["/api/agent/admin/channels/design/archive", "/v1/admin/channels/design/archive"],
     ["/api/agent/dms", "/v1/dms"],
     ["/api/agent/dms/people", "/v1/dms/people"],

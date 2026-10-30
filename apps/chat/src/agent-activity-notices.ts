@@ -46,7 +46,7 @@ export class AgentActivityNotices {
         id: AGENT_ACTIVITY_NOTICE,
         kind: "update",
         target: "agent-activity",
-        title: "Agent activity needs review",
+        title: "Agent security alerts need review",
         body:
           summary.count === 1
             ? "1 warning needs review."

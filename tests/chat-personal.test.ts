@@ -97,7 +97,6 @@ test("no one else finds it or reaches it, the owner and admins included", async 
     directory.some((entry) => entry.id === max.id),
     false,
   );
-  assert.equal((await call("ada", "POST", `/v1/admin/channels/${max.id}/join`, {})).status, 404);
   assert.equal((await call("ada", "POST", `/v1/admin/channels/${max.id}/archive`, {})).status, 404);
 });
 

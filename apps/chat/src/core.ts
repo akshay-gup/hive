@@ -1068,15 +1068,8 @@ export class ChatCore {
       return c.json({ changed });
     });
 
-    // Owners and admins: what channels exist, private ones too, and not what is said in them.
+    // Owners and admins: what channels exist, private ones too, and not what is said in them (and they archive one, but do not join it).
     app.get("/v1/admin/channels", async (c) => c.json(await this.people.directory(c.get("owner"))));
-    app.post("/v1/admin/channels/:id/join", async (c) => {
-      const id = c.req.param("id");
-      const before = await this.audience(id);
-      const result = await this.people.enter(c.get("owner"), id);
-      await this.announceChange(id, before);
-      return c.json(result);
-    });
     app.post("/v1/admin/channels/:id/archive", async (c) => {
       const id = c.req.param("id");
       const before = await this.audience(id);

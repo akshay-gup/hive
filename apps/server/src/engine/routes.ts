@@ -68,9 +68,6 @@ export function agentRoutes(service: AgentService): Hono<{ Variables: { owner: s
   );
   // Every channel, private ones too, for an owner or admin: what exists, not what is said in it.
   app.get("/admin/channels", async (c) => c.json(await service.people.directory(c.get("owner"))));
-  app.post("/admin/channels/:id/join", async (c) =>
-    c.json(await service.people.enter(c.get("owner"), c.req.param("id"))),
-  );
   app.post("/admin/channels/:id/archive", async (c) => {
     await service.archiveChannel(c.get("owner"), c.req.param("id"));
     return c.json(

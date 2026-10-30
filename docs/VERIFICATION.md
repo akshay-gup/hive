@@ -32,9 +32,9 @@ Project creation and settings explain Open, Limited and Private access, plus the
 
 Validation: 24 existing project-helper and workspace-permission tests passed. Real-component browser checks covered creation, editable settings and read-only settings at 1440, 768 and 375 px, including long project names and selecting Limited when creating a project. The final text fits without horizontal overflow or browser exceptions; the scoped design scan reported no findings. Mobile typecheck and web export passed, and the deployed app bundle was checked for the new explanations.
 
-## Agent activity in the bell — 2026-10-29
+## Agent security alerts in the bell — 2026-10-29
 
-Owners and admins get one current notification for all significant, unreviewed agent flags. Further flags update the same item and its count. It links straight to Agent activity, which also refreshes live. The notification contains no command, file path, channel or asker details. Ordinary members and guests receive neither the item nor its live events.
+Owners and admins get one current notification for all significant, unreviewed agent flags. Further flags update the same item and its count. It links straight to Agent security alerts, which also refreshes live. The notification contains no command, file path, channel or asker details. Ordinary members and guests receive neither the item nor its live events.
 
 Reading the bell item does not review warnings. Read and dismiss state is personal; a new significant warning makes the same item unread again. Low-severity flags and partial reviews do not reset that state. Reviewing all warnings, or pruning the remaining warnings, removes the item. Existing stored flags are summarized without needing a new report, and role changes apply on every read. There is one stored read/dismiss state per person, rather than a notification history per flag.
 

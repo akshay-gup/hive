@@ -11,6 +11,7 @@ import { ChannelDirectory } from "../channel-directory";
 import { channelsChanged } from "../channel-events";
 import { channelsOfGuest, guestChannelsLine } from "../channel-text";
 import { Confirm } from "../confirm";
+import { Disclosure } from "../disclosure";
 import {
   Button,
   Card,
@@ -226,112 +227,121 @@ export function PeopleSheet() {
               </View>
             )}
           </Card>
-          <Card style={{ gap: 4, marginTop: 12 }}>
-            <Field
-              label="Or invite one person by email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="colleague@example.com"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              autoComplete="email"
-            />
-            <View style={{ marginBottom: 12, gap: 8 }}>
-              <Segmented
-                label="Role"
-                value={inviteRole}
-                onChange={setInviteRole}
-                options={[
-                  { id: "member", label: "Member" },
-                  // Only the owner makes admins.
-                  ...(mine === "owner" ? [{ id: "admin" as const, label: "Admin" }] : []),
-                  { id: "guest", label: "Guest" },
-                ]}
-              />
-              {inviteRole === "guest" && (
-                <View style={{ gap: 2 }}>
-                  <Text style={s.label}>Channels they can open</Text>
-                  {choosable(channels).length === 0 ? (
-                    <Text style={s.small}>
-                      There are no channels yet. Make one first: a guest can open only the channels
-                      they are added to.
-                    </Text>
-                  ) : (
-                    choosable(channels).map((channel) => (
-                      <CheckRow
-                        key={channel.id}
-                        label={
-                          channel.visibility === "private"
-                            ? `${channel.name} (private)`
-                            : `# ${channel.name}`
-                        }
-                        checked={chosen.includes(channel.id)}
-                        onPress={() =>
-                          setChosen((now) =>
-                            now.includes(channel.id)
-                              ? now.filter((id) => id !== channel.id)
-                              : [...now, channel.id],
-                          )
-                        }
-                      />
-                    ))
+          <View style={{ marginTop: 12 }}>
+            <Disclosure
+              title="Invite one person by email"
+              detail="Choose their role, and for a guest, their channels"
+            >
+              <Card style={{ gap: 4 }}>
+                <Field
+                  label="Email address"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="colleague@example.com"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  autoComplete="email"
+                />
+                <View style={{ marginBottom: 12, gap: 8 }}>
+                  <Segmented
+                    label="Role"
+                    value={inviteRole}
+                    onChange={setInviteRole}
+                    options={[
+                      { id: "member", label: "Member" },
+                      // Only the owner makes admins.
+                      ...(mine === "owner" ? [{ id: "admin" as const, label: "Admin" }] : []),
+                      { id: "guest", label: "Guest" },
+                    ]}
+                  />
+                  {inviteRole === "guest" && (
+                    <View style={{ gap: 2 }}>
+                      <Text style={s.label}>Channels they can open</Text>
+                      {choosable(channels).length === 0 ? (
+                        <Text style={s.small}>
+                          There are no channels yet. Make one first: a guest can open only the
+                          channels they are added to.
+                        </Text>
+                      ) : (
+                        choosable(channels).map((channel) => (
+                          <CheckRow
+                            key={channel.id}
+                            label={
+                              channel.visibility === "private"
+                                ? `${channel.name} (private)`
+                                : `# ${channel.name}`
+                            }
+                            checked={chosen.includes(channel.id)}
+                            onPress={() =>
+                              setChosen((now) =>
+                                now.includes(channel.id)
+                                  ? now.filter((id) => id !== channel.id)
+                                  : [...now, channel.id],
+                              )
+                            }
+                          />
+                        ))
+                      )}
+                      <Text style={s.small}>{guestHint}</Text>
+                    </View>
                   )}
-                  <Text style={s.small}>{guestHint}</Text>
                 </View>
-              )}
-            </View>
-            <View style={s.row}>
-              <Button
-                busy={busy === "email"}
-                disabled={!email.trim() || (inviteRole === "guest" && chosen.length === 0)}
-                onPress={() =>
-                  void run("email", async () => {
-                    const to = email.trim();
-                    const address = to.toLowerCase();
-                    // A guest sees nothing until a channel names them, so the channels
-                    // are chosen with the invitation and the guest is put in them first.
-                    const put: string[] = [];
-                    try {
-                      if (inviteRole === "guest")
-                        for (const id of chosen) {
-                          await api.request(
-                            `/api/agent/channels/${encodeURIComponent(id)}/members`,
-                            { add: [address] },
-                          );
-                          put.push(id);
+                <View style={s.row}>
+                  <Button
+                    busy={busy === "email"}
+                    disabled={!email.trim() || (inviteRole === "guest" && chosen.length === 0)}
+                    onPress={() =>
+                      void run("email", async () => {
+                        const to = email.trim();
+                        const address = to.toLowerCase();
+                        // A guest sees nothing until a channel names them, so the channels
+                        // are chosen with the invitation and the guest is put in them first.
+                        const put: string[] = [];
+                        try {
+                          if (inviteRole === "guest")
+                            for (const id of chosen) {
+                              await api.request(
+                                `/api/agent/channels/${encodeURIComponent(id)}/members`,
+                                { add: [address] },
+                              );
+                              put.push(id);
+                            }
+                          const made = await control.createInvite(workspaceId, {
+                            email: to,
+                            role: inviteRole,
+                          });
+                          setEmail("");
+                          setChosen([]);
+                          setLink(made.link);
+                          channelsChanged();
+                          notify(`Invitation made for ${to}. Share the link with them.`);
+                        } catch (e) {
+                          for (const id of put)
+                            await api
+                              .request(`/api/agent/channels/${encodeURIComponent(id)}/members`, {
+                                remove: [address],
+                              })
+                              .catch(() => undefined);
+                          throw e;
                         }
-                      const made = await control.createInvite(workspaceId, {
-                        email: to,
-                        role: inviteRole,
-                      });
-                      setEmail("");
-                      setChosen([]);
-                      setLink(made.link);
-                      channelsChanged();
-                      notify(`Invitation made for ${to}. Share the link with them.`);
-                    } catch (e) {
-                      for (const id of put)
-                        await api
-                          .request(`/api/agent/channels/${encodeURIComponent(id)}/members`, {
-                            remove: [address],
-                          })
-                          .catch(() => undefined);
-                      throw e;
+                      })
                     }
-                  })
-                }
-              >
-                Create invitation
-              </Button>
-            </View>
-            <Text style={[s.small, { marginTop: 10 }]}>
-              The link it makes works only for that address. Share it with them above.
-            </Text>
-          </Card>
+                  >
+                    Create invitation
+                  </Button>
+                </View>
+                <Text style={[s.small, { marginTop: 10 }]}>
+                  The link it makes works only for that address. Share it with them above.
+                </Text>
+              </Card>
+            </Disclosure>
+          </View>
           {invites.length > 0 && (
-            <View style={{ marginTop: 12, gap: 8 }}>
-              <Text style={s.label}>Waiting to be used</Text>
+            <Disclosure
+              title="Waiting to be used"
+              detail={`${invites.length} ${invites.length === 1 ? "invitation" : "invitations"}`}
+            >
               {invites.map((invite) => {
                 const { title, detail } = describeInvite(invite);
                 return (
@@ -356,7 +366,7 @@ export function PeopleSheet() {
                   </View>
                 );
               })}
-            </View>
+            </Disclosure>
           )}
         </View>
       )}
@@ -447,46 +457,51 @@ export function PeopleSheet() {
         </View>
       )}
 
-      {manages && (
-        <View style={{ marginTop: 28 }}>
-          <ChannelDirectory />
-        </View>
-      )}
-      {manages && (
-        <View style={{ marginTop: 28 }}>
-          <AgentFlags owner={mine === "owner"} />
-        </View>
-      )}
-
-      <View style={{ marginTop: 28, gap: 12 }}>
-        <SectionHeading title="Danger zone" />
-        {mine === "owner" ? (
-          <>
-            <Text style={s.muted}>
-              The owner cannot leave. Delete the workspace instead, which removes it for everyone:
-              its chat, files and agent. It cannot be undone.
-            </Text>
-            <View style={[s.row, { gap: 10, flexWrap: "wrap" }]}>
-              <Button small disabled icon={LogOut} onPress={() => {}}>
-                Leave workspace
-              </Button>
-              <Button small danger icon={Trash2} onPress={() => setRemoving(true)}>
-                Delete workspace…
-              </Button>
-            </View>
-          </>
-        ) : (
-          <>
-            <Text style={s.muted}>
-              Leaving removes your access to its chat and files. Someone here can invite you back.
-            </Text>
-            <View style={s.row}>
-              <Button small danger icon={LogOut} onPress={() => setRemoving(true)}>
-                Leave workspace…
-              </Button>
-            </View>
-          </>
+      <View style={{ marginTop: 28 }}>
+        <SectionHeading title="Workspace" />
+        {manages && <ChannelDirectory />}
+        {manages && (
+          <Disclosure
+            title="Agent security alerts"
+            detail="When the agent opened the workspace's own data"
+          >
+            <AgentFlags owner={mine === "owner"} heading={false} />
+          </Disclosure>
         )}
+        <Disclosure
+          danger
+          title={mine === "owner" ? "Delete workspace…" : "Leave workspace…"}
+          detail={
+            mine === "owner"
+              ? "The owner cannot leave; deleting removes it for everyone"
+              : "You lose access to its chat and files"
+          }
+        >
+          {mine === "owner" ? (
+            <>
+              <Text style={s.muted}>
+                The owner cannot leave. Delete the workspace instead, which removes it for everyone:
+                its chat, files and agent. It cannot be undone.
+              </Text>
+              <View style={[s.row, { gap: 10, flexWrap: "wrap" }]}>
+                <Button small danger icon={Trash2} onPress={() => setRemoving(true)}>
+                  Delete workspace…
+                </Button>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={s.muted}>
+                Leaving removes your access to its chat and files. Someone here can invite you back.
+              </Text>
+              <View style={s.row}>
+                <Button small danger icon={LogOut} onPress={() => setRemoving(true)}>
+                  Leave workspace…
+                </Button>
+              </View>
+            </>
+          )}
+        </Disclosure>
       </View>
 
       {removing && (

@@ -100,7 +100,6 @@ test("no one else finds it or reaches it, the owner and admins included", async 
     directory.some((entry) => entry.id === dm.id),
     false,
   );
-  assert.equal((await call("ada", "POST", `/v1/admin/channels/${dm.id}/join`, {})).status, 404);
   assert.equal((await call("ada", "POST", `/v1/admin/channels/${dm.id}/archive`, {})).status, 404);
   // The two of them are in it.
   assert.equal((await call("mia", "GET", `/v1/channels/${dm.id}`)).status, 200);

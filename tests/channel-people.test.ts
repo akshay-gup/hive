@@ -474,7 +474,7 @@ test("archiving a channel is for its managers, the owner and admins, and anyone 
   assert.equal((await archive("ada", open.id)).status, 200);
 });
 
-test("an owner or admin can list every channel, private ones too, and join one to read it", async () => {
+test("an owner or admin can list every channel, private ones too, and archive one, but not read one they are not in", async () => {
   const lost = await make("max", "Lost plans", "private");
   const team = await make("max", "Team notes");
   const directory = async (who: Who) => call(who, "GET", "/api/agent/admin/channels");
@@ -500,17 +500,13 @@ test("an owner or admin can list every channel, private ones too, and join one t
   );
   // The list is names and numbers: what is said in the channel is still shut to them.
   assert.equal((await call("ada", "GET", `/api/agent/channels/${lost.id}/threads`)).status, 404);
+  // There is no way in: to be in it they must be added by someone who is.
   assert.equal(
-    (await call("max", "POST", `/api/agent/admin/channels/${lost.id}/join`)).status,
-    403,
+    (await call("ada", "POST", `/api/agent/admin/channels/${lost.id}/join`)).status,
+    404,
   );
-  // Joining names them in it, for the people there to see, and opens it to them.
-  const joined = await call("ada", "POST", `/api/agent/admin/channels/${lost.id}/join`);
-  assert.equal(joined.status, 200);
-  const entry = await json(joined);
-  assert.deepEqual([entry.joined, entry.count], [true, 2]);
-  assert.deepEqual((await stored(lost.id))?.members, ["ada@example.com", "max@example.com"]);
-  assert.equal((await call("ada", "GET", `/api/agent/channels/${lost.id}/threads`)).status, 200);
+  assert.equal((await call("ada", "GET", `/api/agent/channels/${lost.id}/threads`)).status, 404);
+  assert.deepEqual((await stored(lost.id))?.members, ["max@example.com"]);
   // And archives one they are not in, which would otherwise be left for good.
   const gone = await make("max", "Gone quiet", "private");
   const archived = await call("ada", "POST", `/api/agent/admin/channels/${gone.id}/archive`, {});

@@ -1812,7 +1812,7 @@ export function NotificationsSheet() {
   }
   return (
     <Sheet
-      title={activity ? "Agent activity" : "Notifications"}
+      title={activity ? "Agent security alerts" : "Notifications"}
       subtitle={
         activity
           ? undefined

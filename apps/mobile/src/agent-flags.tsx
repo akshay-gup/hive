@@ -98,7 +98,7 @@ export function AgentFlags({ owner, heading = true }: { owner: boolean; heading?
   const rows = [...(answer?.flags ?? [])].sort(flagOrder);
   return (
     <View style={{ gap: 12 }}>
-      {heading && <SectionHeading title="Agent activity" />}
+      {heading && <SectionHeading title="Agent security alerts" />}
       <Text style={s.muted}>
         When the agent opens the workspace's own data (its database, keys, other channels' folders),
         it is marked here. The agent runs on the workspace's machine and can reach all of it, so
