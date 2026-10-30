@@ -252,6 +252,7 @@ export function TaskSheet({
     const steps = stepsOf(task);
     const finished = task.status === "succeeded" || task.status === "cancelled";
     const from = task.createdByName ?? "";
+    const to = task.assignee === "agent" ? "Agent" : (task.assigneeName ?? "");
     const title = (
       <Text
         style={[
@@ -294,6 +295,7 @@ export function TaskSheet({
           </View>
           <View style={[s.row, { gap: 8, paddingLeft: 24, flexWrap: "wrap" }]}>
             {!!from && <Text style={s.small}>{from}</Text>}
+            {!!to && <Text style={s.small}>→ {to}</Text>}
             {!!steps && <Text style={s.small}>{steps} steps</Text>}
             {!!due && (
               <Text style={[s.small, overdue && { color: colors.danger, fontWeight: "700" }]}>
@@ -329,10 +331,19 @@ export function TaskSheet({
         )}
         {showTable && (
           <>
-            <View style={[s.row, { width: 150, gap: 8 }]}>
+            <View style={[s.row, { width: 130, gap: 8 }]}>
               {!!from && <Initial name={from} />}
               <Text style={[s.small, { flex: 1 }]} numberOfLines={1}>
                 {from}
+              </Text>
+            </View>
+            <View style={[s.row, { width: 130, gap: 8 }]}>
+              {!!to && <Initial name={to} />}
+              <Text
+                style={[s.small, { flex: 1 }, task.assignedToMe && { fontWeight: "700" }]}
+                numberOfLines={1}
+              >
+                {task.assignedToMe ? "You" : to}
               </Text>
             </View>
             <View style={{ width: 28 }}>
@@ -398,7 +409,8 @@ export function TaskSheet({
       )}
       {showTable && (
         <>
-          <Text style={[s.label, { width: 150 }]}>From</Text>
+          <Text style={[s.label, { width: 130 }]}>Reporter</Text>
+          <Text style={[s.label, { width: 130 }]}>Assignee</Text>
           <Text style={[s.label, { width: 28 }]}> </Text>
           <Text style={[s.label, { width: 84 }]}>Due</Text>
           <Text style={[s.label, { width: 72, textAlign: "right" }]}>Updated</Text>

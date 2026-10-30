@@ -10,6 +10,7 @@ import {
 } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
 import DateOnlyField from "./DateOnlyField";
+import { PickMenu } from "./pick-menu";
 import { canChangeTask, canWorkIn } from "./project-text";
 import { TaskAttention } from "./task-attention";
 import { priorityColors } from "./task-board";
@@ -192,6 +193,12 @@ export function TaskDetail({
           <View style={{ gap: 4 }}>
             <Text style={s.small}>
               {[
+                task.createdByName ? `Reporter: ${task.createdByName}` : "",
+                task.assigneeName
+                  ? `Assignee: ${task.assigneeName}`
+                  : task.assignee === "agent"
+                    ? "Assignee: Agent"
+                    : "",
                 `Priority: ${task.priority}`,
                 task.startAt ? `Start ${task.startAt}` : "",
                 task.dueAt ? `Due ${task.dueAt}` : "",
@@ -235,16 +242,22 @@ export function TaskDetail({
             </View>
 
             <View style={{ gap: 6 }}>
-              <Text style={s.label}>Assignee</Text>
+              <Text style={s.label}>Reporter</Text>
+              <Text style={s.text}>{task.createdByName ?? "Not recorded"}</Text>
+              <Text style={[s.label, { marginTop: 8 }]}>Assignee</Text>
               {assignable.length > 0 && task.assignee !== "agent" && !handing && (
-                <Segmented<string>
+                <PickMenu
                   label="Person"
                   value={task.assigneeEmail ?? ""}
                   disabled={busy}
                   onChange={(email) => void patch({ assigneeEmail: email || null })}
                   options={[
                     { id: "", label: "Nobody" },
-                    ...assignable.map((who) => ({ id: who.email, label: who.name || who.email })),
+                    ...assignable.map((who) => ({
+                      id: who.email,
+                      label: who.name || who.email,
+                      detail: who.name ? who.email : undefined,
+                    })),
                   ]}
                 />
               )}
@@ -317,17 +330,17 @@ export function TaskDetail({
 
             <View style={{ gap: 6 }}>
               <Text style={s.label}>Project</Text>
-              <Segmented<string>
+              <PickMenu
                 label="Project"
                 value={task.projectId ?? GENERAL_PROJECT_ID}
                 disabled={busy}
                 onChange={(projectId) => void patch({ projectId })}
-                options={[
+                options={
                   // Only where the person may put work, and the one the task is in.
-                  ...projects
+                  projects
                     .filter((project) => canWorkIn(project) || project.id === task.projectId)
-                    .map((project) => ({ id: project.id, label: project.name })),
-                ]}
+                    .map((project) => ({ id: project.id, label: project.name }))
+                }
               />
             </View>
 
