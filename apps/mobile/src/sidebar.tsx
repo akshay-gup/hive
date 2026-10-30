@@ -15,6 +15,7 @@ import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../packages/dom
 import { useGuest } from "./access";
 import { ProjectsList } from "./activity-projects";
 import { useAgentWorkspace } from "./agent-workspace";
+import { rememberChannels } from "./channel-cache";
 import { useOnChannelsChanged } from "./channel-events";
 import { useHosted } from "./hosted/context";
 import { readLastCount, writeLastCount } from "./last-count";
@@ -290,6 +291,7 @@ export function Sidebar({
       }
       try {
         const loaded = await api.request<ChannelView[]>("/api/agent/channels");
+        rememberChannels(api.baseUrl, loaded);
         setChannels(loaded);
         writeLastCount(channelsKey, loaded.filter(isListed).length);
         if (hosted && !guest)

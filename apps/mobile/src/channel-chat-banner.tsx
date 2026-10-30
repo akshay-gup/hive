@@ -5,6 +5,7 @@ import Users from "lucide-react-native/dist/esm/icons/users";
 import { useCallback, useEffect, useState } from "react";
 import { Text, useWindowDimensions, View } from "react-native";
 import type { ChannelView } from "../../../packages/domain/src/agent";
+import { knownChannel, rememberChannels } from "./channel-cache";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
 import { useHosted } from "./hosted/context";
 import { Button, colors, fontSize, IconButton, s } from "./ui";
@@ -18,19 +19,24 @@ export function ChannelChatBanner({ channelId }: { channelId: string }) {
   const me = hosted?.user.email.toLowerCase() ?? "";
   // On a phone the header has little room: the files are an icon, and the title keeps the rest.
   const narrow = useWindowDimensions().width < 600;
-  const [channel, setChannel] = useState<ChannelView | null>(null);
+  // The name is there at once when the channel has been listed before; the load below makes sure it is current.
+  const [channel, setChannel] = useState<ChannelView | null>(() =>
+    knownChannel(api.baseUrl, channelId),
+  );
   const [joining, setJoining] = useState(false);
   const load = useCallback(async () => {
     try {
       const channels = await api.request<ChannelView[]>("/api/agent/channels");
+      rememberChannels(api.baseUrl, channels);
       setChannel(channels.find((c) => c.id === channelId) ?? null);
     } catch {
       setChannel(null);
     }
   }, [api, channelId]);
   useEffect(() => {
+    setChannel(knownChannel(api.baseUrl, channelId));
     void load();
-  }, [load]);
+  }, [api, channelId, load]);
   useOnChannelsChanged(() => void load());
   const name = channel?.name ?? null;
   async function join() {
@@ -55,8 +61,7 @@ export function ChannelChatBanner({ channelId }: { channelId: string }) {
           channel?.visibility === "private" && <Lock size={16} color={colors.muted} />
         )}
         <Text style={[s.heading, { fontSize: fontSize.title, flexShrink: 1 }]} numberOfLines={1}>
-          {channel?.visibility === "private" ? "" : "# "}
-          {name ?? "channel"}
+          {name ? `${channel?.visibility === "private" ? "" : "# "}${name}` : ""}
         </Text>
         {/* The topic is the channel's own line; a phone has no room for it here, so it is in the people sheet. */}
         {!narrow && !!channel?.topic && (

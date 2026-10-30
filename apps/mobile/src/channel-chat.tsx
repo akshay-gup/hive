@@ -18,6 +18,7 @@ import type { ChannelView } from "../../../packages/domain/src/agent";
 import type { PromptChoice } from "../../../packages/domain/src/chat-agent";
 import { useGuest } from "./access";
 import { useAgentWorkspace } from "./agent-workspace";
+import { knownChannel, rememberChannel } from "./channel-cache";
 import { ChannelCardsContext } from "./channel-cards";
 import { choiceLabel, isPick } from "./channel-choices";
 import { channelsChanged, useOnChannelsChanged } from "./channel-events";
@@ -53,17 +54,22 @@ const day = (iso: string) =>
 /** The channel as this person is shown it: whether they are in it, whether it is read-only, who it is with. */
 function useChannelInfo(channelId: string) {
   const { api } = useWorkspace();
-  const [channel, setChannel] = useState<ChannelView | null>(null);
+  const [channel, setChannel] = useState<ChannelView | null>(() =>
+    knownChannel(api.baseUrl, channelId),
+  );
   const load = useCallback(async () => {
     try {
-      setChannel(await api.request<ChannelView>(`/api/agent/channels/${enc(channelId)}`));
+      const loaded = await api.request<ChannelView>(`/api/agent/channels/${enc(channelId)}`);
+      rememberChannel(api.baseUrl, loaded);
+      setChannel(loaded);
     } catch {
       setChannel(null);
     }
   }, [api, channelId]);
   useEffect(() => {
+    setChannel(knownChannel(api.baseUrl, channelId));
     void load();
-  }, [load]);
+  }, [api, channelId, load]);
   useOnChannelsChanged(() => void load());
   return channel;
 }
