@@ -53,6 +53,7 @@ import {
   radius,
   s,
 } from "./ui";
+import { useKeyboardOpen } from "./use-keyboard-open";
 import { usePersonalChannel } from "./use-personal-channel";
 import { type Detail, type ToastOptions, useWorkspace, WorkspaceContext } from "./workspace";
 
@@ -198,6 +199,8 @@ function WorkspaceShell({
   const [threadsOpen, setThreadsOpen] = useState(false);
   const { width } = useWindowDimensions();
   const desktop = width >= 900;
+  // The bar along the bottom steps aside while typing, so the keyboard does not leave it floating above.
+  const typing = useKeyboardOpen();
   const hosted = useHosted();
   const personalId = usePersonalChannel(!guest);
   const channelChat =
@@ -363,7 +366,7 @@ function WorkspaceShell({
           </View>
           <View
             style={{
-              display: desktop ? "none" : "flex",
+              display: desktop || typing ? "none" : "flex",
               paddingHorizontal: 14,
               paddingTop: 4,
               paddingBottom: desktop ? 22 : 6,

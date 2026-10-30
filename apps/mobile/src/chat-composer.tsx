@@ -68,6 +68,7 @@ export function ChatComposer({
   const typedAt = useRef(0);
   const box = useRef<TextInput>(null);
   const min = denseUi ? 32 : 36;
+  const line = fineInput ? 20 : 22;
 
   // Another box (a different channel) starts with its own words.
   useEffect(() => {
@@ -218,7 +219,14 @@ export function ChatComposer({
             ))}
           </View>
         )}
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6 }}>
+        {/* One line: the buttons and the words share a middle. Taller: the buttons stay by the last line. */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: draft && height > min ? "flex-end" : "center",
+            gap: 6,
+          }}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Attach files"
@@ -262,10 +270,11 @@ export function ChatComposer({
               minHeight: min,
               maxHeight: 140,
               fontSize: fineInput ? fontSize.body : fontSize.input,
-              lineHeight: fineInput ? 20 : 22,
+              lineHeight: line,
               paddingHorizontal: 2,
-              paddingTop: denseUi ? 6 : 8,
-              paddingBottom: denseUi ? 6 : 8,
+              // Half of what the box has over a line each side, so one line sits in the middle.
+              paddingTop: (min - line) / 2,
+              paddingBottom: (min - line) / 2,
               ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null),
             }}
             onKeyPress={
