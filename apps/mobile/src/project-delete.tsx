@@ -1,15 +1,14 @@
-import Check from "lucide-react-native/dist/esm/icons/check";
-import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
 import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { GENERAL_PROJECT_ID, type Project } from "../../../packages/domain/src/agent";
 import { useAgentWorkspace } from "./agent-workspace";
+import { PickMenu } from "./pick-menu";
 import { accessWord, destinations, nameMatches } from "./project-text";
-import { Button, colors, ErrorNotice, Field, SearchField, Segmented, Sheet, s } from "./ui";
+import { Button, colors, ErrorNotice, Field, Segmented, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 /** Past this many projects, the list can be searched. */
-const SEARCHABLE = 6;
+const _SEARCHABLE = 6;
 
 /** One project out of however many there are: a field that opens a short list, which scrolls and, when long, searches. */
 function ProjectPicker({
@@ -23,91 +22,21 @@ function ProjectPicker({
   onChange: (id: string) => void;
   disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const chosen = projects.find((project) => project.id === value);
-  const shown = destinations(projects, "", query);
+  const shown = destinations(projects, "");
   return (
-    <View style={{ gap: 8 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Move to ${chosen?.name ?? "a project"}. Choose another project`}
-        accessibilityState={{ expanded: open, disabled }}
-        disabled={disabled}
-        onPress={() => setOpen(!open)}
-        style={[
-          s.between,
-          {
-            gap: 12,
-            paddingHorizontal: 14,
-            paddingVertical: 12,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: open ? colors.primary : colors.lineStrong,
-            backgroundColor: colors.surface,
-          },
-        ]}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={s.small}>Move them to</Text>
-          <Text style={[s.text, { fontWeight: "600" }]} numberOfLines={1}>
-            {chosen?.name ?? "Choose a project"}
-          </Text>
-        </View>
-        <ChevronDown size={18} color={colors.muted} />
-      </Pressable>
-      {open && (
-        <View style={{ gap: 8 }}>
-          {projects.length > SEARCHABLE && (
-            <SearchField
-              label="Search projects"
-              placeholder="Search projects"
-              value={query}
-              onChangeText={setQuery}
-            />
-          )}
-          <ScrollView
-            style={{ maxHeight: 232, borderWidth: 1, borderColor: colors.line, borderRadius: 12 }}
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled
-          >
-            {shown.length === 0 && (
-              <Text style={[s.muted, { padding: 14 }]}>No project matches.</Text>
-            )}
-            {shown.map((project) => (
-              <Pressable
-                key={project.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: project.id === value }}
-                onPress={() => {
-                  onChange(project.id);
-                  setOpen(false);
-                  setQuery("");
-                }}
-                style={[
-                  s.between,
-                  {
-                    gap: 12,
-                    paddingHorizontal: 14,
-                    paddingVertical: 11,
-                    backgroundColor: project.id === value ? colors.primarySoft : "transparent",
-                  },
-                ]}
-              >
-                <Text style={[s.text, { flex: 1 }]} numberOfLines={1}>
-                  {project.name}
-                </Text>
-                {project.id === value ? (
-                  <Check size={16} color={colors.primary} />
-                ) : (
-                  <Text style={s.small}>{accessWord(project.access)}</Text>
-                )}
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-    </View>
+    <PickMenu
+      label="Move them to"
+      caption="Move them to"
+      placeholder="Choose a project"
+      value={value}
+      disabled={disabled}
+      onChange={onChange}
+      options={shown.map((project) => ({
+        id: project.id,
+        label: project.name,
+        detail: accessWord(project.access),
+      }))}
+    />
   );
 }
 

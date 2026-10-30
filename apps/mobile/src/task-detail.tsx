@@ -46,6 +46,8 @@ function statusLabel(status: TaskStatus): string {
   }
 }
 
+/** The assignee choice that is the agent, which no person's address can be. */
+const AGENT = "agent";
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Full sheet for a task: what it needs from you, its run, quick changes, then editable details. */
@@ -245,38 +247,35 @@ export function TaskDetail({
               <Text style={s.label}>Reporter</Text>
               <Text style={s.text}>{task.createdByName ?? "Not recorded"}</Text>
               <Text style={[s.label, { marginTop: 8 }]}>Assignee</Text>
-              {assignable.length > 0 && task.assignee !== "agent" && !handing && (
-                <PickMenu
-                  label="Person"
-                  value={task.assigneeEmail ?? ""}
-                  disabled={busy}
-                  onChange={(email) => void patch({ assigneeEmail: email || null })}
-                  options={[
-                    { id: "", label: "Nobody" },
-                    ...assignable.map((who) => ({
-                      id: who.email,
-                      label: who.name || who.email,
-                      detail: who.name ? who.email : undefined,
-                    })),
-                  ]}
-                />
-              )}
-              <Segmented<"none" | "agent">
+              <PickMenu
                 label="Assignee"
-                value={handing || task.assignee === "agent" ? "agent" : "none"}
+                placeholder="Nobody"
+                value={handing || task.assignee === "agent" ? AGENT : (task.assigneeEmail ?? "")}
                 disabled={busy}
-                onChange={(assignee) => {
-                  if (assignee === "agent") {
+                onChange={(choice) => {
+                  if (choice === AGENT) {
                     // Handing a ticket over is a step of its own: say what the agent needs first.
-                    if (task.assignee !== "agent") setHanding(true);
+                    setHanding(true);
                     return;
                   }
                   setHanding(false);
-                  if (task.assignee === "agent") void patch({ assignee: null });
+                  const email = choice || null;
+                  // A ticket is the agent's or a person's, so it is taken back from the agent first.
+                  void (async () => {
+                    if (task.assignee === "agent" && !(await patch({ assignee: null }))) return;
+                    if (email || task.assigneeEmail) await patch({ assigneeEmail: email });
+                  })();
                 }}
                 options={[
-                  { id: "none", label: "Not the agent" },
-                  { id: "agent", label: "Agent" },
+                  { id: "", label: "Nobody" },
+                  ...(manual || task.assignee === "agent"
+                    ? [{ id: AGENT, label: "Agent", detail: "Runs it" }]
+                    : []),
+                  ...assignable.map((who) => ({
+                    id: who.email,
+                    label: who.name || who.email,
+                    detail: who.name ? who.email : undefined,
+                  })),
                 ]}
               />
               {manual && !task.assignee && !handing && (
@@ -365,10 +364,10 @@ export function TaskDetail({
                 />
               )}
               <View style={[s.row, { gap: 10, alignItems: "flex-start" }]}>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <DateOnlyField label="Start date" value={startAt} onChange={setStartAt} />
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <DateOnlyField label="Due date" value={dueAt} onChange={setDueAt} />
                 </View>
               </View>

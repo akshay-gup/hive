@@ -1,11 +1,10 @@
-import Check from "lucide-react-native/dist/esm/icons/check";
-import ChevronDown from "lucide-react-native/dist/esm/icons/chevron-down";
 import TriangleAlert from "lucide-react-native/dist/esm/icons/triangle-alert";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import type { SourceTaskAudience, SourceTaskView } from "../../../packages/domain/src/task-source";
 import { useChat } from "./chat-context";
-import { Button, colors, ErrorNotice, Field, radius, SearchField, Sheet, s } from "./ui";
+import { PickMenu } from "./pick-menu";
+import { Button, colors, ErrorNotice, Field, Sheet, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
 const enc = encodeURIComponent;
@@ -30,8 +29,6 @@ export function TaskProjectChoice({
   const [projectId, setProjectId] = useState(initial?.suggestedProjectId ?? "");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
-  const [expanded, setExpanded] = useState(false);
-  const [query, setQuery] = useState("");
   const [fullDescription, setFullDescription] = useState(false);
   const [audience, setAudience] = useState<SourceTaskAudience>();
   const [error, setError] = useState("");
@@ -103,7 +100,7 @@ export function TaskProjectChoice({
     [api, chat.subscribe, requestId, route],
   );
 
-  const chosen = request?.projects.find((project) => project.id === projectId);
+  const _chosen = request?.projects.find((project) => project.id === projectId);
   const warning = !!audience?.outside.length && !audience.confirmed;
   async function create() {
     if (!audience || audience.projectId !== projectId || busy) return;
@@ -159,9 +156,6 @@ export function TaskProjectChoice({
         {request.status === "created" ? "Task created." : "Task not created."}
       </Text>
     );
-  const shown = request.projects.filter((project) =>
-    project.name.toLowerCase().includes(query.trim().toLowerCase()),
-  );
   return (
     <View style={{ gap: 14 }}>
       {editable ? (
@@ -202,85 +196,19 @@ export function TaskProjectChoice({
       )}
       <View style={{ gap: 7 }}>
         <Text style={s.label}>Project</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Project: ${chosen?.name ?? "Choose a project"}`}
-          accessibilityState={{ expanded, disabled: busy }}
+        <PickMenu
+          label="Project"
+          placeholder="Choose a project"
+          value={projectId}
           disabled={busy}
-          onPress={() => setExpanded((value) => !value)}
-          style={[
-            s.between,
-            {
-              padding: 12,
-              borderWidth: 1,
-              borderColor: expanded ? colors.primary : colors.lineStrong,
-              backgroundColor: colors.paper,
-              borderRadius: radius.md,
-              gap: 10,
-            },
-          ]}
-        >
-          <Text style={[s.text, { flex: 1 }]}>{chosen?.name ?? "Choose a project"}</Text>
-          <ChevronDown size={17} color={colors.muted} />
-        </Pressable>
-        {expanded && (
-          <View style={{ gap: 8 }}>
-            {request.projects.length > 8 && (
-              <SearchField
-                label="Search projects"
-                placeholder="Search projects"
-                value={query}
-                onChangeText={setQuery}
-              />
-            )}
-            <ScrollView
-              style={{ maxHeight: 230 }}
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-            >
-              {!shown.length && (
-                <Text style={[s.muted, { paddingVertical: 10 }]}>
-                  {request.projects.length
-                    ? "No project matches."
-                    : "You cannot add tasks to any project yet. Ask a project admin for access."}
-                </Text>
-              )}
-              {shown.map((project) => (
-                <Pressable
-                  key={project.id}
-                  accessibilityRole="button"
-                  disabled={busy}
-                  accessibilityState={{ selected: project.id === projectId, disabled: busy }}
-                  onPress={() => {
-                    setProjectId(project.id);
-                    setExpanded(false);
-                    setQuery("");
-                  }}
-                  style={[
-                    s.between,
-                    {
-                      gap: 10,
-                      padding: 12,
-                      minHeight: 44,
-                      borderRadius: radius.sm,
-                      backgroundColor: project.id === projectId ? colors.primarySoft : colors.paper,
-                    },
-                  ]}
-                >
-                  <Text style={[s.text, { flex: 1 }]}>{project.name}</Text>
-                  {project.id === projectId ? (
-                    <Check size={16} color={colors.primaryText} />
-                  ) : (
-                    <Text style={s.small}>
-                      {project.access[0].toUpperCase() + project.access.slice(1)}
-                    </Text>
-                  )}
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-        {!request.projects.length && !expanded && (
+          onChange={setProjectId}
+          options={request.projects.map((project) => ({
+            id: project.id,
+            label: project.name,
+            detail: project.access[0].toUpperCase() + project.access.slice(1),
+          }))}
+        />
+        {!request.projects.length && (
           <Text style={s.small}>Ask a project admin for access before creating a task.</Text>
         )}
       </View>
