@@ -1,7 +1,4 @@
-import Check from "lucide-react-native/dist/esm/icons/check";
-import AlertCircle from "lucide-react-native/dist/esm/icons/circle-alert";
 import Hash from "lucide-react-native/dist/esm/icons/hash";
-import X from "lucide-react-native/dist/esm/icons/x";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -40,6 +37,7 @@ import { BrowserScreen, CalendarScreen, FilesScreen, MailScreen } from "./screen
 import { ShellHeader } from "./shell-header";
 import { Sidebar } from "./sidebar";
 import { ThreadsProvider, useMuseThread } from "./threads";
+import { ToastBubble, ToastContext } from "./toast";
 import {
   Backdrop,
   Button,
@@ -150,23 +148,25 @@ export function WorkspaceApp({
         logout,
       }}
     >
-      <ChatProvider>
-        <AgentWorkspaceProvider>
-          <ActivityProjectsProvider>
-            <ComputerDraftProvider key={identity}>
-              <ThreadsProvider>
-                <WorkspaceShell
-                  detail={detail}
-                  toast={toast}
-                  clearToast={() => setToast(null)}
-                  error={error}
-                  prompt={prompt}
-                />
-              </ThreadsProvider>
-            </ComputerDraftProvider>
-          </ActivityProjectsProvider>
-        </AgentWorkspaceProvider>
-      </ChatProvider>
+      <ToastContext.Provider value={{ toast, clear: () => setToast(null) }}>
+        <ChatProvider>
+          <AgentWorkspaceProvider>
+            <ActivityProjectsProvider>
+              <ComputerDraftProvider key={identity}>
+                <ThreadsProvider>
+                  <WorkspaceShell
+                    detail={detail}
+                    toast={toast}
+                    clearToast={() => setToast(null)}
+                    error={error}
+                    prompt={prompt}
+                  />
+                </ThreadsProvider>
+              </ComputerDraftProvider>
+            </ActivityProjectsProvider>
+          </AgentWorkspaceProvider>
+        </ChatProvider>
+      </ToastContext.Provider>
     </WorkspaceContext.Provider>
   );
 }
@@ -231,312 +231,246 @@ function WorkspaceShell({
   // narrower column.
   const pageWidth = section === "activity" ? 1400 : section === "inbox" ? 1180 : 1040;
   return (
-    <>
-      <SafeAreaView style={{ flex: 1, backgroundColor: haze.base }} edges={["top", "bottom"]}>
-        <Backdrop />
-        <View
-          style={{
-            flex: 1,
-            flexDirection: desktop ? "row" : "column",
-          }}
-        >
-          {desktop && <Sidebar />}
-          <View style={[{ flex: 1, minWidth: 0 }, desktop && !ownPanels && panelStyle]}>
-            {!ownPanels && <ShellHeader onMenu={() => setThreadsOpen(true)} />}
-            <View style={{ flex: 1, minHeight: 0 }}>
-              {section !== "chat" && (
-                <ScrollView
-                  key={section}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{
-                    paddingHorizontal: desktop ? 32 : 22,
-                    paddingTop: 20,
-                    paddingBottom: 28,
-                    width: "100%",
-                    maxWidth: pageWidth,
-                    alignSelf: "center",
-                  }}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {utility && (
-                    <Button
-                      small
-                      style={{ alignSelf: "flex-start", marginBottom: 18 }}
-                      onPress={() => navigate("apps")}
-                    >
-                      Back to Apps
-                    </Button>
-                  )}
-                  <ErrorNotice error={error} />
-                  <Screen />
-                </ScrollView>
-              )}
-              <View
-                style={{
-                  display: section === "chat" ? "flex" : "none",
-                  flex: 1,
+    <SafeAreaView style={{ flex: 1, backgroundColor: haze.base }} edges={["top", "bottom"]}>
+      <Backdrop />
+      <View
+        style={{
+          flex: 1,
+          flexDirection: desktop ? "row" : "column",
+        }}
+      >
+        {desktop && <Sidebar />}
+        <View style={[{ flex: 1, minWidth: 0 }, desktop && !ownPanels && panelStyle]}>
+          {!ownPanels && <ShellHeader onMenu={() => setThreadsOpen(true)} />}
+          <View style={{ flex: 1, minHeight: 0 }}>
+            {section !== "chat" && (
+              <ScrollView
+                key={section}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: desktop ? 32 : 22,
+                  paddingTop: 20,
+                  paddingBottom: 28,
                   width: "100%",
-                  maxWidth: channelChat ? undefined : 820,
+                  maxWidth: pageWidth,
                   alignSelf: "center",
-                  paddingHorizontal: channelChat ? 0 : desktop ? 32 : 17,
-                  paddingTop: channelChat ? 0 : 8,
-                  paddingBottom: desktop && !ownPanels ? 12 : 0,
                 }}
+                keyboardShouldPersistTaps="handled"
               >
-                {(!channelChat || selection.id === "local") && !guest && <AgentStatus />}
-                {guest && noChannels && (
-                  <Empty
-                    icon={Hash}
-                    title="No channels yet"
-                    detail="You have not been added to a channel. Ask whoever invited you to add you to one."
-                  />
+                {utility && (
+                  <Button
+                    small
+                    style={{ alignSelf: "flex-start", marginBottom: 18 }}
+                    onPress={() => navigate("apps")}
+                  >
+                    Back to Apps
+                  </Button>
                 )}
-                {guest && (
-                  <>
-                    <ErrorNotice error={threadsError} />
-                    {threadsError ? (
-                      <Button onPress={retryThreads}>Retry</Button>
-                    ) : threadsLoading ? (
-                      // Over the middle of the chat, out of the flow, so it moves nothing when it goes.
-                      <View
-                        pointerEvents="none"
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <ActivityIndicator color={colors.primary} />
-                      </View>
-                    ) : null}
-                  </>
-                )}
-                {visited
-                  .filter((thread) => thread.id.startsWith("channel:"))
-                  .map((thread) => (
+                <ErrorNotice error={error} />
+                <Screen />
+              </ScrollView>
+            )}
+            <View
+              style={{
+                display: section === "chat" ? "flex" : "none",
+                flex: 1,
+                width: "100%",
+                maxWidth: channelChat ? undefined : 820,
+                alignSelf: "center",
+                paddingHorizontal: channelChat ? 0 : desktop ? 32 : 17,
+                paddingTop: channelChat ? 0 : 8,
+                paddingBottom: desktop && !ownPanels ? 12 : 0,
+              }}
+            >
+              {(!channelChat || selection.id === "local") && !guest && <AgentStatus />}
+              {guest && noChannels && (
+                <Empty
+                  icon={Hash}
+                  title="No channels yet"
+                  detail="You have not been added to a channel. Ask whoever invited you to add you to one."
+                />
+              )}
+              {guest && (
+                <>
+                  <ErrorNotice error={threadsError} />
+                  {threadsError ? (
+                    <Button onPress={retryThreads}>Retry</Button>
+                  ) : threadsLoading ? (
+                    // Over the middle of the chat, out of the flow, so it moves nothing when it goes.
                     <View
-                      key={thread.id}
+                      pointerEvents="none"
                       style={{
-                        display: selection.id === thread.id ? "flex" : "none",
-                        flex: 1,
+                        position: "absolute",
+                        top: 0,
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        alignItems: "center",
+                        justifyContent: "center",
                       }}
                     >
-                      <ChannelChat
-                        channelId={thread.id.slice("channel:".length)}
-                        active={section === "chat" && selection.id === thread.id}
-                        header={channelHeader}
-                      />
+                      <ActivityIndicator color={colors.primary} />
                     </View>
-                  ))}
-                {!guest && (
+                  ) : null}
+                </>
+              )}
+              {visited
+                .filter((thread) => thread.id.startsWith("channel:"))
+                .map((thread) => (
                   <View
+                    key={thread.id}
                     style={{
-                      display: selection.id === "local" ? "flex" : "none",
+                      display: selection.id === thread.id ? "flex" : "none",
                       flex: 1,
                     }}
                   >
-                    {personalId ? (
-                      <ChannelChat
-                        channelId={personalId}
-                        active={section === "chat" && selection.id === "local"}
-                        header={channelHeader}
-                        prompt={selection.id === "local" ? prompt : undefined}
-                      />
-                    ) : hosted ? (
-                      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                        <ActivityIndicator color={colors.primary} />
-                      </View>
-                    ) : (
-                      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                        <Text style={[s.muted, { textAlign: "center", maxWidth: 360 }]}>
-                          Chat is kept by Hive's chat service, so it is only here in a hosted
-                          workspace.
-                        </Text>
-                      </View>
-                    )}
+                    <ChannelChat
+                      channelId={thread.id.slice("channel:".length)}
+                      active={section === "chat" && selection.id === thread.id}
+                      header={channelHeader}
+                    />
                   </View>
-                )}
-              </View>
-            </View>
-            <View
-              style={{
-                display: desktop ? "none" : "flex",
-                paddingHorizontal: 14,
-                paddingTop: 4,
-                paddingBottom: desktop ? 22 : 6,
-                alignItems: "center",
-              }}
-            >
-              <GlassBar
-                kind="bar"
-                accessibilityRole="tablist"
-                style={{
-                  flexDirection: "row",
-                  width: "100%",
-                  maxWidth: 400,
-                  padding: 4,
-                  borderRadius: radius.pill,
-                }}
-              >
-                {nav.map((item) => {
-                  const active = section === item.id || (item.id === "apps" && utility);
-                  return (
-                    <Pressable
-                      key={item.id}
-                      accessibilityRole="tab"
-                      accessibilityLabel={item.label}
-                      accessibilityState={{ selected: active }}
-                      aria-selected={active}
-                      onPress={() => navigate(item.id)}
-                      style={{
-                        flex: 1,
-                        height: 46,
-                        gap: 2,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: active ? colors.primarySoft : "transparent",
-                        borderRadius: radius.pill,
-                      }}
-                    >
-                      <item.icon
-                        size={20}
-                        strokeWidth={active ? 2 : 1.8}
-                        color={active ? colors.primary : colors.muted}
-                      />
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          fontSize: fontSize.micro,
-                          lineHeight: 12,
-                          fontWeight: active ? "700" : "500",
-                          color: active ? colors.text : colors.muted,
-                        }}
-                      >
-                        {item.label}
+                ))}
+              {!guest && (
+                <View
+                  style={{
+                    display: selection.id === "local" ? "flex" : "none",
+                    flex: 1,
+                  }}
+                >
+                  {personalId ? (
+                    <ChannelChat
+                      channelId={personalId}
+                      active={section === "chat" && selection.id === "local"}
+                      header={channelHeader}
+                      prompt={selection.id === "local" ? prompt : undefined}
+                    />
+                  ) : hosted ? (
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                      <ActivityIndicator color={colors.primary} />
+                    </View>
+                  ) : (
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={[s.muted, { textAlign: "center", maxWidth: 360 }]}>
+                        Chat is kept by Hive's chat service, so it is only here in a hosted
+                        workspace.
                       </Text>
-                    </Pressable>
-                  );
-                })}
-              </GlassBar>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
           </View>
-        </View>
-        {toast && (
           <View
-            pointerEvents="box-none"
-            accessibilityLiveRegion="polite"
-            accessibilityRole="alert"
             style={{
-              position: "absolute",
-              bottom: desktop ? 28 : 80,
-              left: 20,
-              right: 20,
+              display: desktop ? "none" : "flex",
+              paddingHorizontal: 14,
+              paddingTop: 4,
+              paddingBottom: desktop ? 22 : 6,
               alignItems: "center",
             }}
           >
-            <View
-              style={[
-                s.row,
-                {
-                  gap: 10,
-                  padding: 14,
-                  backgroundColor: colors.inverse,
-                  borderRadius: radius.lg,
-                  maxWidth: 560,
-                },
-              ]}
+            <GlassBar
+              kind="bar"
+              accessibilityRole="tablist"
+              style={{
+                flexDirection: "row",
+                width: "100%",
+                maxWidth: 400,
+                padding: 4,
+                borderRadius: radius.pill,
+              }}
             >
-              {toast.error ? (
-                <AlertCircle size={16} color={colors.onInverse} />
-              ) : (
-                <Check size={16} color={colors.onInverse} />
-              )}
-              <Text style={{ color: colors.onInverse, fontSize: fontSize.small, flexShrink: 1 }}>
-                {toast.text}
-              </Text>
-              {toast.retry && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Try again"
-                  hitSlop={10}
-                  onPress={() => {
-                    const again = toast.retry;
-                    clearToast();
-                    again?.();
-                  }}
-                >
-                  <Text
+              {nav.map((item) => {
+                const active = section === item.id || (item.id === "apps" && utility);
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="tab"
+                    accessibilityLabel={item.label}
+                    accessibilityState={{ selected: active }}
+                    aria-selected={active}
+                    onPress={() => navigate(item.id)}
                     style={{
-                      color: colors.onInverse,
-                      fontSize: fontSize.small,
-                      fontWeight: "700",
-                      textDecorationLine: "underline",
+                      flex: 1,
+                      height: 46,
+                      gap: 2,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: active ? colors.primarySoft : "transparent",
+                      borderRadius: radius.pill,
                     }}
                   >
-                    Retry
-                  </Text>
-                </Pressable>
-              )}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Dismiss notification"
-                hitSlop={12}
-                onPress={clearToast}
-              >
-                <X size={16} color={colors.onInverse} />
-              </Pressable>
-            </View>
+                    <item.icon
+                      size={20}
+                      strokeWidth={active ? 2 : 1.8}
+                      color={active ? colors.primary : colors.muted}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        fontSize: fontSize.micro,
+                        lineHeight: 12,
+                        fontWeight: active ? "700" : "500",
+                        color: active ? colors.text : colors.muted,
+                      }}
+                    >
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </GlassBar>
           </View>
-        )}
-        <Modal
-          visible={threadsOpen && !desktop}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setThreadsOpen(false)}
-        >
-          <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.scrim }}>
-            <SafeAreaView style={{ width: 310, maxWidth: "86%", ...glassSurface("sheet") }}>
-              <Sidebar compact onNavigate={() => setThreadsOpen(false)} />
-            </SafeAreaView>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close workspace navigation"
-              onPress={() => setThreadsOpen(false)}
-              style={{ flex: 1 }}
-            />
-          </View>
-        </Modal>
-        {detail && (
-          <Details
-            key={
-              detail.type === "task"
-                ? detail.taskId
-                : detail.type === "channelFiles"
-                  ? `files:${detail.channelId}:${detail.path ?? ""}`
-                  : detail.type === "channelFile"
-                    ? `file:${detail.channelId}:${detail.path}`
-                    : detail.type === "file"
-                      ? detail.file.id
-                      : detail.type === "browser"
-                        ? detail.browser.id
-                        : detail.type === "mail"
-                          ? detail.mail.id
-                          : detail.type === "review"
-                            ? detail.action.id
-                            : detail.type === "email"
-                              ? JSON.stringify(detail.draft)
-                              : detail.type === "event"
-                                ? detail.event?.id || "event-new"
-                                : detail.type
-            }
-            detail={detail}
+        </View>
+      </View>
+      {toast && (
+        <ToastBubble toast={toast} clear={clearToast} place={{ bottom: desktop ? 28 : 80 }} />
+      )}
+      <Modal
+        visible={threadsOpen && !desktop}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setThreadsOpen(false)}
+      >
+        <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.scrim }}>
+          <SafeAreaView style={{ width: 310, maxWidth: "86%", ...glassSurface("sheet") }}>
+            <Sidebar compact onNavigate={() => setThreadsOpen(false)} />
+          </SafeAreaView>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close workspace navigation"
+            onPress={() => setThreadsOpen(false)}
+            style={{ flex: 1 }}
           />
-        )}
-      </SafeAreaView>
-    </>
+        </View>
+      </Modal>
+      {detail && (
+        <Details
+          key={
+            detail.type === "task"
+              ? detail.taskId
+              : detail.type === "channelFiles"
+                ? `files:${detail.channelId}:${detail.path ?? ""}`
+                : detail.type === "channelFile"
+                  ? `file:${detail.channelId}:${detail.path}`
+                  : detail.type === "file"
+                    ? detail.file.id
+                    : detail.type === "browser"
+                      ? detail.browser.id
+                      : detail.type === "mail"
+                        ? detail.mail.id
+                        : detail.type === "review"
+                          ? detail.action.id
+                          : detail.type === "email"
+                            ? JSON.stringify(detail.draft)
+                            : detail.type === "event"
+                              ? detail.event?.id || "event-new"
+                              : detail.type
+          }
+          detail={detail}
+        />
+      )}
+    </SafeAreaView>
   );
 }

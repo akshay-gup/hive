@@ -40,6 +40,7 @@ import {
   sp,
   type,
 } from "./theme";
+import { SheetToast } from "./toast";
 
 export {
   avatarTints,
@@ -982,6 +983,8 @@ export function Sheet({
             {children}
           </ScrollView>
         </View>
+        {/* A sheet covers the page, and what was said on the page with it: say it here too. */}
+        <SheetToast top={Math.max(insets.top, 12) + 8} />
       </View>
     </Modal>
   );
