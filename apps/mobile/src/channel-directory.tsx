@@ -5,7 +5,6 @@ import { Text, View } from "react-native";
 import type { ChannelDirectoryEntry } from "../../../packages/domain/src/agent";
 import { ArchiveChannelSheet } from "./channel-archive";
 import { useOnChannelsChanged } from "./channel-events";
-import { Disclosure } from "./disclosure";
 import { Button, colors, ErrorNotice, s } from "./ui";
 import { useWorkspace } from "./workspace";
 
@@ -21,40 +20,50 @@ function line(entry: ChannelDirectoryEntry): string {
 
 /**
  * The private channels in the workspace that an owner or admin is not in, which no one but their people can
- * otherwise find, so that one nobody looks after is not lost. It shows what a channel is and who is in it, not
- * what is said there, and an owner or admin cannot join one: to be in it they must be added by someone who is.
- * They can archive it. Nothing shows when there is none.
+ * otherwise find, so that one nobody looks after is not lost. An owner or admin cannot join one: to be in it they
+ * must be added by someone who is. Nothing is listed when there are none.
  */
-export function ChannelDirectory() {
+export function usePrivateChannels(enabled: boolean) {
   const { api } = useWorkspace();
-  const [rows, setRows] = useState<ChannelDirectoryEntry[] | null>(null);
+  const [rows, setRows] = useState<ChannelDirectoryEntry[]>([]);
   const [error, setError] = useState("");
-  const [archiving, setArchiving] = useState<ChannelDirectoryEntry | null>(null);
-
   const load = useCallback(async () => {
+    if (!enabled) return;
     try {
-      setRows(await api.request<ChannelDirectoryEntry[]>("/api/agent/admin/channels"));
+      const all = await api.request<ChannelDirectoryEntry[]>("/api/agent/admin/channels");
+      setRows(
+        all.filter((entry) => !entry.archived && entry.visibility === "private" && !entry.joined),
+      );
       setError("");
     } catch (e) {
       setError(message(e));
     }
-  }, [api]);
+  }, [api, enabled]);
   useEffect(() => {
     void load();
   }, [load]);
   useOnChannelsChanged(() => void load());
+  return { channels: rows, error };
+}
 
-  const live = (rows ?? []).filter(
-    (entry) => !entry.archived && entry.visibility === "private" && !entry.joined,
-  );
-  if (!live.length && !error) return archiving ? sheet() : null;
+/** The private channels an owner or admin is not in: what each is and who is in it, not what is said there, and a way to archive it. */
+export function PrivateChannelList({
+  channels,
+  error,
+}: {
+  channels: ChannelDirectoryEntry[];
+  error: string;
+}) {
+  const [archiving, setArchiving] = useState<ChannelDirectoryEntry | null>(null);
   return (
-    <Disclosure
-      title="Private channels you are not in"
-      detail={`${live.length} ${live.length === 1 ? "channel" : "channels"} · you can archive them, not read them`}
-    >
+    <View style={{ gap: 12 }}>
+      <Text style={s.muted}>
+        You can see that these exist and who is in them, and archive them. You cannot read them or
+        join them: to be in one, someone who is must add you.
+      </Text>
       <ErrorNotice error={error} />
-      {live.map((entry) => (
+      {!channels.length && !error && <Text style={s.small}>There are none.</Text>}
+      {channels.map((entry) => (
         <View key={entry.id} style={[s.row, { gap: 12 }]}>
           <Lock size={18} color={colors.text} />
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -70,18 +79,15 @@ export function ChannelDirectory() {
           </Button>
         </View>
       ))}
-      {sheet()}
-    </Disclosure>
+      {archiving && (
+        <ArchiveChannelSheet
+          id={archiving.id}
+          name={archiving.name}
+          admin
+          onClose={() => setArchiving(null)}
+          onArchived={() => setArchiving(null)}
+        />
+      )}
+    </View>
   );
-  function sheet() {
-    return archiving ? (
-      <ArchiveChannelSheet
-        id={archiving.id}
-        name={archiving.name}
-        admin
-        onClose={() => setArchiving(null)}
-        onArchived={() => setArchiving(null)}
-      />
-    ) : null;
-  }
 }

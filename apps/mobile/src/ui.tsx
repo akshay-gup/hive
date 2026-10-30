@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react-native";
+import ArrowLeft from "lucide-react-native/dist/esm/icons/arrow-left";
 import ArrowUpRight from "lucide-react-native/dist/esm/icons/arrow-up-right";
 import Check from "lucide-react-native/dist/esm/icons/check";
 import ChevronRight from "lucide-react-native/dist/esm/icons/chevron-right";
@@ -901,6 +902,7 @@ export function Sheet({
   subtitle,
   children,
   onClose,
+  onBack,
   wide,
   narrow,
   tall,
@@ -909,6 +911,8 @@ export function Sheet({
   subtitle?: string;
   children: ReactNode;
   onClose: () => void;
+  /** The sheet is showing a screen inside it: a way back to the one before. */
+  onBack?: () => void;
   wide?: boolean;
   /** For a sheet whose content arrives after it opens: on a phone it opens at its full height, so the title does not move when the content comes. */
   tall?: boolean;
@@ -967,9 +971,15 @@ export function Sheet({
           <View
             style={[
               s.between,
-              { padding: compact ? 16 : 20, borderBottomWidth: 1, borderBottomColor: colors.line },
+              {
+                padding: compact ? 16 : 20,
+                gap: 8,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.line,
+              },
             ]}
           >
+            {onBack && <IconButton icon={ArrowLeft} label="Back" onPress={onBack} />}
             <View style={{ flex: 1, gap: 4 }}>
               <Text style={s.title}>{title}</Text>
               {!!subtitle && <Text style={s.muted}>{subtitle}</Text>}

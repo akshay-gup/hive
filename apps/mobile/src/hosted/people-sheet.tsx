@@ -7,11 +7,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Platform, Share, Text, View } from "react-native";
 import { type ChannelView, ORCHESTRATOR_CHANNEL_ID } from "../../../../packages/domain/src/agent";
 import { AgentFlags } from "../agent-flags";
-import { ChannelDirectory } from "../channel-directory";
+import { PrivateChannelList, usePrivateChannels } from "../channel-directory";
 import { channelsChanged } from "../channel-events";
 import { channelsOfGuest, guestChannelsLine } from "../channel-text";
 import { Confirm } from "../confirm";
-import { Disclosure } from "../disclosure";
+import { NavRow } from "../nav-row";
 import {
   Button,
   Card,
@@ -107,6 +107,15 @@ function GuestChannels({
   );
 }
 
+type Page = "email" | "waiting" | "channels" | "security" | "leave";
+const pageTitle: Record<Page, string> = {
+  email: "Invite by email",
+  waiting: "Waiting to be used",
+  channels: "Private channels you are not in",
+  security: "Agent security alerts",
+  leave: "Delete or leave workspace",
+};
+
 /**
  * Who is in the workspace and how to bring more people in: a link anyone can use, or an invitation
  * for one email address. Owners and admins invite; the owner decides who is an admin; anyone but
@@ -125,6 +134,8 @@ export function PeopleSheet() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState(false);
+  // Which screen of the sheet is showing: the main one, or one a row on it opened.
+  const [page, setPage] = useState<Page | null>(null);
   const control = hosted?.control;
   const workspace = hosted?.workspace;
   const mine = workspace?.role;
@@ -146,6 +157,8 @@ export function PeopleSheet() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const privateChannels = usePrivateChannels(manages);
 
   if (!hosted || !control || !workspace || !workspaceId) return null;
 
@@ -177,306 +190,337 @@ export function PeopleSheet() {
 
   return (
     <Sheet
-      title={workspace.name}
-      subtitle={`You are ${mine === "admin" ? "an admin" : mine === "owner" ? "the owner" : mine === "guest" ? "a guest" : "a member"}${members ? ` · ${members.length} ${members.length === 1 ? "person" : "people"}` : ""}`}
+      title={page ? pageTitle[page] : workspace.name}
+      onBack={page ? () => setPage(null) : undefined}
+      subtitle={
+        page
+          ? undefined
+          : `You are ${mine === "admin" ? "an admin" : mine === "owner" ? "the owner" : mine === "guest" ? "a guest" : "a member"}${members ? ` · ${members.length} ${members.length === 1 ? "person" : "people"}` : ""}`
+      }
       onClose={close}
       tall
     >
       <ErrorNotice error={error} />
 
-      {manages && (
-        <View style={{ marginBottom: 24 }}>
-          <SectionHeading title="Invite people" />
-          <Card style={{ gap: 12 }}>
-            <Text style={s.muted}>
-              Anyone with the link can join as a member. It works for a week and up to 50 people.
-            </Text>
-            {link ? (
-              <>
-                <Field
-                  label="Invitation link"
-                  value={link}
-                  editable={false}
-                  selectTextOnFocus
-                  compact
+      {page === null && (
+        <>
+          {manages && (
+            <View style={{ marginBottom: 24 }}>
+              <SectionHeading title="Invite people" />
+              <Card style={{ gap: 12 }}>
+                <Text style={s.muted}>
+                  Anyone with the link can join as a member. It works for a week and up to 50
+                  people.
+                </Text>
+                {link ? (
+                  <>
+                    <Field
+                      label="Invitation link"
+                      value={link}
+                      editable={false}
+                      selectTextOnFocus
+                      compact
+                    />
+                    <View style={[s.row, { gap: 10, flexWrap: "wrap" }]}>
+                      <Button
+                        primary
+                        icon={Platform.OS === "web" ? Copy : Share2}
+                        onPress={() => void shareLink(link)}
+                      >
+                        {Platform.OS === "web" ? "Copy link" : "Share link"}
+                      </Button>
+                    </View>
+                  </>
+                ) : (
+                  <View style={s.row}>
+                    <Button
+                      primary
+                      busy={busy === "link"}
+                      onPress={() =>
+                        void run("link", async () => {
+                          const made = await control.createInvite(workspaceId, {});
+                          setLink(made.link);
+                        })
+                      }
+                    >
+                      Create invite link
+                    </Button>
+                  </View>
+                )}
+              </Card>
+              <NavRow
+                title="Invite one person by email"
+                detail="Choose their role, and for a guest, their channels"
+                onPress={() => setPage("email")}
+              />
+              {invites.length > 0 && (
+                <NavRow
+                  title="Waiting to be used"
+                  detail={`${invites.length} ${invites.length === 1 ? "invitation" : "invitations"}`}
+                  onPress={() => setPage("waiting")}
                 />
-                <View style={[s.row, { gap: 10, flexWrap: "wrap" }]}>
-                  <Button
-                    primary
-                    icon={Platform.OS === "web" ? Copy : Share2}
-                    onPress={() => void shareLink(link)}
-                  >
-                    {Platform.OS === "web" ? "Copy link" : "Share link"}
-                  </Button>
-                </View>
-              </>
-            ) : (
-              <View style={s.row}>
-                <Button
-                  primary
-                  busy={busy === "link"}
-                  onPress={() =>
-                    void run("link", async () => {
-                      const made = await control.createInvite(workspaceId, {});
-                      setLink(made.link);
-                    })
-                  }
-                >
-                  Create invite link
-                </Button>
-              </View>
-            )}
-          </Card>
-          <View style={{ marginTop: 12 }}>
-            <Disclosure
-              title="Invite one person by email"
-              detail="Choose their role, and for a guest, their channels"
-            >
-              <Card style={{ gap: 4 }}>
-                <Field
-                  label="Email address"
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="colleague@example.com"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  autoComplete="email"
-                />
-                <View style={{ marginBottom: 12, gap: 8 }}>
-                  <Segmented
-                    label="Role"
-                    value={inviteRole}
-                    onChange={setInviteRole}
-                    options={[
-                      { id: "member", label: "Member" },
-                      // Only the owner makes admins.
-                      ...(mine === "owner" ? [{ id: "admin" as const, label: "Admin" }] : []),
-                      { id: "guest", label: "Guest" },
-                    ]}
-                  />
-                  {inviteRole === "guest" && (
-                    <View style={{ gap: 2 }}>
-                      <Text style={s.label}>Channels they can open</Text>
-                      {choosable(channels).length === 0 ? (
-                        <Text style={s.small}>
-                          There are no channels yet. Make one first: a guest can open only the
-                          channels they are added to.
+              )}
+            </View>
+          )}
+
+          <SectionHeading title="People" />
+          {!members ? (
+            <Pending height={96} />
+          ) : (
+            <View style={{ gap: 14 }}>
+              {members.map((person) => {
+                const you = person.accountId === hosted.account.id;
+                const canRemove =
+                  !you &&
+                  ((mine === "owner" && person.role !== "owner") ||
+                    (mine === "admin" && (person.role === "member" || person.role === "guest")));
+                return (
+                  <View key={person.accountId} style={{ gap: 8 }}>
+                    <View style={[s.row, { gap: 12 }]}>
+                      <View
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 18,
+                          backgroundColor: colors.primarySoft,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text style={[s.text, { fontWeight: "600" }]}>
+                          {(person.name || person.email).slice(0, 1).toUpperCase()}
                         </Text>
-                      ) : (
-                        choosable(channels).map((channel) => (
-                          <CheckRow
-                            key={channel.id}
-                            label={
-                              channel.visibility === "private"
-                                ? `${channel.name} (private)`
-                                : `# ${channel.name}`
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={s.text} numberOfLines={1}>
+                          {person.name}
+                          {you ? " (you)" : ""}
+                        </Text>
+                        <Text style={s.small} numberOfLines={1}>
+                          {person.email}
+                        </Text>
+                      </View>
+                      <Chip>{roleLabel[person.role]}</Chip>
+                    </View>
+                    {person.role === "guest" && manages && (
+                      <GuestChannels channels={channels} email={person.email} onChanged={load} />
+                    )}
+                    {(mine === "owner" && person.role !== "owner" && !you) || canRemove ? (
+                      <View style={[s.row, { gap: 10, flexWrap: "wrap", paddingLeft: 48 }]}>
+                        {mine === "owner" && person.role !== "owner" && (
+                          <Segmented
+                            label={`Role of ${person.name}`}
+                            value={
+                              person.role === "admin" || person.role === "guest"
+                                ? person.role
+                                : "member"
                             }
-                            checked={chosen.includes(channel.id)}
-                            onPress={() =>
-                              setChosen((now) =>
-                                now.includes(channel.id)
-                                  ? now.filter((id) => id !== channel.id)
-                                  : [...now, channel.id],
+                            disabled={busy === `role:${person.accountId}`}
+                            onChange={(role) =>
+                              void run(`role:${person.accountId}`, () =>
+                                control.setRole(workspaceId, person.accountId, role),
+                              )
+                            }
+                            options={[
+                              { id: "member", label: "Member" },
+                              { id: "admin", label: "Admin" },
+                              { id: "guest", label: "Guest" },
+                            ]}
+                          />
+                        )}
+                        {canRemove && (
+                          <Confirm
+                            icon={UserMinus}
+                            label="Remove"
+                            confirmLabel={`Remove ${person.name}`}
+                            busy={busy === `remove:${person.accountId}`}
+                            onConfirm={() =>
+                              void run(`remove:${person.accountId}`, () =>
+                                control.removeMember(workspaceId, person.accountId),
                               )
                             }
                           />
-                        ))
-                      )}
-                      <Text style={s.small}>{guestHint}</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={s.row}>
-                  <Button
-                    busy={busy === "email"}
-                    disabled={!email.trim() || (inviteRole === "guest" && chosen.length === 0)}
-                    onPress={() =>
-                      void run("email", async () => {
-                        const to = email.trim();
-                        const address = to.toLowerCase();
-                        // A guest sees nothing until a channel names them, so the channels
-                        // are chosen with the invitation and the guest is put in them first.
-                        const put: string[] = [];
-                        try {
-                          if (inviteRole === "guest")
-                            for (const id of chosen) {
-                              await api.request(
-                                `/api/agent/channels/${encodeURIComponent(id)}/members`,
-                                { add: [address] },
-                              );
-                              put.push(id);
-                            }
-                          const made = await control.createInvite(workspaceId, {
-                            email: to,
-                            role: inviteRole,
-                          });
-                          setEmail("");
-                          setChosen([]);
-                          setLink(made.link);
-                          channelsChanged();
-                          notify(`Invitation made for ${to}. Share the link with them.`);
-                        } catch (e) {
-                          for (const id of put)
-                            await api
-                              .request(`/api/agent/channels/${encodeURIComponent(id)}/members`, {
-                                remove: [address],
-                              })
-                              .catch(() => undefined);
-                          throw e;
-                        }
-                      })
-                    }
-                  >
-                    Create invitation
-                  </Button>
-                </View>
-                <Text style={[s.small, { marginTop: 10 }]}>
-                  The link it makes works only for that address. Share it with them above.
-                </Text>
-              </Card>
-            </Disclosure>
-          </View>
-          {invites.length > 0 && (
-            <Disclosure
-              title="Waiting to be used"
-              detail={`${invites.length} ${invites.length === 1 ? "invitation" : "invitations"}`}
-            >
-              {invites.map((invite) => {
-                const { title, detail } = describeInvite(invite);
-                return (
-                  <View key={invite.id} style={[s.between, { gap: 12 }]}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={s.text} numberOfLines={1}>
-                        {title}
-                      </Text>
-                      <Text style={s.small}>{detail}</Text>
-                    </View>
-                    <Button
-                      small
-                      busy={busy === `revoke:${invite.id}`}
-                      onPress={() =>
-                        void run(`revoke:${invite.id}`, () =>
-                          control.revokeInvite(workspaceId, invite.id),
-                        )
-                      }
-                    >
-                      Revoke
-                    </Button>
+                        )}
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
-            </Disclosure>
+            </View>
           )}
-        </View>
+
+          <View style={{ marginTop: 28 }}>
+            <SectionHeading title="Workspace" />
+            {manages && privateChannels.channels.length > 0 && (
+              <NavRow
+                title="Private channels you are not in"
+                detail={`${privateChannels.channels.length} ${privateChannels.channels.length === 1 ? "channel" : "channels"} · you can archive them, not read them`}
+                onPress={() => setPage("channels")}
+              />
+            )}
+            {manages && (
+              <NavRow
+                title="Agent security alerts"
+                detail="When the agent opened the workspace's own data"
+                onPress={() => setPage("security")}
+              />
+            )}
+            <NavRow
+              danger
+              title={mine === "owner" ? "Delete workspace…" : "Leave workspace…"}
+              detail={
+                mine === "owner"
+                  ? "The owner cannot leave; deleting removes it for everyone"
+                  : "You lose access to its chat and files"
+              }
+              onPress={() => setPage("leave")}
+            />
+          </View>
+        </>
       )}
 
-      <SectionHeading title="People" />
-      {!members ? (
-        <Pending height={96} />
-      ) : (
-        <View style={{ gap: 14 }}>
-          {members.map((person) => {
-            const you = person.accountId === hosted.account.id;
-            const canRemove =
-              !you &&
-              ((mine === "owner" && person.role !== "owner") ||
-                (mine === "admin" && (person.role === "member" || person.role === "guest")));
-            return (
-              <View key={person.accountId} style={{ gap: 8 }}>
-                <View style={[s.row, { gap: 12 }]}>
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      backgroundColor: colors.primarySoft,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Text style={[s.text, { fontWeight: "600" }]}>
-                      {(person.name || person.email).slice(0, 1).toUpperCase()}
+      {page === "email" && (
+        <View style={{ gap: 12 }}>
+          <Card style={{ gap: 4 }}>
+            <Field
+              label="Email address"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="colleague@example.com"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              autoComplete="email"
+            />
+            <View style={{ marginBottom: 12, gap: 8 }}>
+              <Segmented
+                label="Role"
+                value={inviteRole}
+                onChange={setInviteRole}
+                options={[
+                  { id: "member", label: "Member" },
+                  // Only the owner makes admins.
+                  ...(mine === "owner" ? [{ id: "admin" as const, label: "Admin" }] : []),
+                  { id: "guest", label: "Guest" },
+                ]}
+              />
+              {inviteRole === "guest" && (
+                <View style={{ gap: 2 }}>
+                  <Text style={s.label}>Channels they can open</Text>
+                  {choosable(channels).length === 0 ? (
+                    <Text style={s.small}>
+                      There are no channels yet. Make one first: a guest can open only the channels
+                      they are added to.
                     </Text>
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={s.text} numberOfLines={1}>
-                      {person.name}
-                      {you ? " (you)" : ""}
-                    </Text>
-                    <Text style={s.small} numberOfLines={1}>
-                      {person.email}
-                    </Text>
-                  </View>
-                  <Chip>{roleLabel[person.role]}</Chip>
+                  ) : (
+                    choosable(channels).map((channel) => (
+                      <CheckRow
+                        key={channel.id}
+                        label={
+                          channel.visibility === "private"
+                            ? `${channel.name} (private)`
+                            : `# ${channel.name}`
+                        }
+                        checked={chosen.includes(channel.id)}
+                        onPress={() =>
+                          setChosen((now) =>
+                            now.includes(channel.id)
+                              ? now.filter((id) => id !== channel.id)
+                              : [...now, channel.id],
+                          )
+                        }
+                      />
+                    ))
+                  )}
+                  <Text style={s.small}>{guestHint}</Text>
                 </View>
-                {person.role === "guest" && manages && (
-                  <GuestChannels channels={channels} email={person.email} onChanged={load} />
-                )}
-                {(mine === "owner" && person.role !== "owner" && !you) || canRemove ? (
-                  <View style={[s.row, { gap: 10, flexWrap: "wrap", paddingLeft: 48 }]}>
-                    {mine === "owner" && person.role !== "owner" && (
-                      <Segmented
-                        label={`Role of ${person.name}`}
-                        value={
-                          person.role === "admin" || person.role === "guest"
-                            ? person.role
-                            : "member"
+              )}
+            </View>
+            <View style={s.row}>
+              <Button
+                busy={busy === "email"}
+                disabled={!email.trim() || (inviteRole === "guest" && chosen.length === 0)}
+                onPress={() =>
+                  void run("email", async () => {
+                    const to = email.trim();
+                    const address = to.toLowerCase();
+                    // A guest sees nothing until a channel names them, so the channels
+                    // are chosen with the invitation and the guest is put in them first.
+                    const put: string[] = [];
+                    try {
+                      if (inviteRole === "guest")
+                        for (const id of chosen) {
+                          await api.request(
+                            `/api/agent/channels/${encodeURIComponent(id)}/members`,
+                            { add: [address] },
+                          );
+                          put.push(id);
                         }
-                        disabled={busy === `role:${person.accountId}`}
-                        onChange={(role) =>
-                          void run(`role:${person.accountId}`, () =>
-                            control.setRole(workspaceId, person.accountId, role),
-                          )
-                        }
-                        options={[
-                          { id: "member", label: "Member" },
-                          { id: "admin", label: "Admin" },
-                          { id: "guest", label: "Guest" },
-                        ]}
-                      />
-                    )}
-                    {canRemove && (
-                      <Confirm
-                        icon={UserMinus}
-                        label="Remove"
-                        confirmLabel={`Remove ${person.name}`}
-                        busy={busy === `remove:${person.accountId}`}
-                        onConfirm={() =>
-                          void run(`remove:${person.accountId}`, () =>
-                            control.removeMember(workspaceId, person.accountId),
-                          )
-                        }
-                      />
-                    )}
-                  </View>
-                ) : null}
+                      const made = await control.createInvite(workspaceId, {
+                        email: to,
+                        role: inviteRole,
+                      });
+                      setEmail("");
+                      setChosen([]);
+                      setLink(made.link);
+                      channelsChanged();
+                      setPage(null);
+                      notify(`Invitation made for ${to}. Share the link with them.`);
+                    } catch (e) {
+                      for (const id of put)
+                        await api
+                          .request(`/api/agent/channels/${encodeURIComponent(id)}/members`, {
+                            remove: [address],
+                          })
+                          .catch(() => undefined);
+                      throw e;
+                    }
+                  })
+                }
+              >
+                Create invitation
+              </Button>
+            </View>
+            <Text style={[s.small, { marginTop: 10 }]}>
+              The link it makes works only for that address. Share it with them above.
+            </Text>
+          </Card>
+        </View>
+      )}
+      {page === "waiting" && (
+        <View style={{ gap: 12 }}>
+          {invites.map((invite) => {
+            const { title, detail } = describeInvite(invite);
+            return (
+              <View key={invite.id} style={[s.between, { gap: 12 }]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={s.text} numberOfLines={1}>
+                    {title}
+                  </Text>
+                  <Text style={s.small}>{detail}</Text>
+                </View>
+                <Button
+                  small
+                  busy={busy === `revoke:${invite.id}`}
+                  onPress={() =>
+                    void run(`revoke:${invite.id}`, () =>
+                      control.revokeInvite(workspaceId, invite.id),
+                    )
+                  }
+                >
+                  Revoke
+                </Button>
               </View>
             );
           })}
         </View>
       )}
-
-      <View style={{ marginTop: 28 }}>
-        <SectionHeading title="Workspace" />
-        {manages && <ChannelDirectory />}
-        {manages && (
-          <Disclosure
-            title="Agent security alerts"
-            detail="When the agent opened the workspace's own data"
-          >
-            <AgentFlags owner={mine === "owner"} heading={false} />
-          </Disclosure>
-        )}
-        <Disclosure
-          danger
-          title={mine === "owner" ? "Delete workspace…" : "Leave workspace…"}
-          detail={
-            mine === "owner"
-              ? "The owner cannot leave; deleting removes it for everyone"
-              : "You lose access to its chat and files"
-          }
-        >
+      {page === "channels" && (
+        <PrivateChannelList channels={privateChannels.channels} error={privateChannels.error} />
+      )}
+      {page === "security" && <AgentFlags owner={mine === "owner"} heading={false} />}
+      {page === "leave" && (
+        <View style={{ gap: 12 }}>
           {mine === "owner" ? (
             <>
               <Text style={s.muted}>
@@ -501,8 +545,8 @@ export function PeopleSheet() {
               </View>
             </>
           )}
-        </Disclosure>
-      </View>
+        </View>
+      )}
 
       {removing && (
         <RemoveWorkspaceSheet
