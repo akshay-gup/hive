@@ -3,7 +3,7 @@ import Link2 from "lucide-react-native/dist/esm/icons/link-2";
 import MessageSquare from "lucide-react-native/dist/esm/icons/message-square";
 import Paperclip from "lucide-react-native/dist/esm/icons/paperclip";
 import Pause from "lucide-react-native/dist/esm/icons/pause";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import {
   type AgentTask,
@@ -12,7 +12,15 @@ import {
   type TaskStatus,
   taskColumn,
 } from "../../../packages/domain/src/agent";
-import { elapsedLabel, needsYou, orderColumn, runStartedAt, watchRuns } from "./board-order";
+import {
+  elapsedLabel,
+  moveTarget,
+  needsYou,
+  orderColumn,
+  runStartedAt,
+  watchRuns,
+} from "./board-order";
+import { useDragSource, useDropTarget } from "./task-drag";
 import { Initial, PriorityMark } from "./task-marks";
 import { Button, colors, fontSize, radius, s, type WebPressState } from "./ui";
 import { useStill } from "./use-still";
@@ -166,13 +174,18 @@ export function TaskBoardCard({
   onPress,
   onControl,
   seenRunning,
+  draggable = false,
 }: {
   task: AgentTask;
   onPress: () => void;
   onControl?: (taskId: string, action: "pause" | "resume" | "retry") => Promise<void>;
   seenRunning?: number;
+  /** The card can be picked up and dropped on another column of the board. */
+  draggable?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  const card = useRef<View>(null);
+  useDragSource(card, draggable ? task.id : null);
   const manual = task.kind === "manual";
   const due = formatDue(task.dueAt);
   const meta = statusMeta[task.status];
@@ -214,6 +227,7 @@ export function TaskBoardCard({
 
   return (
     <View
+      ref={card}
       style={{
         flexShrink: 0,
         backgroundColor: colors.paper,
@@ -361,19 +375,42 @@ export function TaskBoardCard({
   );
 }
 
+/** A board column, which takes a card dropped on it. */
+function DropColumn({
+  onDropTask,
+  style,
+  children,
+}: {
+  onDropTask: (taskId: string) => void;
+  style: object;
+  children: ReactNode;
+}) {
+  const column = useRef<View>(null);
+  useDropTarget(column, onDropTask);
+  return (
+    <View ref={column} style={style}>
+      {children}
+    </View>
+  );
+}
+
 /** Columns grow with their cards; narrow containers scroll sideways inside the page. */
 export function TaskBoard({
   tasks,
   onSelect,
   onControl,
   canControl,
+  onMove,
 }: {
   tasks: AgentTask[];
   onSelect: (task: AgentTask) => void;
   onControl?: (taskId: string, action: "pause" | "resume" | "retry") => Promise<void>;
   /** Whether the person may pause, resume or retry this task: not where its project lets them only look. */
   canControl?: (task: AgentTask) => boolean;
+  /** A manual issue was dropped in another column: set its status to this one. */
+  onMove?: (task: AgentTask, status: TaskStatus) => void;
 }) {
+  const canMove = (task: AgentTask) => !!onMove && canControl?.(task) !== false;
   const [width, setWidth] = useState(0);
   const [watch] = useState(watchRuns);
   const wide = width >= 4 * 260 + 3 * 12;
@@ -400,8 +437,13 @@ export function TaskBoard({
           const items = byColumn(column.id);
           const waiting = items.filter((task) => task.kind !== "manual" && needsYou(task.status));
           return (
-            <View
+            <DropColumn
               key={column.id}
+              onDropTask={(taskId) => {
+                const task = tasks.find((item) => item.id === taskId);
+                const status = task && canMove(task) ? moveTarget(task, column.id) : null;
+                if (task && status) onMove?.(task, status);
+              }}
               style={{
                 width: columnWidth,
                 minWidth: 260,
@@ -447,10 +489,11 @@ export function TaskBoard({
                   onPress={() => onSelect(task)}
                   onControl={canControl?.(task) === false ? undefined : onControl}
                   seenRunning={seen.get(task.id)}
+                  draggable={task.kind === "manual" && canMove(task)}
                 />
               ))}
               {!items.length && <Text style={[s.small, { padding: 8 }]}>Nothing here.</Text>}
-            </View>
+            </DropColumn>
           );
         })}
       </ScrollView>

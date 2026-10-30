@@ -1,4 +1,9 @@
-import type { AgentTask, TaskStatus } from "../../../packages/domain/src/agent";
+import {
+  type AgentTask,
+  type TaskColumn,
+  type TaskStatus,
+  taskColumn,
+} from "../../../packages/domain/src/agent";
 
 /** The agent has stopped for a person: to approve a prepared action, to answer, or to review its work. */
 export function needsYou(status: TaskStatus): boolean {
@@ -56,4 +61,30 @@ export function watchRuns() {
     }
     return began;
   };
+}
+
+/** The status a manual issue takes when it is dropped in a board column. */
+export function statusForColumn(column: TaskColumn): TaskStatus {
+  switch (column) {
+    case "doing":
+      return "running";
+    case "done":
+      return "succeeded";
+    case "failed":
+      return "failed";
+    default:
+      return "queued";
+  }
+}
+
+/**
+ * Where dropping a card in a column takes it, if it takes it anywhere. Only a manual issue is moved by hand: an
+ * agent task is where the agent has it, and a card dropped in the column it is in stays.
+ */
+export function moveTarget(
+  task: Pick<AgentTask, "kind" | "status">,
+  column: TaskColumn,
+): TaskStatus | null {
+  if (task.kind !== "manual" || taskColumn(task.status) === column) return null;
+  return statusForColumn(column);
 }

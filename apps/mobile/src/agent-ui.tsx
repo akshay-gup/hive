@@ -322,7 +322,7 @@ export function ChatWork() {
 }
 export function AgentActivityScreen() {
   const { data, refresh } = useAgentWorkspace();
-  const { api } = useWorkspace();
+  const { api, notify } = useWorkspace();
   const { selected: projectFilter, manage } = useActivityProjects();
   const openProject =
     typeof projectFilter === "string"
@@ -452,6 +452,12 @@ export function AgentActivityScreen() {
             await api.request(`/api/agent/tasks/${taskId}/control`, { action }, "POST");
             await refresh();
           }}
+          onMove={(task, status) =>
+            void api
+              .request(`/api/agent/tasks/${task.id}`, { status }, "PATCH")
+              .then(refresh)
+              .catch((e) => notify(e instanceof Error ? e.message : String(e), { error: true }))
+          }
         />
       )}
       {selected && (

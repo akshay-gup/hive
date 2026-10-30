@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { TaskStatus } from "../../../packages/domain/src/agent.ts";
 import {
   elapsedLabel,
+  moveTarget,
   needsYou,
   orderColumn,
   runStartedAt,
@@ -81,4 +82,18 @@ test("the board times a task it saw start, and not one that was already running"
   assert.equal(watch([{ id: "u", status: "running" }], 500).get("u"), 400, "the time holds");
   assert.equal(watch([{ id: "u", status: "waiting_input" }], 600).has("u"), false, "it stopped");
   assert.equal(watch([{ id: "u", status: "running" }], 700).get("u"), 700, "a new run, a new time");
+});
+
+test("a manual issue dropped in another column takes that column's status; nothing else moves", () => {
+  const issue = { kind: "manual", status: "queued" } as const;
+  assert.equal(moveTarget(issue, "doing"), "running");
+  assert.equal(moveTarget(issue, "done"), "succeeded");
+  assert.equal(moveTarget(issue, "failed"), "failed");
+  assert.equal(moveTarget({ kind: "manual", status: "succeeded" }, "todo"), "queued");
+  // Dropped where it already is, it stays.
+  assert.equal(moveTarget(issue, "todo"), null);
+  assert.equal(moveTarget({ kind: "manual", status: "running" }, "doing"), null);
+  // The agent has its own tasks: they are not moved by hand.
+  assert.equal(moveTarget({ kind: "agent", status: "running" }, "done"), null);
+  assert.equal(moveTarget({ kind: "plan", status: "queued" }, "failed"), null);
 });
